@@ -847,7 +847,6 @@ def updatedb_life_iter(
         yield event
 
 
-# TODO: 为 115 生活单独做一个命令行命令
 def updatedb_life(
     client: str | P115Client, 
     dbfile: None | str | Connection | Cursor = None, 
@@ -966,7 +965,7 @@ def updatedb_tree(
             ancestors = load_ancestors(
                 con, 
                 client, 
-                to_upsert + to_recall, 
+                to_upsert+to_recall, 
                 all_are_files=True, 
                 refresh=not no_dir_moved, 
                 use_star=True, 
@@ -1067,6 +1066,7 @@ def updatedb(
             if logger is not None:
                 logger.warning("[\x1b[1;33mSKIP\x1b[0m] already processed: %s", id)
             continue
+        count: int | float = -1
         if auto_splitting_threshold == 0:
             need_to_split_tasks = True
         elif auto_splitting_threshold < 0:
@@ -1090,6 +1090,11 @@ def updatedb(
             if need_to_split_tasks or not recursive:
                 upserted, removed = updatedb_one(client, con, id, refresh=refresh, **request_kwargs)
             else:
+                if id and count < 0:
+                    resp = client.fs_file(id)
+                    check_response(resp)
+                    if int(resp["data"][0]["aid"]) != 1:
+                        raise FileNotFoundError
                 upserted, removed = updatedb_tree(client, con, id, refresh=refresh, no_dir_moved=no_dir_moved, **request_kwargs)
         except FileNotFoundError:
             kill_items(con, id, commit=True)
@@ -1157,3 +1162,5 @@ def iter_fs_event(
             else:
                 from_id = cur_from_id
 
+# TODO: 为 115 生活单独做一个命令行命令
+# TODO: 重新实现为异步，这样便可随时取消

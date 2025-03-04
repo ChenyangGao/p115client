@@ -9,6 +9,8 @@ __doc__ = """
 from argparse import ArgumentParser, Namespace, RawTextHelpFormatter
 from pathlib import Path
 
+DEFAULT_APP_ID = 100195993
+
 parser = ArgumentParser(
     formatter_class=RawTextHelpFormatter, 
     description=__doc__, 
@@ -119,7 +121,7 @@ cookies 文件保存路径，默认为当前工作目录下的 115-cookies.txt
     p115dav --cookies-path <(echo "$COOKIES")
 
 """)
-parser.add_argument("-a", "--app-id", default=0, type=int, help="开放平台应用的 AppID")
+parser.add_argument("-a", "--app-id", type=int, help=f"开放平台应用的 AppID，如果传入 0，则用默认值：{DEFAULT_APP_ID}")
 parser.add_argument("-o", "--strm-origin", help="[WEBDAV] origin 或者说 base_url，用来拼接路径，获取完整链接，默认行为是自行确定")
 parser.add_argument("-t", "--ttl", default=0, type=float, help="""缓存存活时间
     - 如果等于 0（默认值），则总是更新
@@ -221,6 +223,10 @@ def main(argv: None | list[str] | Namespace = None, /):
     from path_predicate import make_predicate
     from yaml import load as yaml_load, Loader
 
+    app_id = args.app_id
+    if app_id == 0:
+        app_id = DEFAULT_APP_ID
+
     if args.fast_strm:
         predicate = make_predicate("""(
     path.is_dir() or
@@ -309,7 +315,7 @@ def main(argv: None | list[str] | Namespace = None, /):
         strm_origin=args.strm_origin, 
         predicate=predicate, 
         strm_predicate=strm_predicate, 
-        app_id=args.app_id, 
+        app_id=app_id, 
         load_libass=args.load_libass, 
         cache_url=args.cache_url, 
         debug=args.debug, 

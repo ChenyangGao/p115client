@@ -25,6 +25,7 @@ from shutil import rmtree
 from threading import Lock
 from time import time
 from typing import cast, overload, Any, Final, Literal, TypedDict
+from types import EllipsisType
 from urllib.parse import quote, urlsplit
 from urllib.request import urlopen, Request
 from uuid import uuid4
@@ -257,7 +258,7 @@ def iter_files_with_url(
     use_star: None | bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | dict[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | dict[int, tuple[str, int] | DirNode] = None, 
     app: str = "web", 
     raise_for_changed_count: bool = False, 
     user_agent: str = "", 
@@ -278,7 +279,7 @@ def iter_files_with_url(
     use_star: None | bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | dict[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | dict[int, tuple[str, int] | DirNode] = None, 
     app: str = "web", 
     raise_for_changed_count: bool = False, 
     user_agent: str = "", 
@@ -298,7 +299,7 @@ def iter_files_with_url(
     use_star: None | bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | dict[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | dict[int, tuple[str, int] | DirNode] = None, 
     app: str = "web", 
     raise_for_changed_count: bool = False, 
     user_agent: str = "", 
@@ -423,7 +424,7 @@ def iter_images_with_url(
     use_star: None | bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | dict[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | dict[int, tuple[str, int] | DirNode] = None, 
     app: str = "web", 
     raise_for_changed_count: bool = False, 
     *, 
@@ -442,7 +443,7 @@ def iter_images_with_url(
     use_star: None | bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | dict[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | dict[int, tuple[str, int] | DirNode] = None, 
     app: str = "web", 
     raise_for_changed_count: bool = False, 
     *, 
@@ -460,7 +461,7 @@ def iter_images_with_url(
     use_star: None | bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | dict[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | dict[int, tuple[str, int] | DirNode] = None, 
     app: str = "web", 
     raise_for_changed_count: bool = False, 
     *, 
@@ -578,7 +579,7 @@ def iter_subtitles_with_url(
     use_star: None | bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | dict[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | dict[int, tuple[str, int] | DirNode] = None, 
     app: str = "web", 
     raise_for_changed_count: bool = False, 
     *, 
@@ -597,7 +598,7 @@ def iter_subtitles_with_url(
     use_star: None | bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | dict[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | dict[int, tuple[str, int] | DirNode] = None, 
     app: str = "web", 
     raise_for_changed_count: bool = False, 
     *, 
@@ -615,7 +616,7 @@ def iter_subtitles_with_url(
     use_star: None | bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | dict[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | dict[int, tuple[str, int] | DirNode] = None, 
     app: str = "web", 
     raise_for_changed_count: bool = False, 
     *, 
@@ -855,7 +856,7 @@ def make_strm(
     suffix: str = "", 
     type: Literal[1, 2, 3, 4, 5, 6, 7, 99] = 4, 
     max_workers: None | int = None, 
-    id_to_dirnode: None | dict[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | dict[int, tuple[str, int] | DirNode] = None, 
     path_already: bool = False, 
     app: str = "android", 
     fs_files_cooldown: int | float = 0.5, 
@@ -881,7 +882,7 @@ def make_strm(
     suffix: str = "", 
     type: Literal[1, 2, 3, 4, 5, 6, 7, 99] = 4, 
     max_workers: None | int = None, 
-    id_to_dirnode: None | dict[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | dict[int, tuple[str, int] | DirNode] = None, 
     path_already: bool = False, 
     app: str = "android", 
     fs_files_cooldown: int | float = 0.5, 
@@ -906,7 +907,7 @@ def make_strm(
     suffix: str = "", 
     type: Literal[1, 2, 3, 4, 5, 6, 7, 99] = 4, 
     max_workers: None | int = None, 
-    id_to_dirnode: None | dict[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | dict[int, tuple[str, int] | DirNode] = None, 
     path_already: bool = False, 
     app: str = "android", 
     fs_files_cooldown: int | float = 0.5, 
@@ -1170,40 +1171,36 @@ def iter_download_nodes(
         method = client.download_files
     else:
         method = client.download_folders
+    get_nodes = partial(method, async_=async_, **{"base_url": get_base_url, **request_kwargs})
     if max_workers == 1:
         def gen_step(pickcode):
             if isinstance(pickcode, int):
                 resp = yield client.fs_file_skim(pickcode, async_=async_, **request_kwargs)
                 check_response(resp)
                 pickcode = resp["data"][0]["pick_code"]
-            request_kwargs.setdefault("base_url", get_base_url)
             for i in count(1):
                 payload = {"pickcode": pickcode, "page": i}
-                resp = yield method(payload, async_=async_, **request_kwargs)
+                resp = yield get_nodes(payload)
                 check_response(resp)
                 data = resp["data"]
                 yield YieldFrom(data["list"], identity=True)
                 if not data["has_next_page"]:
                     break
     else:
+        max_page = 0
         get_next_page = count(1).__next__
         if async_:
             q: Any = AsyncQueue()
         else:
             q = SimpleQueue()
         get, put = q.get, q.put_nowait
-        max_page = 0
         def request(pickcode):
             nonlocal max_page
             while True:
                 page = get_next_page()
                 if max_page and page > max_page:
                     return
-                resp: dict = yield method(
-                    {"pickcode": pickcode, "page": page}, 
-                    async_=async_, # type: ignore
-                    **request_kwargs, 
-                )
+                resp: dict = yield get_nodes({"pickcode": pickcode, "page": page})
                 try:
                     check_response(resp)
                 except BaseException as e:
@@ -1214,7 +1211,9 @@ def iter_download_nodes(
                 if not data["has_next_page"]:
                     max_page = page
         def gen_step(pickcode):
-            nonlocal max_workers
+            nonlocal max_workers, max_page, get_next_page
+            max_page = 0
+            get_next_page = count(1).__next__
             if async_:
                 if max_workers is None or max_workers <= 0:
                     max_workers = 20
@@ -1239,7 +1238,6 @@ def iter_download_nodes(
                 )
                 check_response(resp)
                 pickcode = resp["data"][0]["pick_code"]
-            request_kwargs.setdefault("base_url", cycle(("http://proapi.115.com", "https://proapi.115.com")).__next__)
             try:
                 sentinel = object()
                 countdown: Callable
@@ -1282,6 +1280,11 @@ def iter_download_nodes(
             )) as get_next:
                 while True:
                     attr = yield get_next
+                    if not files:
+                        yield Yield(
+                            {"fid": str(attr["id"]), "pid": "0", "fn": attr["name"]}, 
+                            identity=True, 
+                        )
                     yield YieldFrom(
                         run_gen_step_iter(gen_step(attr["pickcode"]), async_=async_), 
                         identity=True, 
@@ -1293,7 +1296,7 @@ def iter_download_nodes(
 def iter_download_files(
     client: str | P115Client, 
     cid: int = 0, 
-    id_to_dirnode: None | dict[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | dict[int, tuple[str, int] | DirNode] = None, 
     escape: None | bool | Callable[[str], str] = True, 
     with_ancestors: bool = True, 
     max_workers: None | int = None, 
@@ -1307,7 +1310,7 @@ def iter_download_files(
 def iter_download_files(
     client: str | P115Client, 
     cid: int = 0, 
-    id_to_dirnode: None | dict[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | dict[int, tuple[str, int] | DirNode] = None, 
     escape: None | bool | Callable[[str], str] = True, 
     with_ancestors: bool = True, 
     max_workers: None | int = None, 
@@ -1320,7 +1323,7 @@ def iter_download_files(
 def iter_download_files(
     client: str | P115Client, 
     cid: int = 0, 
-    id_to_dirnode: None | dict[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | dict[int, tuple[str, int] | DirNode] = None, 
     escape: None | bool | Callable[[str], str] = True, 
     with_ancestors: bool = True, 
     max_workers: None | int = None, 

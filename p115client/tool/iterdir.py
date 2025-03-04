@@ -8,9 +8,9 @@ __all__ = [
     "get_ancestors_to_cid", "get_id_to_path", "get_id_to_sha1", "get_id_to_pickcode", 
     "iter_nodes_skim", "iter_stared_dirs_raw", "iter_stared_dirs", "ensure_attr_path", 
     "ensure_attr_path_by_category_get", "iterdir_raw", "iterdir", "iterdir_limited", 
-    "iter_files_raw", "iter_files", "traverse_files", "iter_dupfiles", "iter_image_files", 
-    "share_extract_payload", "share_iterdir", "share_iter_files", "iter_selected_nodes", 
-    "iter_selected_nodes_by_pickcode", "iter_selected_nodes_using_category_get", 
+    "iter_files_raw", "iter_files", "traverse_files", "iter_dirs", "iter_dupfiles", 
+    "iter_image_files", "share_extract_payload", "share_iterdir", "share_iter_files", 
+    "iter_selected_nodes", "iter_selected_nodes_by_pickcode", "iter_selected_nodes_using_category_get", 
     "iter_selected_nodes_using_edit", "iter_selected_nodes_using_star_event", 
     "iter_selected_dirs_using_star", "iter_files_with_dirname", "iter_files_with_path", 
     "iter_files_with_path_by_export_dir", "iter_parents_3_level", "iter_dir_nodes", 
@@ -41,9 +41,9 @@ from weakref import WeakValueDictionary
 from asynctools import async_chain, async_filter, async_map, to_list
 from concurrenttools import run_as_thread, taskgroup_map, threadpool_map
 from iterutils import (
-    bfs_gen, chunked, async_foreach, ensure_aiter, foreach, flatten, 
-    iter_unique, run_gen_step, run_gen_step_iter, through, async_through, 
-    with_iter_next, Yield, YieldFrom, 
+    as_gen_step, bfs_gen, chunked, async_foreach, ensure_aiter, foreach, 
+    flatten, iter_unique, run_gen_step, run_gen_step_iter, through, 
+    async_through, with_iter_next, Yield, YieldFrom, 
 )
 from iter_collect import iter_keyed_dups, SupportsLT
 from orjson import loads
@@ -2787,6 +2787,101 @@ def traverse_files(
                     ):
                         yield Yield(attr, identity=True)
     return run_gen_step_iter(gen_step, async_=async_)
+
+
+@overload
+def iter_dirs(
+    client: str | P115Client, 
+    cid: int | str = 0, 
+    id_to_dirnode: None | EllipsisType | dict[int, tuple[str, int] | DirNode] = None, 
+    with_pickcode: bool = False, 
+    max_workers: None | int = None, 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> Iterator[dict]:
+    ...
+@overload
+def iter_dirs(
+    client: str | P115Client, 
+    cid: int | str = 0, 
+    id_to_dirnode: None | EllipsisType | dict[int, tuple[str, int] | DirNode] = None, 
+    with_pickcode: bool = False, 
+    max_workers: None | int = None, 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> AsyncIterator[dict]:
+    ...
+def iter_dirs(
+    client: str | P115Client, 
+    cid: int | str = 0, 
+    id_to_dirnode: None | EllipsisType | dict[int, tuple[str, int] | DirNode] = None, 
+    with_pickcode: bool = False, 
+    max_workers: None | int = None, 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+) -> Iterator[dict] | AsyncIterator[dict]:
+    """遍历目录树，获取目录信息
+
+    :param client: 115 客户端或 cookies
+    :param cid: 目录 id（如果是 int） 或者 pickcode（如果是 str）
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
+    :param with_pickcode: 是否需要包含提取码
+    :param max_workers: 最大并发数
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+
+    :return: 迭代器，返回此目录内的（仅目录）文件信息
+    """
+    from .download import iter_download_nodes
+    if isinstance(client, str):
+        client = P115Client(client, check_for_relogin=True)
+    if id_to_dirnode is None:
+        id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
+    it = iter_download_nodes(
+        client, 
+        cid, 
+        files=False, 
+        max_workers=max_workers, 
+        async_=async_, # type: ignore
+        **request_kwargs, 
+    )
+    do_map: Callable = async_map if async_ else map
+    def project(info: dict, /) -> dict:
+        attr = {"id": int(info["fid"]), "parent_id": int(info["pid"]), "name": info["fn"]}
+        if id_to_dirnode is not ...:
+            id_to_dirnode[attr["id"]] = DirNode(attr["name"], attr["parent_id"])
+        return attr
+    it = do_map(project, it)
+    if with_pickcode:
+        file_skim = client.fs_file_skim
+        @as_gen_step(async_=async_)
+        def batch_load_pickcode(batch: Sequence[dict], /):
+            resp = yield file_skim(
+                (a["id"] for a in batch), 
+                method="POST", 
+                async_=async_, 
+                **request_kwargs, 
+            )
+            check_response(resp)
+            maps = {int(a["file_id"]): a["pick_code"] for a in resp["data"]}
+            for attr in batch:
+                attr["pickcode"] = maps[attr["id"]]
+            return batch
+        def gen_step(iterable):
+            batch_map = taskgroup_map if async_ else threadpool_map
+            with with_iter_next(batch_map(
+                batch_load_pickcode, 
+                chunked(iterable, 3000), 
+                max_workers=max_workers, 
+            )) as get_next:
+                while True:
+                    batch = yield get_next
+                    yield YieldFrom(batch, identity=True)
+        it = run_gen_step_iter(gen_step(it), async_=async_)
+    return it
 
 
 @overload

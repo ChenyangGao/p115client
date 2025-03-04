@@ -3140,6 +3140,64 @@ class P115OpenClient(ClientRequestMixin):
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
+    def fs_star_set(
+        self, 
+        payload: int | str | Iterable[int | str] | dict, 
+        /, 
+        star: bool = True, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def fs_star_set(
+        self, 
+        payload: int | str | Iterable[int | str] | dict, 
+        /, 
+        star: bool = True, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def fs_star_set(
+        self, 
+        payload: int | str | Iterable[int | str] | dict, 
+        /, 
+        star: bool = True, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """为文件或目录设置或取消星标，此接口是对 `fs_update_open` 的封装
+
+        .. note::
+            即使其中任何一个 id 目前已经被删除，也可以操作成功
+
+        :payload:
+            - file_id: int | str    💡 只能传入 1 个
+            - file_id[0]: int | str 💡 如果有多个，则按顺序给出
+            - file_id[1]: int | str
+            - ...
+            - star: 0 | 1 = 1
+        """
+        api = complete_webapi("/files/star", base_url=base_url)
+        if isinstance(payload, (int, str)):
+            payload = {"file_id": payload, "star": int(star)}
+        elif not isinstance(payload, dict):
+            payload = {f"file_id[{i}]": id for i, id in enumerate(payload)}
+            if not payload:
+                return {"state": False, "message": "no op"}
+            payload["star"] = int(star)
+        else:
+            payload = {"star": int(star), **payload}
+        return self.fs_update(payload, async_=async_, **request_kwargs)
+
+    @overload
     def fs_update(
         self, 
         payload: dict, 
@@ -3175,13 +3233,16 @@ class P115OpenClient(ClientRequestMixin):
         POST https://proapi.115.com/open/ufile/update
 
         .. hint::
-            类似于 `P115Client.fs_edit_app`
+            即使文件已经被删除，也可以操作成功
 
         .. note::
             https://www.yuque.com/115yun/open/gyrpw5a0zc4sengm
 
         :payload:
-            - file_id: int | str
+            - file_id: int | str    💡 只能传入 1 个
+            - file_id[0]: int | str 💡 如果有多个，则按顺序给出
+            - file_id[1]: int | str
+            - ...
             - file_name: str = <default> 💡 文件名
             - star: 0 | 1 = <default> 💡 是否星标：0:取消星标 1:设置星标
             - ...
@@ -3970,6 +4031,7 @@ class P115OpenClient(ClientRequestMixin):
     fs_mkdir_open = fs_mkdir
     fs_move_open = fs_move
     fs_search_open = fs_search
+    fs_star_set_open = fs_star_set
     fs_update_open = fs_update
     recyclebin_clean_open = recyclebin_clean
     recyclebin_list_open = recyclebin_list

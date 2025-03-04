@@ -103,6 +103,7 @@ def update_desc(
     desc: str = "", 
     batch_size: int = 10_000, 
     max_workers: None | int = None, 
+    app: str = "web", 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -116,6 +117,7 @@ def update_desc(
     desc: str = "", 
     batch_size: int = 10_000, 
     max_workers: None | int = None, 
+    app: str = "web", 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -128,6 +130,7 @@ def update_desc(
     desc: str = "", 
     batch_size: int = 10_000, 
     max_workers: None | int = None, 
+    app: str = "web", 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -139,13 +142,19 @@ def update_desc(
     :param desc: 备注文本
     :param batch_size: 批次大小，分批次，每次提交的 id 数
     :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
+    :param app: 使用此设备的接口
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
     """
+    if app in ("", "web", "desktop", "harmony"):
+        method = "fs_desc_set"
+    else:
+        method = "fs_desc_set_app"
+        request_kwargs["app"] = app
     return update_abstract(
         client, 
         ids, # type: ignore
-        method="fs_desc_set", 
+        method=method, 
         value=desc, 
         batch_size=batch_size, 
         max_workers=max_workers, 
@@ -162,6 +171,7 @@ def update_star(
     star: bool = True, 
     batch_size: int = 10_000, 
     max_workers: None | int = None, 
+    app: str = "web", 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -175,6 +185,7 @@ def update_star(
     star: bool = True, 
     batch_size: int = 10_000, 
     max_workers: None | int = None, 
+    app: str = "web", 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -187,6 +198,7 @@ def update_star(
     star: bool = True, 
     batch_size: int = 10_000, 
     max_workers: None | int = None, 
+    app: str = "web", 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -201,13 +213,23 @@ def update_star(
     :param star: 是否设置星标
     :param batch_size: 批次大小，分批次，每次提交的 id 数
     :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
+    :param app: 使用此设备的接口
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
     """
+    if isinstance(client, str):
+        client = P115Client(client, check_for_relogin=True)
+    if not isinstance(client, P115Client) or app == "open":
+        method = "fs_star_set_open"
+    elif app in ("", "web", "desktop", "harmony"):
+        method = "fs_star_set"
+    else:
+        method = "fs_star_set_app"
+        request_kwargs["app"] = app
     return update_abstract(
         client, 
         ids, # type: ignore
-        method="fs_star_set", 
+        method=method, 
         value=star, 
         batch_size=batch_size, 
         max_workers=max_workers, 
@@ -224,6 +246,7 @@ def update_label(
     label: int | str = 1, 
     batch_size: int = 10_000, 
     max_workers: None | int = None, 
+    app: str = "web", 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -237,6 +260,7 @@ def update_label(
     label: int | str = 1, 
     batch_size: int = 10_000, 
     max_workers: None | int = None, 
+    app: str = "web", 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -249,6 +273,7 @@ def update_label(
     label: int | str = 1, 
     batch_size: int = 10_000, 
     max_workers: None | int = None, 
+    app: str = "web", 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -260,13 +285,19 @@ def update_label(
     :param label: 标签 id，多个用逗号 "," 隔开，如果用一个根本不存在的 id，效果就是清空标签列表
     :param batch_size: 批次大小，分批次，每次提交的 id 数
     :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
+    :param app: 使用此设备的接口
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
     """
+    if app in ("", "web", "desktop", "harmony"):
+        method = "fs_label_set"
+    else:
+        method = "fs_label_set_app"
+        request_kwargs["app"] = app
     return update_abstract(
         client, 
         ids, # type: ignore
-        method="fs_label_set", 
+        method=method, 
         value=label, 
         batch_size=batch_size, 
         max_workers=max_workers, 
@@ -401,6 +432,7 @@ def update_show_play_long(
     show: bool = True, 
     batch_size: int = 10_000, 
     max_workers: None | int = None, 
+    app: str = "web", 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -414,6 +446,7 @@ def update_show_play_long(
     show: bool = True, 
     batch_size: int = 10_000, 
     max_workers: None | int = None, 
+    app: str = "web", 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -426,6 +459,7 @@ def update_show_play_long(
     show: bool = True, 
     batch_size: int = 10_000, 
     max_workers: None | int = None, 
+    app: str = "web", 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -437,13 +471,19 @@ def update_show_play_long(
     :param show: 是否显示时长
     :param batch_size: 批次大小，分批次，每次提交的 id 数
     :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
+    :param app: 使用此设备的接口
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
     """
+    if app in ("", "web", "desktop", "harmony"):
+        method = "fs_show_play_long_set"
+    else:
+        method = "fs_show_play_long_set_app"
+        request_kwargs["app"] = app
     return update_abstract(
         client, 
         ids, # type: ignore
-        method="fs_show_play_long_set", 
+        method=method, 
         value=show, 
         batch_size=batch_size, 
         max_workers=max_workers, 
@@ -518,6 +558,7 @@ def batch_unstar(
     batch_size: int = 10_000, 
     ensure_file: None | bool = None, 
     max_workers: None | int = None, 
+    app: str = "web", 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -530,6 +571,7 @@ def batch_unstar(
     batch_size: int = 10_000, 
     ensure_file: None | bool = None, 
     max_workers: None | int = None, 
+    app: str = "web", 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -541,6 +583,7 @@ def batch_unstar(
     batch_size: int = 10_000, 
     ensure_file: None | bool = None, 
     max_workers: None | int = None, 
+    app: str = "web", 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -556,6 +599,7 @@ def batch_unstar(
         - None: 可以是目录或文件
 
     :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
+    :param app: 使用此设备的接口
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
     """
@@ -572,7 +616,7 @@ def batch_unstar(
             client, 
             payload={"cid": 0, "count_folders": 1, "cur": 0, "fc_mix": 0, "offset": 0, "show_dir": 1, "star": 1}, 
             ensure_file=ensure_file, 
-            app="android", 
+            app=app, 
             cooldown=0.5, 
             async_=async_, 
             **request_kwargs, 
@@ -587,6 +631,7 @@ def batch_unstar(
             star=False, 
             batch_size=batch_size, 
             max_workers=max_workers, 
+            app=app, 
             async_=async_, # type: ignore
             **request_kwargs, 
         )
