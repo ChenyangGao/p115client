@@ -864,10 +864,12 @@ def iter_dangling_parent_ids(
     :return: 迭代器，一组目录的 id
     """
     sql = """\
-WITH pids(id) AS (
-    SELECT DISTINCT parent_id FROM data WHERE parent_id
-)
-SELECT pids.id FROM pids LEFT JOIN data USING (id) WHERE data.id IS NULL"""
+SELECT
+    DISTINCT d1.parent_id
+FROM
+    data AS d1 LEFT JOIN data AS d2 ON (d1.parent_id = d2.id)
+WHERE
+    d1.parent_id AND d2.id IS NULL"""
     return query(con, sql, row_factory="one")
 
 
@@ -885,16 +887,14 @@ def iter_dangling_ids(
     :return: 迭代器，一组目录的 id
     """
     sql = """\
-WITH pids(id) AS (
-    SELECT DISTINCT parent_id FROM data WHERE parent_id
-), dangling_pids(parent_id) AS (
-    SELECT pids.id FROM pids LEFT JOIN data USING (id) WHERE data.id IS NULL
-), dangling_ids AS (
-    SELECT data.parent_id FROM data JOIN dangling_pids USING (parent_id)
+WITH dangling_ids(id) AS (
+    SELECT d1.id
+    FROM data AS d1 LEFT JOIN data AS d2 ON (d1.parent_id = d2.id)
+    WHERE d1.parent_id AND d2.id IS NULL
     UNION ALL
-    SELECT data.parent_id FROM dangling_ids JOIN data USING (parent_id)
+    SELECT data.id FROM dangling_ids JOIN data ON (dangling_ids.id = data.parent_id)
 )
-SELECT parent_id AS id FROM dangling_ids"""
+SELECT id FROM dangling_ids"""
     return query(con, sql, row_factory="one")
 
 

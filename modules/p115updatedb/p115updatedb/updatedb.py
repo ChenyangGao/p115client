@@ -959,6 +959,10 @@ def updatedb_tree(
             del pairs[attr["id"]]
         if pairs:
             to_remove.extend(pairs)
+    if not refresh:
+        sql = f"SELECT id, parent_id, mtime FROM data WHERE id IN ({','.join(map(str, (a['id'] for a in to_upsert))) or 'NULL'})"
+        triplets = set(con.execute(sql))
+        to_upsert = [a for a in to_upsert if (a["id"], a["parent_id"], a["mtime"]) not in triplets]
     upserted = len(to_upsert) + len(to_recall)
     if upserted:
         if not refresh:
@@ -1164,3 +1168,4 @@ def iter_fs_event(
 
 # TODO: 为 115 生活单独做一个命令行命令
 # TODO: 重新实现为异步，这样便可随时取消
+# TODO: 允许在初始化数据库时，传入一些参数

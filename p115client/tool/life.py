@@ -15,7 +15,7 @@ from itertools import count, cycle
 from time import time, sleep
 from typing import overload, Any, Final, Literal
 
-from iterutils import run_gen_step_iter, Yield
+from iterutils import run_gen_step_iter, with_iter_next, Yield
 from p115client import check_response, P115Client
 
 
@@ -357,7 +357,7 @@ def iter_life_behavior(
                     yield async_sleep(interval)
                 else:
                     sleep(interval)
-            it = iter_life_behavior_once(
+            with with_iter_next(iter_life_behavior_once(
                 client, 
                 from_time, 
                 from_id, 
@@ -366,11 +366,10 @@ def iter_life_behavior(
                 cooldown=cooldown, 
                 async_=async_, 
                 **request_kwargs, 
-            )
-            try:
+            )) as get_next:
                 sub_first_loop = True
                 while True:
-                    event = (yield anext(it)) if async_ else next(it) # type: ignore
+                    event = yield get_next
                     if sub_first_loop:
                         from_id = int(event["id"])
                         from_time = int(event["update_time"])
@@ -378,8 +377,6 @@ def iter_life_behavior(
                     if not type and ignore_types and event["type"] in ignore_types:
                         continue
                     yield Yield(event, identity=True)
-            except (StopIteration, StopAsyncIteration):
-                pass
     return run_gen_step_iter(gen_step, async_=async_)
 
 
@@ -451,7 +448,7 @@ def iter_life_behavior_list(
         while True:
             ls: list[dict] = []
             push = ls.append
-            it = iter_life_behavior_once(
+            with with_iter_next(iter_life_behavior_once(
                 client, 
                 from_time, 
                 from_id, 
@@ -460,11 +457,10 @@ def iter_life_behavior_list(
                 cooldown=cooldown, 
                 async_=async_, 
                 **request_kwargs, 
-            )
-            try:
+            )) as get_next:
                 first_loop = True
                 while True:
-                    event = (yield anext(it)) if async_ else next(it) # type: ignore
+                    event = yield get_next
                     if first_loop:
                         from_id = int(event["id"])
                         from_time = int(event["update_time"])
@@ -472,8 +468,6 @@ def iter_life_behavior_list(
                     if not type and ignore_types and event["type"] in ignore_types:
                         continue
                     push(event)
-            except (StopIteration, StopAsyncIteration):
-                pass
             yield Yield(ls, identity=True)
     return run_gen_step_iter(gen_step, async_=async_)
 

@@ -25,6 +25,7 @@ reference/tool/download
 reference/tool/edit
 reference/tool/export_dir
 reference/tool/fs_files
+reference/tool/history
 reference/tool/iterdir
 reference/tool/life
 reference/tool/pool

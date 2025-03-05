@@ -208,3 +208,5 @@ def updatedb(
                     time() - start_time, 
                 )
 
+# TODO: 支持增量更新，根据 mtime 逆序排列进行比对
+

@@ -375,8 +375,9 @@ def check_response(resp: dict | Awaitable[dict], /) -> dict | Coroutine[Any, Any
                     raise FileNotFoundError(ENOENT, resp)
                 # {"state": false, "errno": 20018, "error": "文件不存在或已删除。"}
                 # {"state": false, "errno": 50015, "error": "文件不存在或已删除。"}
+                # {"state": false, "errno": 90008, "error": "文件（夹）不存在或已经删除。"}
                 # {"state": false, "errno": 430004, "error": "文件（夹）不存在或已删除。"}
-                case 20018 | 50015 | 430004:
+                case 20018 | 50015 | 90008 | 430004:
                     raise FileNotFoundError(ENOENT, resp)
                 # {"state": false, "errno": 20020, "error": "后缀名不正确，请重新输入"}
                 case 20020:
@@ -392,9 +393,6 @@ def check_response(resp: dict | Awaitable[dict], /) -> dict | Coroutine[Any, Any
                     raise FileNotFoundError(ENOENT, resp)
                 # {"state": false, "errno": 50003, "error": "很抱歉，该文件提取码不存在。"}
                 case 50003:
-                    raise FileNotFoundError(ENOENT, resp)
-                # {"state": false, "errno": 90008, "error": "文件（夹）不存在或已经删除。"}
-                case 90008:
                     raise FileNotFoundError(ENOENT, resp)
                 # {"state": false, "errno": 91002, "error": "不能将文件复制到自身或其子目录下。"}
                 case 91002:
@@ -462,6 +460,12 @@ def check_response(resp: dict | Awaitable[dict], /) -> dict | Coroutine[Any, Any
                     raise IsADirectoryError(EISDIR, resp)
                 case 70005 | 70008:
                     raise FileNotFoundError(ENOENT, resp)
+        elif "error" in resp:
+            match resp["error"]:
+                case "目录不存在或已转移":
+                    raise FileNotFoundError(ENOENT, resp)
+                case "更新的数据为空":
+                    raise OperationalError(EINVAL, resp)
         raise P115OSError(EIO, resp)
     if isinstance(resp, dict):
         return check(resp)
@@ -1021,6 +1025,12 @@ class ClientRequestMixin:
                 cookies = cookies.jar
             for cookie in cookies:
                 set_cookie(create_cookie("", cookie))
+
+    @cookies.deleter
+    def cookies(self, /):
+        """请求所用的 Cookies 对象（同步和异步共用）
+        """
+        self.cookies = None
 
     @property
     def cookiejar(self, /) -> CookieJar:
@@ -1765,7 +1775,7 @@ class ClientRequestMixin:
     def login_with_open(
         cls, 
         /, 
-        app_id: int | str, 
+        app_id: int | str = 100195993, 
         console_qrcode: bool = True, 
         *, 
         async_: Literal[False] = False, 
@@ -1777,7 +1787,7 @@ class ClientRequestMixin:
     def login_with_open(
         cls, 
         /, 
-        app_id: int | str, 
+        app_id: int | str = 100195993, 
         console_qrcode: bool = True, 
         *, 
         async_: Literal[True], 
@@ -1788,7 +1798,7 @@ class ClientRequestMixin:
     def login_with_open(
         cls, 
         /, 
-        app_id: int | str, 
+        app_id: int | str = 100195993, 
         console_qrcode: bool = True, 
         *, 
         async_: Literal[False, True] = False, 
@@ -2458,7 +2468,7 @@ class P115OpenClient(ClientRequestMixin):
 
     @access_token.setter
     def access_token(self, token, /):
-        self.headers["Authorization"] = "Bearer " + token
+        self.headers["authorization"] = "Bearer " + token
         self.__dict__["access_token"] = token
 
     @property
@@ -2469,6 +2479,11 @@ class P115OpenClient(ClientRequestMixin):
             check_response(resp)
             token = self.__dict__["upload_token"] = resp["data"]
         return token
+
+    @locked_cacheproperty
+    def user_id(self, /) -> int:
+        resp = check_response(self.user_info_open())
+        return int(resp["data"]["user_id"])
 
     @overload
     def refresh_access_token(
@@ -4220,11 +4235,20 @@ class P115Client(P115OpenClient):
         if not cookies_equal(cookies_old, cookies_new):
             self._write_cookies(cookies_new)
 
+    @cookies.deleter
+    def cookies(self, /):
+        """请求所用的 Cookies 对象（同步和异步共用）
+        """
+        self.cookies = None
+
     @locked_cacheproperty
     def user_id(self, /) -> int:
         cookie_uid = self.cookies.get("UID")
         if cookie_uid:
             return int(cookie_uid.split("_")[0])
+        elif "authorization" in self.headers:
+            resp = check_response(self.user_info_open())
+            return int(resp["data"]["user_id"])
         else:
             return 0
 
@@ -4914,9 +4938,9 @@ class P115Client(P115OpenClient):
     def login_another_open(
         self, 
         /, 
-        app_id: int | str, 
-        replace: Literal[True] | Self, 
+        app_id: int | str = 100195993, 
         *, 
+        replace: Literal[True] | Self, 
         async_: Literal[False] = False, 
         **request_kwargs, 
     ) -> Self:
@@ -4925,9 +4949,9 @@ class P115Client(P115OpenClient):
     def login_another_open(
         self, 
         /, 
-        app_id: int | str, 
-        replace: Literal[True] | Self, 
+        app_id: int | str = 100195993, 
         *, 
+        replace: Literal[True] | Self, 
         async_: Literal[True], 
         **request_kwargs, 
     ) -> Coroutine[Any, Any, Self]:
@@ -4936,9 +4960,9 @@ class P115Client(P115OpenClient):
     def login_another_open(
         self, 
         /, 
-        app_id: int | str, 
-        replace: Literal[False] = False, 
+        app_id: int | str = 100195993, 
         *, 
+        replace: Literal[False] = False, 
         async_: Literal[False] = False, 
         **request_kwargs, 
     ) -> P115OpenClient:
@@ -4947,9 +4971,9 @@ class P115Client(P115OpenClient):
     def login_another_open(
         self, 
         /, 
-        app_id: int | str, 
-        replace: Literal[False] = False, 
+        app_id: int | str = 100195993, 
         *, 
+        replace: Literal[False] = False, 
         async_: Literal[True], 
         **request_kwargs, 
     ) -> Coroutine[Any, Any, P115OpenClient]:
@@ -4957,9 +4981,9 @@ class P115Client(P115OpenClient):
     def login_another_open(
         self, 
         /, 
-        app_id: int | str, 
-        replace: bool | Self = False, 
+        app_id: int | str = 100195993, 
         *, 
+        replace: bool | Self = False, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> P115OpenClient | Coroutine[Any, Any, P115OpenClient] | Self | Coroutine[Any, Any, Self]:
@@ -14159,7 +14183,7 @@ class P115Client(P115OpenClient):
             - type: str = "" 💡 操作类型，若不指定则是全部
 
               - "upload_image_file": 1 💡 上传图片
-              - "upload_file":       2 💡 上传文件或目录
+              - "upload_file":       2 💡 上传文件或目录（不包括图片）
               - "star_image":        3 💡 给图片设置星标
               - "star_file":         4 💡 给文件或目录设置星标（不包括图片）
               - "move_image_file":   5 💡 移动图片
@@ -14230,7 +14254,7 @@ class P115Client(P115OpenClient):
             - type: str = "" 💡 操作类型
 
               - "upload_image_file": 1 💡 上传图片
-              - "upload_file":       2 💡 上传文件或目录
+              - "upload_file":       2 💡 上传文件或目录（不包括图片）
               - "star_image":        3 💡 给图片设置星标
               - "star_file":         4 💡 给文件或目录设置星标（不包括图片）
               - "move_image_file":   5 💡 移动图片
