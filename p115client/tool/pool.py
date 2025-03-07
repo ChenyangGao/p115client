@@ -6,12 +6,12 @@ from __future__ import annotations
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
 __all__ = [
     "generate_auth_factory", "generate_cookies_factory", "generate_client_factory", 
-    "auth_pool", "cookies_pool", "client_pool", "call_wrap_with_pool", 
+    "make_pool", "auth_pool", "cookies_pool", "client_pool", "call_wrap_with_pool", 
 ]
 __doc__ = "这个模块提供了一些和 cookies 池有关的函数"
 
 from asyncio import Lock as AsyncLock
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from functools import partial, total_ordering, update_wrapper
 from heapq import heappop, heappush, heapify
 from itertools import cycle, repeat
@@ -365,23 +365,33 @@ def call_wrap_with_pool(get_cert_headers: Callable, /, func: Callable) -> Callab
     :param get_cert_headers: 获取认证信息的请求头的函数
     :param func: 执行请求的函数
     """
-    def wrapper(*args, headers=None, async_: bool = False, **kwds):
+    def wrapper(
+        *args, 
+        headers: None | Mapping = None, 
+        async_: bool = False, 
+        **kwds, 
+    ):
         def gen_step():
             nonlocal headers
             while True:
                 if async_:
-                    cert_headers, revert = yield get_cert_headers(async_=True)
+                    cert, revert = yield get_cert_headers(async_=True)
                 else:
-                    cert_headers, revert = get_cert_headers()
-                if headers:
-                    headers = dict(headers, **cert_headers)
-                else:
-                    headers = cert_headers
+                    cert, revert = get_cert_headers()
                 try:
-                    if async_:
-                        resp = yield func(*args, headers=headers, async_=True, **kwds)
+                    if isinstance(cert, Mapping):
+                        if headers:
+                            headers = dict(headers, **cert)
+                        else:
+                            headers = cert
+                        if async_:
+                            resp = yield func(*args, headers=headers, async_=True, **kwds)
+                        else:
+                            resp = func(*args, headers=headers, **kwds)
+                    elif async_:
+                        resp = yield func(cert, *args, headers=headers, async_=True, **kwds)
                     else:
-                        resp = func(*args, headers=headers, **kwds)
+                        resp = func(cert, *args, headers=headers, **kwds)
                     if not isinstance(resp, dict) or resp.get("errno") != 40101004:
                         revert()
                     return resp
