@@ -939,6 +939,19 @@ class IgnoreCaseDict[V](dict[str, V]):
         if kwargs:
             update(((k.lower(), v) for k, v in kwargs.items()))
 
+    def merge(self, *args, **kwargs):
+        setdefault = super().setdefault
+        for arg in args:
+            if not arg:
+                continue
+            if isinstance(arg, Mapping):
+                arg = items(arg)
+            for k, v in arg:
+                setdefault(k, v)
+        if kwargs:
+            for k, v in kwargs.items():
+                setdefault(k, v)
+
 
 class ClientRequestMixin:
 
@@ -1772,7 +1785,7 @@ class ClientRequestMixin:
 
     @overload
     @classmethod
-    def login_with_open(
+    def login_with_app_id(
         cls, 
         /, 
         app_id: int | str = 100195993, 
@@ -1784,7 +1797,7 @@ class ClientRequestMixin:
         ...
     @overload
     @classmethod
-    def login_with_open(
+    def login_with_app_id(
         cls, 
         /, 
         app_id: int | str = 100195993, 
@@ -1795,7 +1808,7 @@ class ClientRequestMixin:
     ) -> Coroutine[Any, Any, dict]:
         ...
     @classmethod
-    def login_with_open(
+    def login_with_app_id(
         cls, 
         /, 
         app_id: int | str = 100195993, 
@@ -2442,7 +2455,7 @@ class P115OpenClient(ClientRequestMixin):
                 )
             else:
                 app_id = self.app_id = app_id_or_refresh_token
-                resp = yield self.login_with_open(
+                resp = yield self.login_with_app_id(
                     app_id, 
                     console_qrcode=console_qrcode, 
                     async_=async_, 
@@ -4263,22 +4276,14 @@ class P115Client(P115OpenClient):
     ) -> None | str:
         cookies_path = self.__dict__.get("cookies_path")
         if not cookies_path:
-            return None
-        cookies_mtime_old = self.__dict__.get("cookies_mtime", 0)
-        try:
-            cookies_mtime = cookies_path.stat().st_mtime
-        except OSError:
-            cookies_mtime = 0
-        if cookies_mtime_old >= cookies_mtime:
             return self.cookies_str
         try:
             with cookies_path.open("rb") as f:
                 cookies = str(f.read(), encoding)
             setattr(self, "cookies", cookies)
-            self.cookies_mtime = cookies_mtime
             return cookies
         except OSError:
-            return None
+            return self.cookies_str
 
     def _write_cookies(
         self, 
@@ -4293,10 +4298,6 @@ class P115Client(P115OpenClient):
         cookies_bytes = bytes(cookies, encoding)
         with cookies_path.open("wb") as f:
             f.write(cookies_bytes)
-        try:
-            self.cookies_mtime = cookies_path.stat().st_mtime
-        except OSError:
-            self.cookies_mtime = 0
 
     @overload # type: ignore
     @classmethod
@@ -4763,6 +4764,8 @@ class P115Client(P115OpenClient):
     def login_without_app(
         self, 
         /, 
+        show_warning: bool = False, 
+        *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
     ) -> str:
@@ -4771,6 +4774,8 @@ class P115Client(P115OpenClient):
     def login_without_app(
         self, 
         /, 
+        show_warning: bool = False, 
+        *, 
         async_: Literal[True], 
         **request_kwargs, 
     ) -> Coroutine[Any, Any, str]:
@@ -4778,27 +4783,91 @@ class P115Client(P115OpenClient):
     def login_without_app(
         self, 
         /, 
+        show_warning: bool = False, 
+        *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> str | Coroutine[Any, Any, str]:
         """执行一次自动扫登录二维码，但不绑定设备，返回扫码的 uid，可用于之后绑定设备
+
+        :param show_warning: 是否显示提示信息
+        :param async_: 是否异步
+        :param request_kwargs: 其它请求参数
+
+        :return: 二维码的 uid
         """
         def gen_step():
             uid = check_response((yield self.login_qrcode_token(
                 async_=async_, 
                 **request_kwargs, 
             )))["data"]["uid"]
-            check_response((yield self.login_qrcode_scan(
+            resp = yield self.login_qrcode_scan(
                 uid, 
                 async_=async_, 
                 **request_kwargs, 
-            )))
-            check_response((yield self.login_qrcode_scan_confirm(
+            )
+            check_response(resp)
+            if show_warning:
+                warn(f"qrcode scanned: {resp}", category=P115Warning)
+            resp = yield self.login_qrcode_scan_confirm(
                 uid, 
                 async_=async_, 
                 **request_kwargs, 
-            )))
+            )
+            check_response(resp)
             return uid
+        return run_gen_step(gen_step, async_=async_)
+
+    @overload
+    def login_with_open(
+        self, 
+        /, 
+        app_id: int | str = 100195993, 
+        *, 
+        show_warning: bool = False, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def login_with_open(
+        self, 
+        /, 
+        app_id: int | str = 100195993, 
+        *, 
+        show_warning: bool = False, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def login_with_open(
+        self, 
+        /, 
+        app_id: int | str = 100195993, 
+        *, 
+        show_warning: bool = False, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """登录某个开放接口应用
+
+        :param app_id: AppID
+        :param show_warning: 是否显示提示信息
+        :param async_: 是否异步
+        :param request_kwargs: 其它请求参数
+
+        :return: 接口返回值
+        """
+        def gen_step():
+            resp = yield self.login_qrcode_token_open(app_id, async_=async_, **request_kwargs)
+            login_uid = check_response(resp)["data"]["uid"]
+            resp = yield self.login_qrcode_scan(login_uid, async_=async_, **request_kwargs)
+            check_response(resp)
+            if show_warning:
+                warn(f"qrcode scanned: {resp}", category=P115Warning)
+            resp = yield self.login_qrcode_scan_confirm(login_uid, async_=async_, **request_kwargs)
+            check_response(resp)
+            return self.login_qrcode_access_token_open(login_uid, async_=async_, **request_kwargs)
         return run_gen_step(gen_step, async_=async_)
 
     @overload
@@ -4808,6 +4877,7 @@ class P115Client(P115OpenClient):
         app: None | str = None, 
         replace: bool | Self = False, 
         check_for_relogin: bool | Callable[[BaseException], bool | int] = False, 
+        show_warning: bool = False, 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -4820,6 +4890,7 @@ class P115Client(P115OpenClient):
         app: None | str = None, 
         replace: bool | Self = False, 
         check_for_relogin: bool | Callable[[BaseException], bool | int] = False, 
+        show_warning: bool = False, 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -4831,6 +4902,7 @@ class P115Client(P115OpenClient):
         app: None | str = None, 
         replace: bool | Self = False, 
         check_for_relogin: bool | Callable[[BaseException], bool | int] = False, 
+        show_warning: bool = False, 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
@@ -4845,8 +4917,8 @@ class P115Client(P115OpenClient):
         :param app: 要登录的 app，如果为 None，则用当前登录设备，如果无当前登录设备，则报错
         :param replace: 替换某个 client 对象的 cookie
 
-            - 如果为 P115Client, 则把获取到的 `cookies` 更新到此对象
-            - 如果为 True，则把获取到的 `cookies` 更新到 `self`
+            - 如果为 P115Client, 则更新到此对象
+            - 如果为 True，则更新到 `self`
             - 如果为 False，否则返回新的 `P115Client` 对象
 
         :param check_for_relogin: 网页请求抛出异常时，判断是否要重新登录并重试
@@ -4855,8 +4927,11 @@ class P115Client(P115OpenClient):
             - 如果为 True，则自动通过判断 HTTP 响应码为 405 时重新登录并重试
             - 如果为 collections.abc.Callable，则调用以判断，当返回值为 bool 类型且值为 True，或者值为 405 时重新登录，然后循环此流程，直到成功或不可重试
 
+        :param show_warning: 是否显示提示信息
         :param async_: 是否异步
         :param request_kwargs: 其它请求参数
+
+        :return: 客户端实例
 
         -----
 
@@ -4918,7 +4993,12 @@ class P115Client(P115OpenClient):
             nonlocal app
             if not app and isinstance(replace, P115Client):
                 app = yield replace.login_app(async_=True)
-            resp = yield self.login_with_app(app, async_=async_, **request_kwargs)
+            resp = yield self.login_with_app(
+                app, 
+                show_warning=show_warning, 
+                async_=async_, 
+                **request_kwargs, 
+            )
             cookies = check_response(resp)["data"]["cookie"]
             ssoent = self.login_ssoent
             if isinstance(replace, P115Client):
@@ -4941,6 +5021,7 @@ class P115Client(P115OpenClient):
         app_id: int | str = 100195993, 
         *, 
         replace: Literal[True] | Self, 
+        show_warning: bool = False, 
         async_: Literal[False] = False, 
         **request_kwargs, 
     ) -> Self:
@@ -4952,6 +5033,7 @@ class P115Client(P115OpenClient):
         app_id: int | str = 100195993, 
         *, 
         replace: Literal[True] | Self, 
+        show_warning: bool = False, 
         async_: Literal[True], 
         **request_kwargs, 
     ) -> Coroutine[Any, Any, Self]:
@@ -4963,6 +5045,7 @@ class P115Client(P115OpenClient):
         app_id: int | str = 100195993, 
         *, 
         replace: Literal[False] = False, 
+        show_warning: bool = False, 
         async_: Literal[False] = False, 
         **request_kwargs, 
     ) -> P115OpenClient:
@@ -4974,6 +5057,7 @@ class P115Client(P115OpenClient):
         app_id: int | str = 100195993, 
         *, 
         replace: Literal[False] = False, 
+        show_warning: bool = False, 
         async_: Literal[True], 
         **request_kwargs, 
     ) -> Coroutine[Any, Any, P115OpenClient]:
@@ -4984,23 +5068,33 @@ class P115Client(P115OpenClient):
         app_id: int | str = 100195993, 
         *, 
         replace: bool | Self = False, 
+        show_warning: bool = False, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> P115OpenClient | Coroutine[Any, Any, P115OpenClient] | Self | Coroutine[Any, Any, Self]:
         """登录某个开放接口应用
 
         :param app_id: AppID
+        :param replace: 替换某个 client 对象的 `access_token` 和 `refresh_token`
+
+            - 如果为 P115Client, 则更新到此对象
+            - 如果为 True，则更新到 `self`
+            - 如果为 False，否则返回新的 `P115Client` 对象
+
+        :param show_warning: 是否显示提示信息
         :param async_: 是否异步
         :param request_kwargs: 其它请求参数
+
+        :return: 客户端实例
         """
         def gen_step():
-            resp = yield self.login_qrcode_token_open(app_id, async_=async_, **request_kwargs)
-            login_uid = check_response(resp)["data"]["uid"]
-            yield self.login_qrcode_scan(login_uid, async_=async_, **request_kwargs)
-            yield self.login_qrcode_scan_confirm(login_uid, async_=async_, **request_kwargs)
-            resp = yield self.login_qrcode_access_token_open(login_uid, async_=async_, **request_kwargs)
-            check_response(resp)
-            data = resp["data"]
+            resp = yield self.login_with_open(
+                app_id, 
+                show_warning=show_warning, 
+                async_=async_, 
+                **request_kwargs, 
+            )
+            data = check_response(resp)["data"]
             if replace is False:
                 inst: P115OpenClient | Self = P115OpenClient.from_token(data["access_token"], data["refresh_token"])
             else:
@@ -5175,9 +5269,10 @@ class P115Client(P115OpenClient):
         params = None, 
         data = None, 
         *, 
+        check: bool = False, 
         ecdh_encrypt: bool = False, 
-        get_cookies: None | Callable[..., None | str] = None, 
-        revert_cookies: None | Callable[[str], Any] = None, 
+        fetch_cert_headers: None | Callable[..., Mapping] | Callable[..., Awaitable[Mapping]] = None, 
+        revert_cert_headers: None | Callable[[Mapping], Any] = None, 
         async_: Literal[False, True] = False, 
         request: None | Callable[[Unpack[RequestKeywords]], Any] = None, 
         **request_kwargs, 
@@ -5187,9 +5282,10 @@ class P115Client(P115OpenClient):
         :param url: HTTP 的请求链接
         :param method: HTTP 的请求方法
         :param params: 查询参数
+        :param check: 是否用 `check_response` 函数检查返回值
         :param ecdh_encrypt: 使用 ecdh 算法进行加密（返回值也要解密）
-        :param get_cookies: 调用以获取 cookies
-        :param revert_cookies: 调用以退还 cookies
+        :param fetch_cert_headers: 调用以获取认证信息头
+        :param revert_cert_headers: 调用以退还认证信息头
         :param async_: 说明 `request` 是同步调用还是异步调用
         :param request: HTTP 请求调用，如果为 None，则默认用 httpx 执行请求
             如果传入调用，则必须至少能接受以下几个关键词参数：
@@ -5265,18 +5361,39 @@ class P115Client(P115OpenClient):
                     url = "http://webapi.115.com" + url
         if params:
             url = make_url(url, params)
+        is_open_api = url.startswith("https://proapi.115.com/open/")
+        headers = IgnoreCaseDict(request_kwargs.get("headers") or {})
+        request_kwargs["headers"] = headers
+        check_for_relogin = self.check_for_relogin
+        need_to_check = callable(check_for_relogin)
+        if need_to_check and fetch_cert_headers is None:
+            if is_open_api:
+                need_to_check = "authorization" not in headers
+            else:
+                need_to_check = "cookie" not in headers
+        need_fetch_cert_first = False
+        if fetch_cert_headers is not None:
+            fetch_cert_headers_argcount = argcount(fetch_cert_headers)
+            if async_:
+                fetch_cert_headers = ensure_async(fetch_cert_headers)
+            if fetch_cert_headers_argcount:
+                fetch_cert_headers = partial(fetch_cert_headers, async_)
+            if revert_cert_headers is not None and async_:
+                revert_cert_headers = ensure_async(revert_cert_headers)
+            if is_open_api:
+                need_fetch_cert_first = "authorization" not in headers
+            else:
+                need_fetch_cert_first = "cookie" not in headers
         if request is None:
             request_kwargs["session"] = self.async_session if async_ else self.session
             request_kwargs["async_"] = async_
-            headers: IgnoreCaseDict[str] = IgnoreCaseDict()
             request = get_default_request()
         else:
-            headers = IgnoreCaseDict(self.headers)
-        headers.update(request_kwargs.get("headers") or {})
-        need_set_cookies = get_cookies is not None or "cookie" not in headers
+            headers.merge(self.headers)
+        if is_open_api:
+            headers["cookie"] = ""
         if m := CRE_API_match(url):
             headers["host"] = m.expand(r"\1.api.115.com")
-        request_kwargs["headers"] = headers
         if ecdh_encrypt:
             url = make_url(url, _default_k_ec)
             if data:
@@ -5288,112 +5405,103 @@ class P115Client(P115OpenClient):
         elif data is not None:
             request_kwargs["data"] = data
         request_kwargs.setdefault("parse", default_parse)
-        use_cookies = not url.startswith("https://proapi.115.com/open/")
-        if not use_cookies:
-            headers["cookie"] = ""
         def gen_step():
+            cert_headers: None | Mapping = None
+            if need_fetch_cert_first:
+                cert_headers = yield fetch_cert_headers
+                headers.update(cert_headers)
             if async_:
                 lock: Lock | AsyncLock = self.request_alock
             else:
                 lock = self.request_lock
-            check_for_relogin = self.check_for_relogin
-            cant_relogin = not callable(check_for_relogin)
-            if get_cookies is not None:
-                get_cookies_need_arg = argcount(get_cookies) >= 1
-            cookies_new: None | str
-            cookies_: None | str = None
+            if is_open_api:
+                if "authorization" not in headers:
+                    yield lock.acquire
+                    try:
+                        yield self.login_another_open(
+                            async_=async_, # type: ignore
+                        )
+                    finally:
+                        lock.release()
+            elif "cookie" not in headers:
+                headers["cookie"] = self.cookies_str
             for i in count(0):
-                exc = None
                 try:
-                    if use_cookies:
-                        if get_cookies is None:
-                            if need_set_cookies:
-                                cookies_old = headers["cookie"] = self.cookies_str
+                    if need_fetch_cert_first is None:
+                        if is_open_api:
+                            cert: str = headers["authorization"]
                         else:
-                            if get_cookies_need_arg:
-                                cookies_ = yield get_cookies(async_)
-                            else:
-                                cookies_ = yield get_cookies()
-                            if not cookies_:
-                                raise ValueError("can't get new cookies")
-                            headers["cookie"] = cookies_
-                    resp = yield partial(request, url=url, method=method, **request_kwargs)
-                    return resp
+                            cert = headers["cookie"]
+                    resp = yield partial(
+                        cast(Callable, request), 
+                        url=url, 
+                        method=method, 
+                        **request_kwargs, 
+                    )
                 except BaseException as e:
-                    exc = e
-                    if cant_relogin or use_cookies and not need_set_cookies:
-                        raise
-                    if isinstance(e, (AuthenticationError, LoginError)):
-                        if use_cookies and (
-                            get_cookies is not None or 
-                            cookies_old != self.cookies_str or 
-                            cookies_old != self._read_cookies()
-                        ):
-                            continue
+                    is_auth_error = isinstance(e, (AuthenticationError, LoginError))
+                    if (
+                        cert_headers is not None and 
+                        revert_cert_headers is not None and 
+                        not is_auth_error and
+                        get_status_code(e) != 405
+                    ):
+                        yield partial(revert_cert_headers, cert_headers)
+                    if not need_to_check:
                         raise
                     res = yield partial(cast(Callable, check_for_relogin), e)
                     if not res if isinstance(res, bool) else res != 405:
                         raise
-                    if use_cookies:
-                        if get_cookies is not None:
-                            continue
-                        cookies = self.cookies_str
-                        if not cookies_equal(cookies, cookies_old):
-                            continue
-                        cookies_mtime = getattr(self, "cookies_mtime", 0)
+                    if fetch_cert_headers is not None:
+                        cert_headers = yield fetch_cert_headers
+                        headers.update(cert_headers)
+                    elif is_open_api:
                         yield lock.acquire
                         try:
-                            cookies_new = self.cookies_str
-                            cookies_mtime_new = getattr(self, "cookies_mtime", 0)
-                            if cookies_equal(cookies, cookies_new):
-                                m = CRE_COOKIES_UID_search(cookies)
-                                uid = "" if m is None else m[0]
-                                need_read_cookies = cookies_mtime_new > cookies_mtime
-                                if need_read_cookies:
-                                    cookies_new = self._read_cookies()
-                                if i and cookies_equal(cookies_old, cookies_new):
-                                    raise
-                                if not (need_read_cookies and cookies_new):
-                                    warn(f"relogin to refresh cookies: UID={uid!r} app={self.login_app()!r}", category=P115Warning)
-                                    yield self.login_another_app(
-                                        replace=True, 
-                                        async_=async_, # type: ignore
-                                    )
+                            if cert != self.access_token:
+                                continue
+                            if i or is_auth_error:
+                                raise
+                            app_id = getattr(self, "app_id", 100195993)
+                            yield self.login_another_open(
+                                app_id, 
+                                replace=True, 
+                                async_=async_, # type: ignore
+                            )
+                            warn(f"relogin to refresh token: {app_id=}", category=P115Warning)
                         finally:
                             lock.release()
                     else:
-                        access_token = self.access_token
                         yield lock.acquire
                         try:
-                            if access_token != self.access_token:
-                                continue
-                            if hasattr(self, "app_id"):
-                                app_id = self.app_id
-                                yield self.login_another_open(
-                                    app_id, 
+                            cookies_new: str = self.cookies_str
+                            if cookies_equal(cert, cookies_new):
+                                if self.__dict__.get("cookies_path"):
+                                    cookies_new = self._read_cookies() or ""
+                                    if not cookies_equal(cert, cookies_new):
+                                        headers["cookie"] = cookies_new
+                                        continue
+                                if i or is_auth_error:
+                                    raise
+                                m = CRE_COOKIES_UID_search(cert)
+                                uid = "" if m is None else m[0]
+                                if not uid:
+                                    raise
+                                warn(f"relogin to refresh cookies: UID={uid!r} app={self.login_app()!r}", category=P115Warning)
+                                yield self.login_another_app(
                                     replace=True, 
                                     async_=async_, # type: ignore
                                 )
-                                warn(f"relogin to refresh token: {app_id=}", category=P115Warning)
                             else:
-                                resp = yield self.refresh_access_token(
-                                    async_=async_, # type: ignore
-                                )
-                                check_response(resp)
-                                warn("relogin to refresh token (using refresh_token)", category=P115Warning)
+                                headers["cookie"] = cookies_new
                         finally:
                             lock.release()
-                finally:
-                    if (use_cookies and cookies_ and 
-                        get_cookies is not None and 
-                        revert_cookies is not None and (
-                            not exc or not (
-                                isinstance(exc, (AuthenticationError, LoginError)) or 
-                                get_status_code(exc) == 405
-                            )
-                        )
-                    ):
-                        yield partial(revert_cookies, cookies_)
+                else:
+                    if cert_headers is not None and revert_cert_headers is not None:
+                        yield partial(revert_cert_headers, cert_headers)
+                    if check and isinstance(resp, dict):
+                        check_response(resp)
+                    return resp
         return run_gen_step(gen_step, async_=async_)
 
     ########## Activity API ##########

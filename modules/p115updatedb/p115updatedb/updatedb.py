@@ -235,7 +235,7 @@ BEGIN
             'is_collect', NEW.is_collect, 
             'is_alive', NEW.is_alive
         ), 
-        JSON_OBJECT('type', 'insert', 'is_dir', NEW.is_dir, 'path', (
+        JSON_OBJECT('type', 'insert', 'is_dir', NEW.is_dir, 'src_path', NULL, 'dst_path', (
             WITH ancestors AS (
                 SELECT parent_id, '/' || REPLACE(name, '/', '|') AS path FROM data WHERE id=NEW.id
                 UNION ALL
@@ -291,7 +291,7 @@ BEGIN
         ), op(op) AS (
             SELECT JSON_GROUP_ARRAY(event) FROM t WHERE event IS NOT NULL
         )
-        SELECT JSON_OBJECT('type', 'update', 'is_dir', NEW.is_dir, 'path0', (
+        SELECT JSON_OBJECT('type', 'update', 'is_dir', NEW.is_dir, 'src_path', (
             CASE 
                 WHEN OLD.parent_id = 0 THEN '/' || REPLACE(OLD.name, '/', '|') 
                 ELSE (
@@ -303,7 +303,7 @@ BEGIN
                     SELECT path || '/' || REPLACE(OLD.name, '/', '|') FROM ancestors WHERE parent_id = 0
                 ) 
             END
-        ), 'path', (
+        ), 'dst_path', (
             CASE 
                 WHEN NEW.parent_id = 0 THEN '/' || REPLACE(NEW.name, '/', '|')
                 ELSE (
@@ -649,7 +649,7 @@ def diff_dir(
     remove_list: list[int] = []
     if refresh or not ((dirlen := get_dir_count(con, id)) and dirlen["tree_file_count"]):
         future1 = run_as_thread(lambda: set(iter_descendants_bfs(con, id, fields="id")))
-        future2 = run_as_thread(lambda: [{"id": a["fid"], "parent_id": a["pid"], "name": a["fn"], "is_dir": 1, "is_alive": 1} 
+        future2 = run_as_thread(lambda: [{"id": int(a["fid"]), "parent_id": int(a["pid"]), "name": a["fn"], "is_dir": 1, "is_alive": 1} 
                                         for a in iter_download_nodes(client, id, files=False, max_workers=None)])
         if tree:
             _, ancestors, _, data_it = iterdir(client, id, count=count, show_dir=False, cooldown=0.5, **request_kwargs)
@@ -753,6 +753,7 @@ def updatedb_life_iter(
     dbfile: None | str | Connection | Cursor = None, 
     from_time: int | float = 0, 
     from_id: int = 0, 
+    cooldown: int | float = 0, 
     interval: int | float = 0, 
     app: str = "android", 
     **request_kwargs, 
@@ -763,7 +764,8 @@ def updatedb_life_iter(
     :param dbfile: 数据库文件路径，如果为 None，则自动确定
     :param from_time: 开始时间（含），若为 0 则从当前时间开始，若小于 0 则从最早开始
     :param from_id: 开始的事件 id （不含）
-    :param interval: 睡眠时间间隔，如果 <= 0，则不睡眠
+    :param cooldown: 冷却时间，大于 0 时，两次接口调用之间至少间隔这么多秒
+    :param interval: 两个批量拉取之间的睡眠时间间隔，如果小于等于 0，则不睡眠
     :param app: 使用此设备的接口
     :param request_kwargs: 其它 http 请求参数，会传给具体的请求函数，默认的是 httpx，可用参数 request 进行设置
 
@@ -774,6 +776,7 @@ def updatedb_life_iter(
         client, 
         from_time=from_time, 
         from_id=from_id, 
+        cooldown=cooldown, 
         interval=interval, 
         ignore_types=(), 
         app=app, 
@@ -852,6 +855,7 @@ def updatedb_life(
     dbfile: None | str | Connection | Cursor = None, 
     from_time: int | float = 0, 
     from_id: int = 0, 
+    cooldown: int | float = 0, 
     interval: int | float = 0, 
     logger = logger, 
     app: str = "android", 
@@ -863,16 +867,18 @@ def updatedb_life(
     :param dbfile: 数据库文件路径，如果为 None，则自动确定
     :param from_time: 开始时间（含），若为 0 则从当前时间开始，若小于 0 则从最早开始
     :param from_id: 开始的事件 id （不含）
-    :param interval: 睡眠时间间隔，如果 <= 0，则不睡眠
+    :param cooldown: 冷却时间，大于 0 时，两次接口调用之间至少间隔这么多秒
+    :param interval: 两个批量拉取之间的睡眠时间间隔，如果小于等于 0，则不睡眠
     :param app: 使用此设备的接口
     :param request_kwargs: 其它 http 请求参数，会传给具体的请求函数，默认的是 httpx，可用参数 request 进行设置
     """
     it = updatedb_life_iter(
         client, 
         dbfile, 
-        from_time, 
-        from_id, 
-        interval, 
+        from_time=from_time, 
+        from_id=from_id, 
+        cooldown=cooldown, 
+        interval=interval, 
         app=app, 
         **request_kwargs, 
     )
