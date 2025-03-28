@@ -339,6 +339,10 @@ def get_first(m: Mapping, /, *keys, default=None):
     return default
 
 
+def contains_any(m: Mapping, /, *keys):
+    return any(k in m for k in keys)
+
+
 @overload
 def check_response(resp: dict, /) -> dict:
     ...

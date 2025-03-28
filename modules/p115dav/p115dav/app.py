@@ -13,7 +13,7 @@ from asyncio import (
     AbstractEventLoop, Lock, 
 )
 from collections import deque
-from collections.abc import AsyncIterator, Buffer, Callable, Iterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Buffer, Callable, Mapping, Sequence
 from contextlib import closing, suppress
 from errno import ENOENT, EBUSY
 from http import HTTPStatus
@@ -25,10 +25,7 @@ from posixpath import split as splitpath, splitext
 from queue import SimpleQueue
 from os import environ, remove
 from re import compile as re_compile
-from sqlite3 import (
-    connect, register_adapter, register_converter, PARSE_COLNAMES, PARSE_DECLTYPES, 
-    Connection, 
-)
+from sqlite3 import connect, PARSE_COLNAMES, PARSE_DECLTYPES, Connection
 from string import hexdigits
 from time import time
 from _thread import start_new_thread
@@ -36,22 +33,56 @@ from typing import cast, Any
 from urllib.parse import parse_qsl, quote, unquote, urlsplit, urlunsplit
 from weakref import WeakValueDictionary
 
+from a2wsgi import WSGIMiddleware
+from asynctools import to_list
+from blacksheep import redirect, text, Application, Router
+from blacksheep.contents import Content, StreamedContent
+from blacksheep.messages import Request, Response
 from blacksheep.server.compression import use_gzip_compression
 from blacksheep.server.rendering.jinja2 import JinjaRenderer
 from blacksheep.settings.html import html_settings
 from blacksheep.settings.json import json_settings
-from blacksheep import redirect, text, Application, Router
-from blacksheep.contents import Content, StreamedContent
-from blacksheep.messages import Request, Response
+from blacksheep.server.openapi.common import ParameterInfo
+from blacksheep.server.openapi.ui import ReDocUIProvider
+from blacksheep.server.openapi.v3 import OpenAPIHandler
 from blacksheep.server.remotes.forwarding import ForwardedHeadersMiddleware
 from blacksheep.server.responses import view_async
+from cachedict import LRUDict, TTLDict, TLRUDict
 from encode_uri import encode_uri, encode_uri_component_loose
+from dictattr import AttrDict
+# NOTE: 其它可用模块
+# - https://pypi.org/project/user-agents/
+# - https://github.com/faisalman/ua-parser-js
+from httpagentparser import detect as detect_ua # type: ignore
+from openapidocs.v3 import Info
 from orjson import dumps, loads, OPT_INDENT_2, OPT_SORT_KEYS
+from p115client import check_response, CLASS_TO_TYPE, SUFFIX_TO_TYPE, P115Client, P115URL
+from p115client.exception import AuthenticationError, BusyOSError
+from p115client.type import P115ID
+from p115client.tool import (
+    get_id_to_path, get_id_to_pickcode, get_id_to_sha1, share_iterdir, 
+    auth_pool, call_wrap_with_pool, share_get_id_to_path, get_ancestors, 
+)
+from p115client.tool.util import get_status_code, reduce_image_url_layers
+from path_predicate import MappingPath
 from posixpatht import escape, normpath
+from property import locked_cacheproperty
+# NOTE: 其它可用模块
+# - https://pypi.org/project/ass/
+# - https://pypi.org/project/srt/
+from pysubs2 import SSAFile # type: ignore
+from rich.box import ROUNDED
+from rich.console import Console
+from rich.highlighter import JSONHighlighter
+from rich.panel import Panel
+from rich.text import Text
 from sqlitedict import SqliteTableDict
 from sqlitetools import upsert_items
 from texttools import format_size, format_timestamp
 from uvicorn.config import LOGGING_CONFIG
+from wsgidav.wsgidav_app import WsgiDAVApp # type: ignore
+from wsgidav.dav_error import DAVError # type: ignore
+from wsgidav.dav_provider import DAVCollection, DAVNonCollection, DAVProvider # type: ignore
 
 from . import db
 
@@ -59,10 +90,6 @@ from . import db
 CRE_URL_T_search = re_compile(r"(?<=(?:\?|&)t=)\d+").search
 LOGGING_CONFIG["formatters"]["default"]["fmt"] = "[\x1b[1m%(asctime)s\x1b[0m] %(levelprefix)s %(message)s"
 LOGGING_CONFIG["formatters"]["access"]["fmt"] = '[\x1b[1m%(asctime)s\x1b[0m] %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s'
-
-register_adapter(dict, dumps)
-register_adapter(list, dumps)
-register_converter("JSON", loads)
 
 environ["APP_JINJA_PACKAGE_NAME"] = "p115dav"
 html_settings.use(JinjaRenderer(enable_async=True))
@@ -75,6 +102,10 @@ jinja2_filters["encode_uri_component"] = encode_uri_component_loose
 jinja2_filters["json_dumps"] = lambda data: dumps(data).decode("utf-8").replace("'", "&apos;")
 jinja2_filters["format_timestamp"] = format_timestamp
 jinja2_filters["escape_name"] = lambda name, default="/": escape(name) or default
+
+
+class TooManyRequests(OSError):
+    pass
 
 
 class ColoredLevelNameFormatter(logging.Formatter):
@@ -102,12 +133,8 @@ class ColoredLevelNameFormatter(logging.Formatter):
         return super().format(record)
 
 
-def get_origin(request: Request) -> str:
+def get_origin(request: Request, /) -> str:
     return f"{request.scheme}://{request.host}"
-
-
-class TooManyRequests(OSError):
-    pass
 
 
 def get_first(m: Mapping, /, *keys, default=None):
@@ -115,6 +142,29 @@ def get_first(m: Mapping, /, *keys, default=None):
         if k in m:
             return m[k]
     return default
+
+
+def contains_any(m: Mapping, /, *keys):
+    return any(k in m for k in keys)
+
+
+def default(obj, /):
+    if isinstance(obj, Buffer):
+        return str(obj, "utf-8")
+    raise TypeError
+
+
+def highlight_json(
+    val, 
+    /, 
+    default=default, 
+    highlighter=JSONHighlighter(), 
+) -> Text:
+    if isinstance(val, Buffer):
+        val = str(val, "utf-8")
+    if not isinstance(val, str):
+        val = dumps(val, default=default, option=OPT_INDENT_2 | OPT_SORT_KEYS).decode("utf-8")
+    return highlighter(val)
 
 
 def make_application(
@@ -125,46 +175,36 @@ def make_application(
     strm_origin: str = "", 
     predicate = None, 
     strm_predicate = None, 
-    load_libass: bool = False, 
     cache_url: bool = False, 
     cache_size: int = 65536, 
     debug: bool = False, 
     wsgidav_config: dict = {}, 
     only_webdav: bool = False, 
-    show_web_page: bool = True, 
+    default_web_page: bool = True, 
+    load_libass: bool = False, 
     check_for_relogin: bool = False, 
 ) -> Application:
-    from a2wsgi import WSGIMiddleware
-    from asynctools import to_list
-    from cachedict import LRUDict, TTLDict, TLRUDict
-    from dictattr import AttrDict
-    # NOTE: 其它可用模块
-    # - https://pypi.org/project/user-agents/
-    # - https://github.com/faisalman/ua-parser-js
-    from httpagentparser import detect as detect_ua # type: ignore
-    from p115client import check_response, CLASS_TO_TYPE, SUFFIX_TO_TYPE, P115Client, P115URL
-    from p115client.exception import AuthenticationError, BusyOSError
-    from p115client.type import P115ID
-    from p115client.tool import (
-        get_id_to_path, get_id_to_pickcode, get_id_to_sha1, share_iterdir, 
-        auth_pool, call_wrap_with_pool, share_get_id_to_path, 
-    )
-    from p115client.tool.util import get_status_code, reduce_image_url_layers
-    from path_predicate import MappingPath
-    from posixpatht import escape
-    from property import locked_cacheproperty
-    # NOTE: 其它可用模块
-    # - https://pypi.org/project/ass/
-    # - https://pypi.org/project/srt/
-    from pysubs2 import SSAFile # type: ignore
-    from rich.box import ROUNDED
-    from rich.console import Console
-    from rich.highlighter import JSONHighlighter
-    from rich.panel import Panel
-    from rich.text import Text
-    from wsgidav.wsgidav_app import WsgiDAVApp # type: ignore
-    from wsgidav.dav_error import DAVError # type: ignore
-    from wsgidav.dav_provider import DAVCollection, DAVNonCollection, DAVProvider # type: ignore
+    """创建一个 blacksheep 应用
+
+    :param dbfile: 数据库路径，如果为空则自动确定
+    :param cookies_path: 115 的 cookies 的保存路径
+    :param app_id: 开放接口的应用 id，如果为 0，则自动确定
+    :param ttl: 拉取到的文件信息数据的缓存有效时间，如果小于 0，则永久有效
+    :param strm_origin: strm 下载链接的 base_url，意味着可以用另一个服务器来承担 302 服务
+    :param predicate: 筛选断言，如果文件信息能符合此断言，则被展示，否则会被忽略掉
+    :param strm_predicate: strm 断言，如果文件信息能符合此断言，则会被显示为 strm（打开后为下载链接，会 302）
+    :param cache_url: 是否缓存下载链接
+    :param cache_size: 缓存数量（内部的每个字典都限制为此规模，而不是所有的字典总共限制为此规模），<= 0 时无限
+    :param debug: 是否启用调试
+    :param wsgidav_config: WebDAV 配置信息，具体请参考：https://wsgidav.readthedocs.io/en/latest/user_guide_configure.html
+    :param only_webdav: 是否仅启用 WebDAV
+    :param default_web_page: 是否启用默认的网页版界面（仅在 `only_webdav` 为 True 时可用）
+    :param load_libass: 是否加载 libass（仅在 `default_web_page` 为 True 时有效）
+    :param check_for_relogin: 是否在登录失效后，尝试重新登录
+
+    :return: blacksheep 应用
+    """
+    from .__init__ import __version__
 
     if cookies_path:
         cookies_path = Path(cookies_path)
@@ -173,11 +213,18 @@ def make_application(
 
     app = Application(router=Router(), show_error_details=debug)
     use_gzip_compression(app)
-    app.serve_files(
-        Path(__file__).with_name("static"), 
-        root_path="/%3Cpic", 
-        fallback_document="index.html", 
-    )
+    if default_web_page:
+        app.serve_files(
+            Path(__file__).with_name("static"), 
+            root_path="/%3Cpic", 
+            fallback_document="index.html", 
+        )
+    docs = OpenAPIHandler(info=Info(
+        title="p115dav backend", 
+        version=".".join(map(str, __version__)), 
+    ))
+    docs.ui_providers.append(ReDocUIProvider())
+    docs.bind_app(app)
 
     logger = getattr(app, "logger")
     handler = logging.StreamHandler()
@@ -185,7 +232,7 @@ def make_application(
     logger.addHandler(handler)
 
     # NOTE: 缓存图片的 CDN 直链，缓存 59 分钟
-    IMAGE_URL_CACHE: TTLDict[str | tuple[str, int], str] = TTLDict(cache_size, ttl=60*59)
+    IMAGE_URL_CACHE: TTLDict[str | tuple[str, int], str] = TTLDict(cache_size, xr=60*59)
     # NOTE: 缓存直链（主要是音乐链接）
     if cache_url:
         DOWNLOAD_URL_CACHE: TLRUDict[tuple[str, str], P115URL] = TLRUDict(cache_size)
@@ -220,145 +267,6 @@ def make_application(
             return func
         return wrapped
 
-    def default(obj, /):
-        if isinstance(obj, Buffer):
-            return str(obj, "utf-8")
-        raise TypeError
-
-    def highlight_json(val, /, default=default, highlighter=JSONHighlighter()) -> Text:
-        if isinstance(val, Buffer):
-            val = str(val, "utf-8")
-        if not isinstance(val, str):
-            val = dumps(val, default=default, option=OPT_INDENT_2 | OPT_SORT_KEYS).decode("utf-8")
-        return highlighter(val)
-
-    # TODO: 一些函数可以放在单独的模块
-    def normalize_attr(info: Mapping, /) -> AttrDict:
-        def typeof(attr):
-            if attr["is_dir"]:
-                return 0
-            if int(info.get("iv", info.get("isv", 0))):
-                return 4
-            if "muc" in info:
-                return 3
-            if fclass := info.get("class", ""):
-                if type := CLASS_TO_TYPE.get(fclass):
-                    return type
-                else:
-                    return 99
-            if type := SUFFIX_TO_TYPE.get(splitext(attr["name"])[1].lower()):
-                return type
-            elif "play_long" in info:
-                return 4
-            return 99
-        if "share_code" in info:
-            share_code = info["share_code"]
-            receive_code = info.get("receive_code", "")
-            sha1 = info.get("sha", "")
-            is_dir = not sha1
-            attr: AttrDict = AttrDict({
-                "share_code": share_code, 
-                "receive_code": receive_code, 
-                "is_dir": is_dir, 
-                "id": info["cid"] if is_dir else info["fid"], 
-                "parent_id": str(info["pid"] if is_dir else info["cid"]), 
-                "name": info["n"], 
-                "sha1": sha1, 
-                "mtime": int(info["t"]), 
-                "size": int(info.get("s", 0)), 
-                "is_collect": int(info.get("c", 0)) == 1, 
-                "thumb": info.get("u", ""), 
-            })
-        elif "fn" in info:
-            sha1 = info.get("sha1", "")
-            is_dir = not sha1
-            attr = AttrDict({
-                "is_dir": is_dir, 
-                "id": info["fid"], 
-                "parent_id": info["pid"], 
-                "pickcode": info["pc"], 
-                "name": info["fn"], 
-                "sha1": sha1, 
-                "mtime": int(info["upt"]), 
-                "size": int(info.get("fs", 0)), 
-                "is_collect": int(info.get("ic", 0)) == 1, 
-                "thumb": info.get("thumb", ""), 
-            })
-        elif "n" in info:
-            sha1 = info.get("sha", "")
-            is_dir = not sha1
-            attr = AttrDict({
-                "is_dir": is_dir, 
-                "id": info["cid"] if is_dir else info["fid"], 
-                "parent_id": info["pid"] if is_dir else info["cid"], 
-                "pickcode": info["pc"], 
-                "name": info["n"], 
-                "sha1": sha1, 
-                "mtime": int(info["te"]), 
-                "size": int(info.get("s", 0)), 
-                "is_collect": int(info.get("c", 0)) == 1, 
-                "thumb": info.get("u", ""), 
-            })
-        else:
-            raise ValueError(f"can't process: {info!r}")
-        id = int(attr["id"])
-        if "share_code" in attr:
-            key: str | tuple[str, int] = (share_code, id)
-            url = f"/<share?share_code={share_code}&receive_code={receive_code}&id={id}"
-        else:
-            pickcode = cast(str, attr["pickcode"])
-            key = pickcode
-            if is_dir:
-                url = "/%s?id=%d" % (encode_uri_component_loose(attr["name"]), id)
-            else:
-                url = "/%s?pickcode=%s" % (encode_uri_component_loose(attr["name"]), pickcode)
-        file_type = attr["type"] = typeof(attr)
-        if is_dir:
-            url += "&file=false"
-        else:
-            url += "&file=true"
-            if attr["is_collect"] and attr["size"] < 1024 * 1024 * 115:
-                url += "&web=true"
-        attr["url"] = url
-        if is_dir:
-            attr["ico"] = "folder"
-        else:
-            attr["ico"] = splitext(attr["name"])[1][1:].lower()
-        if thumb := attr["thumb"]:
-            if thumb.startswith("?"):
-                thumb = f"https://imgjump.115.com{thumb}&sha1={attr['sha1']}"
-            else:
-                thumb = reduce_image_url_layers(thumb)
-            if thumb.startswith("https://imgjump.115.com"):
-                attr["thumb"] = thumb + "&size=200"
-                thumb += "&size=0"
-                cached_thumb = IMAGE_URL_CACHE.get(key, "")
-                if isinstance(cached_thumb, P115URL):
-                    cached_thumb = cached_thumb["thumb"]
-                if thumb != cached_thumb:
-                    IMAGE_URL_CACHE[key] = thumb
-            else:
-                attr["thumb"] = thumb
-        elif thumb := info.get("muc"):
-            attr["thumb"] = thumb
-        return attr
-
-    def wrap_url(url: str, /, url_detail: None | bool = False):
-        if url_detail is None:
-            if isinstance(url, P115URL):
-                return Response(302, [
-                    (b"Location", bytes(url, "utf-8")), 
-                    (b"Content-Disposition", b'attachment; filename="%s"' % bytes(quote(url["name"], safe=""), "latin-1")), 
-                ], Content(b"application/json; charset=utf-8", dumps(url.__dict__)))
-            return redirect(url)
-        elif url_detail:
-            if isinstance(url, P115URL):
-                return {"type": "file", "url": url, "headers": url.get("headers")}
-            else:
-                return {"type": "image", "url": url}
-        else:
-            return url
-
     def queue_execute():
         cur = con.cursor()
         execute = cur.execute
@@ -380,272 +288,31 @@ def make_application(
             except:
                 logger.exception(f"can't process task: {task!r}")
 
-    async def iterdir(
-        cid: int = 0, 
-        first_page_size: int = 0, 
-        page_size: int = 10_000, 
-    ) -> tuple[int, list[dict], AsyncIterator[AttrDict]]:
-        ancestors = [{"id": "0", "parent_id": "0", "name": ""}]
-        count = 0
-        async def get_data():
-            nonlocal count
-            resp = await fs_files(payload, async_=True)
-            check_response(resp)
-            if cid and int(resp["path"][-1]["cid"]) != cid:
-                raise FileNotFoundError(ENOENT, {"id": cid})
-            ancestors[1:] = (
-                {"id": a["cid"], "parent_id": a["pid"], "name": a["name"]} 
-                for a in resp["path"][1:]
-            )
-            if count == 0:
-                count = resp["count"]
-            elif count != resp["count"]:
-                raise BusyOSError(EBUSY, f"count changes during iteration: {cid}")
-            return resp["data"]
-        if first_page_size <= 0:
-            first_page_size = page_size
-        payload = {
-            "asc": 0, "cid": cid, "cur": 1, "fc_mix": 1, "limit": first_page_size, 
-            "o": "user_utime", "offset": 0, "show_dir": 1, 
-        }
-        data = await get_data()
-        payload["limit"] = page_size
-        async def iter():
-            nonlocal data
-            offset = 0
-            while True:
-                push_task_attr(ancestors[1:])
-                for attr in map(normalize_attr, data):
-                    yield attr
-                offset += len(data)
-                if offset >= count:
-                    break
-                payload["offset"] = offset
-                data = await get_data()
-        return count, ancestors, iter()
+    def push_task_file_list(id: int, children: Sequence[dict]):
+        put_task(("INSERT OR REPLACE INTO list(id, data) VALUES (?, ?)", (id, children)))
 
-    async def update_file_list_partial(cid: int, file_list: dict):
-        """更新文件列表
-        """
-        try:
-            count, ancestors, it = await iterdir(cid, 16)
-        except FileNotFoundError:
-            put_task(("DELETE FROM list WHERE id=?", cid))
-            raise
-        children = file_list["children"]
-        remains = len(children)
-        if count:
-            if remains:
-                mtime_groups: dict[int, dict[str, AttrDict]] = {}
-                for a in children:
-                    try:
-                        mtime_groups[a["mtime"]][a["id"]] = a
-                    except KeyError:
-                        mtime_groups[a["mtime"]] = {a["id"]: a}
-                his_it = iter(sorted(mtime_groups.items(), reverse=True))
-                his_mtime, his_items = next(his_it)
-            try:
-                n = 0
-                children = []
-                children_add = children.append
-                async for attr in it:
-                    children_add(attr)
-                    if remains:
-                        n += 1
-                        cur_id = attr["id"]
-                        cur_mtime = attr["mtime"]
-                        try:
-                            while his_mtime > cur_mtime:
-                                remains -= len(his_items)
-                                his_mtime, his_items = next(his_it)
-                        except StopIteration:
-                            continue
-                        if his_mtime == cur_mtime:
-                            if cur_id in his_items:
-                                his_items.pop(cur_id)
-                                remains -= 1
-                                if n + remains == count:
-                                    children_extend = children.extend
-                                    children_extend(his_items.values())
-                                    for his_mtime, his_items in his_it:
-                                        children_extend(his_items.values())
-                                    break
-            except FileNotFoundError:
-                put_task(("DELETE FROM list WHERE id=?", cid))
-                raise
-            children.sort(key=lambda a: (not a["is_dir"], a["name"]))
-            file_list["children"][:] = children
-        else:
-            if remains:
-                children.clear()
-                push_task_file_list(cid, [])
-        file_list["ancestors"][:] = ancestors
-        return file_list
-
-    async def get_file_list(
-        cid: int, 
-        /, 
-        refresh_thumbs: bool = False, 
-    ) -> dict:
-        """获取目录中的文件信息列表
-        """
-        children: None | list[AttrDict]
-        async with ID_TO_LIST_LOCK.setdefault(cid, Lock()):
-            file_list = CACHE_ID_TO_LIST.get(cid)
-            if file_list is None:
-                file_list = await db.get_file_list(con, cid, async_=True)
-                if file_list:
-                    CACHE_ID_TO_LIST[cid] = file_list
-                    ID_TO_ATTR.update((int(attr["id"]), attr) for attr in file_list["children"])
-            will_full_update = file_list is None
-            if file_list:
-                if refresh_thumbs:
-                    earliest_thumb_ts = min((
-                        int(CRE_URL_T_search(urlsplit(attr["thumb"]).query)[0]) # type: ignore
-                        for attr in file_list["children"] if attr["type"] == 2
-                    ), default=0)
-                    will_full_update = earliest_thumb_ts > 0 and earliest_thumb_ts - time() < 600
-            if not will_full_update:
-                file_list = cast(dict, file_list)
-                if isnan(ttl) or isinf(ttl) or ttl < 0:
-                    return file_list
-                elif ttl > 0:
-                    updated_at = await db.get_updated_at(con, cid, async_=True)
-                    if not updated_at or time() - updated_at <= ttl:
-                        return file_list
-                await update_file_list_partial(cid, file_list)
-                return file_list
-            try:
-                _, ancestors, it = await iterdir(cid)
-            except FileNotFoundError:
-                put_task(("DELETE FROM list WHERE id=?", cid))
-                raise
-            children = [a async for a in it]
-            children.sort(key=lambda a: (not a["is_dir"], a["name"]))
-            push_task_attr(ancestors[1:])
-            push_task_file_list(cid, children)
-            file_list = CACHE_ID_TO_LIST[cid] = {"ancestors": ancestors, "children": children}
-            ID_TO_ATTR.update((int(attr["id"]), attr) for attr in children)
-            return file_list
-
-    async def get_share_file_list(
-        share_code: str, 
-        receive_code: str, 
-        cid: int, 
-        page_size: int = 10_000, 
-        refresh_thumbs: bool = False, 
-    ) -> dict:
-        key = (share_code, cid)
-        if key not in CACHE_ID_TO_LIST:
-            attr = await get_share_attr(share_code, id=cid, receive_code=receive_code)
-        async with ID_TO_LIST_LOCK.setdefault(key, Lock()):
-            file_list = CACHE_ID_TO_LIST.get(key)
-            if file_list is None:
-                file_list = await db.share_get_file_list(con, share_code, cid, async_=True)
-                if file_list:
-                    CACHE_ID_TO_LIST[key] = file_list
-                    ID_TO_ATTR.update(((share_code, int(attr["id"])), attr) for attr in file_list["children"])
-            if file_list:
-                if not refresh_thumbs:
-                    return file_list
-                else:
-                    earliest_thumb_ts = min((
-                        int(CRE_URL_T_search(urlsplit(attr["thumb"]).query)[0]) # type: ignore
-                        for attr in file_list["children"] if attr["type"] == 2
-                    ), default=0)
-                    if not earliest_thumb_ts or earliest_thumb_ts - time() >= 600:
-                        return file_list
-            if cid == 0:
-                ancestors: list[dict] = []
-            else:
-                parent_id = int(attr["parent_id"])
-                if plist := CACHE_ID_TO_LIST.get((share_code, parent_id)):
-                    ancestors = list(plist["ancestors"])
-                else:
-                    ancestors = cast(list[dict], await db.get_share_ancestors(
-                        con, share_code, parent_id, async_=True))
-            ancestors.append({
-                "id": str(cid), 
-                "parent_id": attr["parent_id"], 
-                "name": attr["name"] if cid else "", 
-            })
-            children = await to_list(cast(AsyncIterator[AttrDict], share_iterdir(
-                client, 
-                share_code, 
-                receive_code, 
-                cid, 
-                page_size=page_size, 
-                normalize_attr=normalize_attr, 
-                async_=True, 
-            )))
-            dirname = "/".join(escape(a["name"]) for a in ancestors)
-            for attr in children:
-                attr["path"] = dirname + "/" + escape(attr["name"])
-            children.sort(key=lambda a: (not a["is_dir"], a["name"]))
-            file_list = CACHE_ID_TO_LIST[key] = {"ancestors": ancestors, "children": children}
-            push_task_share_file_list(share_code, cid, file_list)
-            ID_TO_ATTR.update(((share_code, int(attr["id"])), attr) for attr in children)
-            return file_list
-
-    async def get_share_file_tree(
-        share_code: str, 
-        receive_code: str, 
-        cid: int = 0, 
-        page_size: int = 10_000, 
-    ) -> AsyncIterator[AttrDict]:
-        start_from_root = cid == 0
-        dq: deque[int] = deque((cid,))
-        push, pop = dq.append, dq.popleft
-        while dq:
-            cid = pop()
-            file_list = await get_share_file_list(share_code, receive_code, cid, page_size=page_size)
-            for attr in file_list["children"]:
-                yield attr
-                if attr["is_dir"]:
-                    push(int(attr["id"]))
-        if start_from_root:
-            put_task(("INSERT OR REPLACE INTO share_list_loaded(share_code, loaded) VALUES (?, TRUE)", share_code))
-
-    async def get_file_url(
-        pickcode: str, 
-        /, 
-        user_agent: str = "", 
-        use_web_api: bool = False, 
-    ) -> P115URL:
-        if app_id and not use_web_api:
-            return await client.download_url_open(
-                pickcode, 
-                headers={"User-Agent": user_agent}, 
-                async_=True, 
-            )
-        else:
-            return await client.download_url(
-                pickcode, 
-                headers={"User-Agent": user_agent}, 
-                use_web_api=use_web_api, 
-                app="android", 
-                async_=True, 
-            )
-
-    async def get_image_url(pickcode: str, /) -> str:
-        if not (url := IMAGE_URL_CACHE.get(pickcode, "")):
-            resp = await client.fs_image(pickcode, async_=True)
-            resp = check_response(resp)
-            data = resp["data"]
-            url = IMAGE_URL_CACHE[pickcode] = cast(str, data["origin_url"])
-        return url
+    def push_task_share_file_list(share_code: str, id: int, file_list: dict):
+        put_task(("INSERT OR REPLACE INTO share_list(share_code, id, data) VALUES (?, ?, ?)", (share_code, id, file_list)))
 
     def push_task_attr(attr: P115ID | dict | Sequence[dict]):
         if isinstance(attr, P115ID):
             match attr.get("about"):
                 case "path":
-                    attr["attr"] = attr = normalize_attr(attr.__dict__)
+                    attr = attr["attr"] = normalize_attr(attr.__dict__)
+                    attr = {
+                        "id": attr["id"], 
+                        "parent_id": attr["parent_id"], 
+                        "pickcode": attr["pickcode"], 
+                        "sha1": attr["sha1"], 
+                        "name": attr["name"], 
+                        "is_dir": attr["is_dir"], 
+                    }
                 case "sha1":
                     attr = {
                         "id": int(attr["file_id"]), 
+                        "parent_id": int(attr["category_id"]), 
                         "pickcode": attr["pick_code"], 
                         "sha1": attr["file_sha1"], 
-                        "parent_id": int(attr["category_id"]), 
                         "name": attr["file_name"], 
                         "is_dir": False, 
                     }
@@ -662,12 +329,6 @@ def make_application(
             if isinstance(attr, dict) or isinstance(attr[0], dict):
                 put_task((upsert_items, attr))
  
-    def push_task_file_list(id: int, children: Sequence[dict]):
-        put_task(("INSERT OR REPLACE INTO list(id, data) VALUES (?, ?)", (id, children)))
-
-    def push_task_share_file_list(share_code: str, id: int, file_list: dict):
-        put_task(("INSERT OR REPLACE INTO share_list(share_code, id, data) VALUES (?, ?, ?)", (share_code, id, file_list)))
-
     @app.on_middlewares_configuration
     def configure_forwarded_headers(app: Application):
         app.middlewares.insert(0, ForwardedHeadersMiddleware(accept_only_proxied_requests=False))
@@ -862,13 +523,487 @@ def make_application(
                 raise
         return response
 
+    # NOTE: 下面是一些工具函数
 
+    def normalize_attr(info: Mapping, /) -> AttrDict:
+        """文件信息规范化
+        """
+        def typeof(attr: Mapping, /) -> int:
+            if attr["is_dir"]:
+                return 0
+            if (
+                int(get_first(info, "iv", "isv", "is_video", default=0)) or 
+                contains_any(info, "def", "def2", "v_img", "definition", "definition2", "video_img_url", "vdi")
+            ):
+                return 4
+            elif contains_any(info, "muc", "music_cover", "play_url"):
+                return 3
+            elif contains_any(info, "thumb_url"):
+                return 2
+            if fclass := info.get("class", ""):
+                if type := CLASS_TO_TYPE.get(fclass):
+                    return type
+            if type := SUFFIX_TO_TYPE.get(splitext(attr["name"])[1].lower()):
+                return type
+            return 99
+        if "share_code" in info:
+            share_code = info["share_code"]
+            receive_code = info.get("receive_code", "")
+            sha1 = info.get("sha", "")
+            is_dir = not sha1
+            attr: AttrDict = AttrDict({
+                "share_code": share_code, 
+                "receive_code": receive_code, 
+                "is_dir": is_dir, 
+                "id": info["cid"] if is_dir else info["fid"], 
+                "parent_id": str(info["pid"] if is_dir else info["cid"]), 
+                "name": info["n"], 
+                "sha1": sha1, 
+                "mtime": int(info["t"]), 
+                "size": int(info.get("s", 0)), 
+                "is_collect": int(info.get("c", 0)) == 1, 
+                "thumb": info.get("u", ""), 
+            })
+        elif "fn" in info:
+            sha1 = info.get("sha1", "")
+            is_dir = not sha1
+            attr = AttrDict({
+                "is_dir": is_dir, 
+                "id": info["fid"], 
+                "parent_id": info["pid"], 
+                "pickcode": info["pc"], 
+                "name": info["fn"], 
+                "sha1": sha1, 
+                "mtime": int(info["upt"]), 
+                "size": int(info.get("fs", 0)), 
+                "is_collect": int(info.get("ic", 0)) == 1, 
+                "thumb": info.get("thumb", ""), 
+            })
+        elif "n" in info:
+            sha1 = info.get("sha", "")
+            is_dir = not sha1
+            attr = AttrDict({
+                "is_dir": is_dir, 
+                "id": info["cid"] if is_dir else info["fid"], 
+                "parent_id": info["pid"] if is_dir else info["cid"], 
+                "pickcode": info["pc"], 
+                "name": info["n"], 
+                "sha1": sha1, 
+                "mtime": int(info["te"]), 
+                "size": int(info.get("s", 0)), 
+                "is_collect": int(info.get("c", 0)) == 1, 
+                "thumb": info.get("u", ""), 
+            })
+        else:
+            raise ValueError(f"can't process: {info!r}")
+        id = int(attr["id"])
+        if "share_code" in attr:
+            key: str | tuple[str, int] = (share_code, id)
+            url = f"/<share?share_code={share_code}&receive_code={receive_code}&id={id}"
+        else:
+            pickcode = cast(str, attr["pickcode"])
+            key = pickcode
+            if is_dir:
+                url = "/%s?id=%d" % (encode_uri_component_loose(attr["name"]), id)
+            else:
+                url = "/%s?pickcode=%s" % (encode_uri_component_loose(attr["name"]), pickcode)
+        file_type = attr["type"] = typeof(attr)
+        if is_dir:
+            url += "&file=false"
+        else:
+            url += "&file=true"
+            if attr["is_collect"] and attr["size"] < 1024 * 1024 * 115:
+                url += "&web=true"
+        attr["url"] = url
+        if is_dir:
+            attr["ico"] = "folder"
+        else:
+            attr["ico"] = splitext(attr["name"])[1][1:].lower()
+        if thumb := attr["thumb"]:
+            if thumb.startswith("?"):
+                thumb = f"https://imgjump.115.com{thumb}&sha1={attr['sha1']}"
+            else:
+                thumb = reduce_image_url_layers(thumb)
+            if thumb.startswith("https://imgjump.115.com"):
+                attr["thumb"] = thumb + "&size=200"
+                thumb += "&size=0"
+                cached_thumb = IMAGE_URL_CACHE.get(key, "")
+                if isinstance(cached_thumb, P115URL):
+                    cached_thumb = cached_thumb["thumb"]
+                if thumb != cached_thumb:
+                    IMAGE_URL_CACHE[key] = thumb
+            else:
+                attr["thumb"] = thumb
+        elif thumb := info.get("muc"):
+            attr["thumb"] = thumb
+        return attr
 
+    def wrap_url(
+        url: str, 
+        /, 
+        url_detail: None | bool = False, 
+    ) -> str | dict | Response:
+        """包装下载链接，以供某些用途
+        """
+        if url_detail is None:
+            if isinstance(url, P115URL):
+                return Response(302, [
+                    (b"Location", bytes(url, "utf-8")), 
+                    (b"Content-Disposition", b'attachment; filename="%s"' % bytes(quote(url["name"], safe=""), "latin-1")), 
+                ], Content(b"application/json; charset=utf-8", dumps(url.__dict__)))
+            return redirect(url)
+        elif url_detail:
+            if isinstance(url, P115URL):
+                return {"type": "file", "url": url, "headers": url.get("headers")}
+            else:
+                return {"type": "image", "url": url}
+        else:
+            return url
 
+    async def iterdir(
+        cid: int = 0, 
+        first_page_size: int = 0, 
+        page_size: int = 10_000, 
+    ) -> tuple[int, list[dict], AsyncIterator[AttrDict]]:
+        """网盘目录迭代
+        """
+        ancestors: list[dict] = [{"id": "0", "parent_id": "0", "name": ""}]
+        count = 0
+        async def get_data():
+            nonlocal count
+            resp = await fs_files(payload, async_=True)
+            check_response(resp)
+            if cid and int(resp["path"][-1]["cid"]) != cid:
+                raise FileNotFoundError(ENOENT, {"id": cid})
+            ancestors[1:] = (
+                {"id": a["cid"], "parent_id": a["pid"], "name": a["name"]} 
+                for a in resp["path"][1:]
+            )
+            if count == 0:
+                count = resp["count"]
+            elif count != resp["count"]:
+                raise BusyOSError(EBUSY, f"count changes during iteration: {cid}")
+            return resp["data"]
+        if first_page_size <= 0:
+            first_page_size = page_size
+        payload = {
+            "asc": 0, "cid": cid, "cur": 1, "fc_mix": 1, "limit": first_page_size, 
+            "o": "user_utime", "offset": 0, "show_dir": 1, 
+        }
+        data = await get_data()
+        payload["limit"] = page_size
+        async def iter():
+            nonlocal data
+            offset = 0
+            while True:
+                push_task_attr(ancestors[1:])
+                for attr in map(normalize_attr, data):
+                    yield attr
+                offset += len(data)
+                if offset >= count:
+                    break
+                payload["offset"] = offset
+                data = await get_data()
+        return count, ancestors, iter()
 
+    async def update_file_list_partial(cid: int, file_list: dict):
+        """增量更新文件列表
+        """
+        try:
+            count, ancestors, it = await iterdir(cid, 16)
+        except FileNotFoundError:
+            put_task(("DELETE FROM list WHERE id=?", cid))
+            raise
+        children = file_list["children"]
+        remains = len(children)
+        if count:
+            if remains:
+                mtime_groups: dict[int, dict[str, AttrDict]] = {}
+                for a in children:
+                    try:
+                        mtime_groups[a["mtime"]][a["id"]] = a
+                    except KeyError:
+                        mtime_groups[a["mtime"]] = {a["id"]: a}
+                his_it = iter(sorted(mtime_groups.items(), reverse=True))
+                his_mtime, his_items = next(his_it)
+            try:
+                n = 0
+                children = []
+                children_add = children.append
+                async for attr in it:
+                    children_add(attr)
+                    if remains:
+                        n += 1
+                        cur_id = attr["id"]
+                        cur_mtime = attr["mtime"]
+                        try:
+                            while his_mtime > cur_mtime:
+                                remains -= len(his_items)
+                                his_mtime, his_items = next(his_it)
+                        except StopIteration:
+                            continue
+                        if his_mtime == cur_mtime:
+                            if cur_id in his_items:
+                                his_items.pop(cur_id)
+                                remains -= 1
+                                if n + remains == count:
+                                    children_extend = children.extend
+                                    children_extend(his_items.values())
+                                    for his_mtime, his_items in his_it:
+                                        children_extend(his_items.values())
+                                    break
+            except FileNotFoundError:
+                put_task(("DELETE FROM list WHERE id=?", cid))
+                raise
+            children.sort(key=lambda a: (not a["is_dir"], a["name"]))
+            file_list["children"][:] = children
+        else:
+            if remains:
+                children.clear()
+                push_task_file_list(cid, [])
+        file_list["ancestors"][:] = ancestors
+        return file_list
 
+    async def get_file_list(
+        cid: int, 
+        /, 
+        refresh_thumbs: bool = False, 
+    ) -> dict:
+        """获取目录中的文件信息列表，包括祖先节点列表和子节点信息列表
+        """
+        children: None | list[AttrDict]
+        async with ID_TO_LIST_LOCK.setdefault(cid, Lock()):
+            file_list = CACHE_ID_TO_LIST.get(cid)
+            if file_list is None:
+                file_list = await db.get_file_list(con, cid, async_=True)
+                if file_list:
+                    CACHE_ID_TO_LIST[cid] = file_list
+                    ID_TO_ATTR.update((int(attr["id"]), attr) for attr in file_list["children"])
+            will_full_update = file_list is None
+            if file_list:
+                if refresh_thumbs:
+                    earliest_thumb_ts = min((
+                        int(CRE_URL_T_search(urlsplit(attr["thumb"]).query)[0]) # type: ignore
+                        for attr in file_list["children"] if attr["type"] == 2
+                    ), default=0)
+                    will_full_update = earliest_thumb_ts > 0 and earliest_thumb_ts - time() < 600
+            if not will_full_update:
+                file_list = cast(dict, file_list)
+                if isnan(ttl) or isinf(ttl) or ttl < 0:
+                    return file_list
+                elif ttl > 0:
+                    updated_at = await db.get_updated_at(con, cid, async_=True)
+                    if not updated_at or time() - updated_at <= ttl:
+                        return file_list
+                await update_file_list_partial(cid, file_list)
+                return file_list
+            try:
+                _, ancestors, it = await iterdir(cid)
+            except FileNotFoundError:
+                put_task(("DELETE FROM list WHERE id=?", cid))
+                raise
+            children = [a async for a in it]
+            children.sort(key=lambda a: (not a["is_dir"], a["name"]))
+            push_task_attr(ancestors[1:])
+            push_task_file_list(cid, children)
+            file_list = CACHE_ID_TO_LIST[cid] = {"ancestors": ancestors, "children": children}
+            ID_TO_ATTR.update((int(attr["id"]), attr) for attr in children)
+            return file_list
 
+    async def get_share_file_list(
+        share_code: str, 
+        receive_code: str, 
+        cid: int, 
+        page_size: int = 10_000, 
+        refresh_thumbs: bool = False, 
+    ) -> dict:
+        """获取分享的某个目录的文件信息列表，包括祖先节点列表和子节点信息列表
+        """
+        key = (share_code, cid)
+        if key not in CACHE_ID_TO_LIST:
+            attr = await share_get_attr(share_code, id=cid, receive_code=receive_code)
+        async with ID_TO_LIST_LOCK.setdefault(key, Lock()):
+            file_list = CACHE_ID_TO_LIST.get(key)
+            if file_list is None:
+                file_list = await db.share_get_file_list(con, share_code, cid, async_=True)
+                if file_list:
+                    CACHE_ID_TO_LIST[key] = file_list
+                    ID_TO_ATTR.update(((share_code, int(attr["id"])), attr) for attr in file_list["children"])
+            if file_list:
+                if not refresh_thumbs:
+                    return file_list
+                else:
+                    earliest_thumb_ts = min((
+                        int(CRE_URL_T_search(urlsplit(attr["thumb"]).query)[0]) # type: ignore
+                        for attr in file_list["children"] if attr["type"] == 2
+                    ), default=0)
+                    if not earliest_thumb_ts or earliest_thumb_ts - time() >= 600:
+                        return file_list
+            if cid == 0:
+                ancestors: list[dict] = []
+            else:
+                parent_id = int(attr["parent_id"])
+                if plist := CACHE_ID_TO_LIST.get((share_code, parent_id)):
+                    ancestors = list(plist["ancestors"])
+                else:
+                    ancestors = cast(list[dict], await db.get_share_ancestors(
+                        con, share_code, parent_id, async_=True))
+            ancestors.append({
+                "id": str(cid), 
+                "parent_id": attr["parent_id"], 
+                "name": attr["name"] if cid else "", 
+            })
+            children = await to_list(cast(AsyncIterator[AttrDict], share_iterdir(
+                client, 
+                share_code, 
+                receive_code, 
+                cid, 
+                page_size=page_size, 
+                normalize_attr=normalize_attr, 
+                async_=True, 
+            )))
+            dirname = "/".join(escape(a["name"]) for a in ancestors)
+            for attr in children:
+                attr["path"] = dirname + "/" + escape(attr["name"])
+            children.sort(key=lambda a: (not a["is_dir"], a["name"]))
+            file_list = CACHE_ID_TO_LIST[key] = {"ancestors": ancestors, "children": children}
+            push_task_share_file_list(share_code, cid, file_list)
+            ID_TO_ATTR.update(((share_code, int(attr["id"])), attr) for attr in children)
+            return file_list
 
+    async def get_share_file_tree(
+        share_code: str, 
+        receive_code: str, 
+        cid: int = 0, 
+        page_size: int = 10_000, 
+    ) -> AsyncIterator[AttrDict]:
+        """迭代整个分享的所有节点信息
+        """
+        start_from_root = cid == 0
+        dq: deque[int] = deque((cid,))
+        push, pop = dq.append, dq.popleft
+        while dq:
+            cid = pop()
+            file_list = await get_share_file_list(share_code, receive_code, cid, page_size=page_size)
+            for attr in file_list["children"]:
+                yield attr
+                if attr["is_dir"]:
+                    push(int(attr["id"]))
+        if start_from_root:
+            put_task(("INSERT OR REPLACE INTO share_list_loaded(share_code, loaded) VALUES (?, TRUE)", share_code))
+
+    async def get_file_url(
+        pickcode: str, 
+        /, 
+        user_agent: str = "", 
+        use_web_api: bool = False, 
+    ) -> P115URL:
+        """获取文件的下载链接
+        """
+        if app_id and not use_web_api:
+            return await client.download_url_open(
+                pickcode, 
+                headers={"User-Agent": user_agent}, 
+                async_=True, 
+            )
+        else:
+            return await client.download_url(
+                pickcode, 
+                headers={"User-Agent": user_agent}, 
+                use_web_api=use_web_api, 
+                app="android", 
+                async_=True, 
+            )
+
+    async def get_image_url(pickcode: str, /) -> str:
+        """获取图片的下载链接，走 CDN
+        """
+        if not (url := IMAGE_URL_CACHE.get(pickcode, "")):
+            resp = await client.fs_image(pickcode, async_=True)
+            resp = check_response(resp)
+            data = resp["data"]
+            url = IMAGE_URL_CACHE[pickcode] = cast(str, data["origin_url"])
+        return url
+
+    async def list_my_shares() -> list[dict]:
+        """获取你自己的分享列表
+        """
+        share_get_list = client.share_list
+        shares: list[dict] = []
+        add_share = shares.append
+        offset = 0
+        payload = {"offset": offset, "limit": 1150}
+        while True:
+            resp = await share_get_list(payload, base_url=True, async_=True)
+            check_response(resp)
+            for share in resp["list"]:
+                SHARE_CODE_MAP[share["share_code"]] = share
+                add_share(share)
+            offset += len(resp["list"])
+            if offset >= resp["count"]:
+                break
+            payload["offset"] = offset
+        return shares
+
+    async def get_share_info(
+        share_code: str, 
+        /, 
+        receive_code: str = "", 
+    ) -> dict:
+        """获取分享链接的接收码（必须是你自己的分享）
+        """
+        share_code = share_code.lower()
+        try:
+            return SHARE_CODE_MAP[share_code]
+        except KeyError:
+            if receive_code:
+                resp = await client.share_snap(
+                    {"share_code": share_code, "receive_code": receive_code, "cid": 0, "limit": 1}, 
+                    base_url=True, 
+                    async_=True, 
+                )
+                if resp["state"]:
+                    share_info = resp["data"]["shareinfo"]
+            else:
+                resp = await client.share_info(share_code, base_url=True, async_=True)
+                if resp["state"]:
+                    share_info = resp["data"]
+            check_response(resp)
+            share_info["share_code"] = share_code
+            SHARE_CODE_MAP[share_code] = share_info
+            return share_info
+
+    async def get_share_file_url(
+        share_code: str, 
+        receive_code: str, 
+        id: int | str, 
+        /, 
+        use_web_api: bool = False, 
+    ) -> P115URL:
+        """获取分享的文件的下载链接
+        """
+        return await client.share_download_url(
+            {"share_code": share_code, "receive_code": receive_code, "file_id": id}, 
+            use_web_api=use_web_api, 
+            async_=True, 
+        )
+
+    async def get_share_image_url(
+        share_code: str, 
+        receive_code: str, 
+        id: int, 
+    ) -> str:
+        """获取分享的图片的下载链接，走 CDN
+        """
+        if url := IMAGE_URL_CACHE.get((share_code, id), ""):
+            return url
+        attr = await share_get_attr(share_code, id=id, receive_code=receive_code)
+        try:
+            return attr["thumb"]
+        except KeyError:
+            raise ValueError("has no thumb picture")
+
+    # NOTE: 下面的接口用来从你的网盘获取信息
 
     @skip_if_only_webdav(app.router.get("/%3Cid"))
     @skip_if_only_webdav(app.router.get("/%3Cid/*"))
@@ -936,7 +1071,7 @@ def make_application(
         elif id > 0:
             pickcode = await db.get_pickcode(con, id=id, async_=True)
             if pickcode is None:
-                attr = await get_attr(id)
+                attr = await get_attr(id, skim=True)
                 return attr["pickcode"]
             return pickcode
         elif sha1:
@@ -945,7 +1080,7 @@ def make_application(
                 id = await get_id(sha1=sha1)
                 if isinstance(id, P115ID):
                     return get_first(id, "pickcode", "pick_code", "pc", default="")
-                attr = await get_attr(id)
+                attr = await get_attr(id, skim=True)
                 return attr["pickcode"]
             return pickcode
         elif path:
@@ -954,7 +1089,7 @@ def make_application(
                 id = await get_id(path=path)
                 if isinstance(id, P115ID):
                     return get_first(id, "pickcode", "pick_code", "pc", default="")
-                attr = await get_attr(id)
+                attr = await get_attr(id, skim=True)
                 return attr["pickcode"]
             return pickcode
         raise FileNotFoundError(ENOENT, "does not have pickcode")
@@ -982,13 +1117,13 @@ def make_application(
                 id = await get_id(pickcode=pickcode)
                 if isinstance(id, P115ID):
                     return get_first(id, "sha1", "file_sha1", "sha", default="")
-                attr = await get_attr(id)
+                attr = await get_attr(id, skim=True)
                 return attr["sha1"]
             return sha1
         elif id > 0:
             sha1 = await db.get_sha1(con, id=id, async_=True)
             if sha1 is None:
-                attr = await get_attr(id)
+                attr = await get_attr(id, skim=True)
                 return attr["sha1"]
             return sha1
         elif sha1:
@@ -1001,7 +1136,7 @@ def make_application(
                 id = await get_id(path=path)
                 if isinstance(id, P115ID):
                     return get_first(id, "sha1", "file_sha1", "sha", default="")
-                attr = await get_attr(id)
+                attr = await get_attr(id, skim=True)
                 return attr["sha1"]
             return sha1
         raise FileNotFoundError(ENOENT, "does not have sha1")
@@ -1035,14 +1170,12 @@ def make_application(
         if id > 0:
             path = await db.get_path(con, id, async_=True)
             if path is None:
-                await get_ancestors(
-                    client, 
-                    
-                )
+                ancestors = await get_ancestors(client, id, async_=True)
+                push_task_attr(ancestors)
+                return "/".join(escape(info["name"]) for info in ancestors)
             return path
         raise FileNotFoundError(ENOENT, "does not have path")
 
-    # TODO:
     @skip_if_only_webdav(app.router.get("/%3Cattr"))
     @skip_if_only_webdav(app.router.get("/%3Cattr/*"))
     async def get_attr(
@@ -1052,21 +1185,46 @@ def make_application(
         path: str = "", 
         skim: bool = False, 
     ) -> dict:
+        """获取对应的属性
+
+        :param id: 优先级低于 `pickcode`
+        :param pickcode: 优先级最高
+        :param sha1: 优先级低于 `id`
+        :param path: 优先级低于 `sha1`
+        :param skim: 当进行查询时，是否用简化版的接口（可避免风控）
+
+        :return: 对应的属性
+        """
         id = await get_id(id=id, pickcode=pickcode, sha1=sha1, path=path)
         if isinstance(id, P115ID) and id.get("about") == "path":
-            return id["attr"]
-        if not id:
-            return {"id": "0", "parent_id": "0", "is_dir": True, "name": ""}
-        # TODO: 我发现，有时 client.fs_file 被调用次数太多了，说明没有走缓存，需要解决一下
-        # TODO: 可以在这里下断点
-        if attr := ID_TO_ATTR.get(id):
-            if attr["type"] != 2 or int(CRE_URL_T_search(urlsplit(attr["thumb"]).query)[0]) - time() >= 60: # type: ignore
-                return attr
-        # TODO: 需要筛选一下字段
-        from p115client.tool import get_attr
-        attr = await get_attr(client, id, skim=skim, async_=True)
-        CACHE_ID_TO_ATTR[id] = ID_TO_ATTR[id] = attr
-        push_task_attr(attr)
+            attr = AttrDict(id.__dict__)
+            attr.pop("about")
+            skim = False
+        else:
+            if not id:
+                return {"id": "0", "parent_id": "0", "is_dir": True, "name": ""}
+            if id not in ID_TO_ATTR:
+                pid = await db.get_parent_id(con, id, async_=True)
+                if pid is not None:
+                    await get_file_list(pid)
+            if attr := ID_TO_ATTR.get(id):
+                if attr["type"] != 2 or int(CRE_URL_T_search(urlsplit(attr["thumb"]).query)[0]) - time() >= 60: # type: ignore
+                    return attr
+            from p115client.tool import get_attr
+            attr = await get_attr(client, id, skim=skim, async_=True)
+        if skim:
+            push_task_attr(attr)
+        else:
+            id = int(id)
+            CACHE_ID_TO_ATTR[id] = ID_TO_ATTR[id] = attr
+            push_task_attr({
+                "id": id, 
+                "parent_id": attr["parent_id"], 
+                "pickcode": attr["pickcode"], 
+                "sha1": attr["sha1"], 
+                "name": attr["name"], 
+                "is_dir": attr["is_dir"], 
+            })
         return attr
 
     @skip_if_only_webdav(app.router.get("/%3Clist"))
@@ -1077,22 +1235,35 @@ def make_application(
         sha1: str = "", 
         path: str = "", 
     ) -> dict:
+        """获取对应的祖先节点列表和子节点信息列表
+
+        :param id: 优先级低于 `pickcode`
+        :param pickcode: 优先级最高
+        :param sha1: 优先级低于 `id`
+        :param path: 优先级低于 `sha1`
+
+        :return: 对应的祖先节点列表和子节点信息列表
+        """
         id = await get_id(id=id, pickcode=pickcode, sha1=sha1, path=path)
         return await get_file_list(id)
 
     @skip_if_only_webdav(app.router.get("/%3Cm3u8"))
     @skip_if_only_webdav(app.router.get("/%3Cm3u8/*"))
-    async def get_m3u8(pickcode: str = ""):
+    async def get_m3u8(pickcode: str) -> str:
         """获取 m3u8 文件链接
+
+        :param pickcode: 对应视频文件的提取码
+
+        :return: m3u8 文件下载链接
         """
         resp = await client.fs_video_app(pickcode, async_=True)
         if data := resp.get("data"):
             push_task_attr({
                 "id": int(data["file_id"]), 
+                "parent_id": int(data["parent_id"]), 
                 "pickcode": data["pick_code"], 
                 "sha1": data["file_sha1"], 
                 "name": data["file_name"], 
-                "parent_id": int(data["parent_id"]), 
                 "is_dir": False, 
             })
         check_response(resp)
@@ -1100,8 +1271,12 @@ def make_application(
 
     @skip_if_only_webdav(app.router.get("/%3Csubtitles"))
     @skip_if_only_webdav(app.router.get("/%3Csubtitles/*"))
-    async def get_subtitles(pickcode: str):
+    async def get_subtitles(pickcode: str) -> list[dict]:
         """获取字幕（随便提供此文件夹内的任何一个文件的提取码即可）
+
+        :param pickcode: 提取码，可以是和对应视频相同目录下的任何文件的提取码
+
+        :return: 字幕文件列表，包含下载链接和其它信息
         """
         resp = await client.fs_video_subtitle(pickcode, async_=True)
         data = check_response(resp).get("data")
@@ -1127,12 +1302,17 @@ def make_application(
         user_agent: str = "", 
         url_detail: None | bool = None, 
         request: None | Request = None, 
-    ) -> dict:
+    ) -> str | dict | Response:
         """获取下载链接
 
         :param pickcode: 文件的 pickcode
         :param image: 是否为图片
         :param web: 是否使用 web 接口
+        :param user_agent: User-Agent 请求头（不需要传，会自动确定，不用管）
+        :param url_detail: 链接信息完整度设置（内部开发使用，不用管）
+        :param request: 请求对象（不用管）
+
+        :return: 下载链接的信息
         """
         if image:
             return {"type": "image", "url": await get_image_url(pickcode)}
@@ -1153,7 +1333,7 @@ def make_application(
             DOWNLOAD_URL_CACHE[(pickcode, user_agent)] = (expire_ts, url)
         return wrap_url(url, url_detail)
 
-    if show_web_page:
+    if default_web_page:
         @skip_if_only_webdav(app.router.route("/", methods=["GET", "HEAD"]))
         @skip_if_only_webdav(app.router.route("/<path:path2>", methods=["GET", "HEAD"]))
         async def get_page(
@@ -1169,11 +1349,11 @@ def make_application(
         ) -> Response:
             """根据实际情况分流到具体接口
 
-            :param path2: 文件或目录的 path，优先级最低
             :param id: 文件或目录的 id，优先级高于 `sha1`
             :param pickcode: 文件或目录的 pickcode，优先级高于 `id`，为最高
             :param sha1: 文件的 sha1，优先级高于 `path`
             :param path: 文件或目录的 path，优先级高于 `path2`
+            :param path2: 文件或目录的 path，优先级最低
             :param file: 是否为文件，如果为 None，则需要进一步确定
             :param image: 是否为图片
             :param web: 是否使用 web 接口
@@ -1244,109 +1424,32 @@ def make_application(
                 IMAGE_URL_CACHE=IMAGE_URL_CACHE, 
             )
 
-    async def list_shares() -> list[dict]:
-        "获取分享列表"
-        get_share_list = client.share_list
-        shares: list[dict] = []
-        add_share = shares.append
-        offset = 0
-        payload = {"offset": offset, "limit": 1150}
-        while True:
-            resp = await get_share_list(payload, base_url=True, async_=True)
-            check_response(resp)
-            for share in resp["list"]:
-                SHARE_CODE_MAP[share["share_code"]] = share
-                add_share(share)
-            offset += len(resp["list"])
-            if offset >= resp["count"]:
-                break
-            payload["offset"] = offset
-        return shares
 
-    async def get_share_info(share_code: str, /, receive_code: str = "") -> dict:
-        "获取分享链接的接收码（必须是你自己的分享）"
-        share_code = share_code.lower()
-        try:
-            return SHARE_CODE_MAP[share_code]
-        except KeyError:
-            if receive_code:
-                resp = await client.share_snap(
-                    {"share_code": share_code, "receive_code": receive_code, "cid": 0, "limit": 1}, 
-                    base_url=True, 
-                    async_=True, 
-                )
-                if resp["state"]:
-                    share_info = resp["data"]["shareinfo"]
-            else:
-                resp = await client.share_info(share_code, base_url=True, async_=True)
-                if resp["state"]:
-                    share_info = resp["data"]
-            check_response(resp)
-            share_info["share_code"] = share_code
-            SHARE_CODE_MAP[share_code] = share_info
-            return share_info
 
-    async def get_share_file_url(
-        share_code: str, 
-        receive_code: str, 
-        id: int | str, 
-        /, 
-        use_web_api: bool = False, 
-    ) -> P115URL:
-        """获取分享链接中文件的下载链接
-        """
-        return await client.share_download_url(
-            {"share_code": share_code, "receive_code": receive_code, "file_id": id}, 
-            use_web_api=use_web_api, 
-            async_=True, 
-        )
 
-    async def get_share_image_url(
-        share_code: str, 
-        receive_code: str, 
-        id: int, 
-    ) -> str:
-        if url := IMAGE_URL_CACHE.get((share_code, id), ""):
-            return url
-        attr = await get_share_attr(share_code, id=id, receive_code=receive_code)
-        try:
-            return attr["thumb"]
-        except KeyError:
-            raise ValueError("has no thumb picture")
 
-    @app.router.get("/%3Cshare/%3Curl")
-    @app.router.get("/%3Cshare/%3Curl/*")
-    async def get_share_url(
-        share_code: str, 
-        id: int, 
-        receive_code: str = "", 
-        image: bool = False, 
-        web: bool = False, 
-        url_detail: None | bool = None, 
-    ):
-        if not receive_code:
-            share_info = await get_share_info(share_code)
-            receive_code = share_info["receive_code"]
-        if image:
-            url = await get_share_image_url(share_code, receive_code, id)
-            return wrap_url(url, url_detail)
-        if r := DOWNLOAD_URL_CACHE1.get((share_code, id)):
-            return wrap_url(r[1], url_detail)
-        url = await get_share_file_url(share_code, receive_code, id, use_web_api=web)
-        if "&c=0&f=&" in url:
-            expire_ts = int(next(v for k, v in parse_qsl(urlsplit(url).query) if k == "t")) - 60 * 5
-            DOWNLOAD_URL_CACHE1[(share_code, id)] = (expire_ts, url)
-        return wrap_url(url, url_detail)
+
+    # NOTE: 下面的接口用来从分享获取信息
 
     @skip_if_only_webdav(app.router.get("/%3Cshare/%3Cid"))
     @skip_if_only_webdav(app.router.get("/%3Cshare/%3Cid/*"))
-    async def get_share_id(
+    async def share_get_id(
         share_code: str, 
         id: int = -1, 
         sha1: str = "", 
         path: str = "", 
         receive_code: str = "", 
     ):
+        """从分享获取对应的 id
+
+        :param share_code: 分享码
+        :param id: 文件或目录的 id
+        :param sha1: 优先级低于 `id`
+        :param path: 优先级低于 `sha1`
+        :param receive_code: 提取码，如果是你自己的分享，可以不传
+
+        :return: 对应的 id
+        """
         if id >= 0:
             fid = id
         elif sha1:
@@ -1381,19 +1484,69 @@ def make_application(
             fid = 0
         return fid
 
+    @skip_if_only_webdav(app.router.get("/%3Cshare/%3Csha1"))
+    @skip_if_only_webdav(app.router.get("/%3Cshare/%3Csha1/*"))
+    async def share_get_sha1(
+        share_code: str, 
+        id: int = -1, 
+        sha1: str = "", 
+        path: str = "", 
+        receive_code: str = "", 
+    ):
+        """从分享获取对应的 sha1 摘要值
+
+        :param share_code: 分享码
+        :param id: 文件的 id
+        :param sha1: 优先级低于 `id`
+        :param path: 优先级低于 `sha1`
+        :param receive_code: 提取码，如果是你自己的分享，可以不传
+
+        :return: 对应的 sha1 摘要值
+        """
+
+    @skip_if_only_webdav(app.router.get("/%3Cshare/%3Cpath"))
+    @skip_if_only_webdav(app.router.get("/%3Cshare/%3Cpath/*"))
+    async def share_get_path(
+        share_code: str, 
+        id: int = -1, 
+        sha1: str = "", 
+        path: str = "", 
+        receive_code: str = "", 
+    ):
+        """从分享获取对应的路径
+
+        :param share_code: 分享码
+        :param id: 文件或目录的 id
+        :param sha1: 优先级低于 `id`
+        :param path: 优先级低于 `sha1`
+        :param receive_code: 提取码，如果是你自己的分享，可以不传
+
+        :return: 对应的路径
+        """
+
     @skip_if_only_webdav(app.router.get("/%3Cshare/%3Cattr"))
     @skip_if_only_webdav(app.router.get("/%3Cshare/%3Cattr/*"))
-    async def get_share_attr(
+    async def share_get_attr(
         share_code: str, 
         id: int = -1, 
         sha1: str = "", 
         path: str = "", 
         receive_code: str = "", 
     ) -> dict:
+        """从分享获取对应的属性
+
+        :param share_code: 分享码
+        :param id: 文件或目录的 id
+        :param sha1: 优先级低于 `id`
+        :param path: 优先级低于 `sha1`
+        :param receive_code: 提取码，如果是你自己的分享，可以不传
+
+        :return: 对应的属性
+        """
         if not share_code:
             return {"is_dir": True, "id": "0"}
         if id < 0:
-            id = await get_share_id(share_code, sha1=sha1, path=path, receive_code=receive_code)
+            id = await share_get_id(share_code, sha1=sha1, path=path, receive_code=receive_code)
         if id == 0:
             share_info = await get_share_info(share_code, receive_code)
             return {
@@ -1440,15 +1593,25 @@ def make_application(
 
     @skip_if_only_webdav(app.router.get("/%3Cshare/%3Clist"))
     @skip_if_only_webdav(app.router.get("/%3Cshare/%3Clist/*"))
-    async def get_share_list(
+    async def share_get_list(
         share_code: str = "", 
         id: int = -1, 
         sha1: str = "", 
         path: str = "", 
         receive_code: str = "", 
     ) -> dict:
+        """从分享获取对应的祖先节点列表和子节点信息列表
+
+        :param share_code: 分享码
+        :param id: 文件或目录的 id
+        :param sha1: 优先级低于 `id`
+        :param path: 优先级低于 `sha1`
+        :param receive_code: 提取码，如果是你自己的分享，可以不传
+
+        :return: 对应的祖先节点列表和子节点信息列表
+        """
         if not share_code:
-            shares = await list_shares()
+            shares = await list_my_shares()
             return {
                 "ancestors": [{"id": "0", "parent_id": "0", "name": ""}], 
                 "children": [{
@@ -1468,13 +1631,48 @@ def make_application(
             share_info = await get_share_info(share_code)
             receive_code = share_info["receive_code"]
         if id < 0:
-            id = await get_share_id(share_code, sha1=sha1, path=path, receive_code=receive_code)
+            id = await share_get_id(share_code, sha1=sha1, path=path, receive_code=receive_code)
         return await get_share_file_list(share_code, receive_code, id, refresh_thumbs=True)
 
-    if show_web_page:
+    @app.router.get("/%3Cshare/%3Curl")
+    @app.router.get("/%3Cshare/%3Curl/*")
+    async def share_get_url(
+        share_code: str, 
+        id: int, 
+        receive_code: str = "", 
+        image: bool = False, 
+        web: bool = False, 
+        url_detail: None | bool = None, 
+    ) -> str | dict | Response:
+        """从分享获取下载链接
+
+        :param share_code: 分享码
+        :param id: 文件的 id
+        :param receive_code: 提取码，如果是你自己的分享，可以不传
+        :param image: 是否为图片
+        :param web: 是否使用 web 接口
+        :param url_detail: 链接信息完整度设置（内部开发使用，不用管）
+
+        :return: 下载链接的信息
+        """
+        if not receive_code:
+            share_info = await get_share_info(share_code)
+            receive_code = share_info["receive_code"]
+        if image:
+            url = await get_share_image_url(share_code, receive_code, id)
+            return wrap_url(url, url_detail)
+        if r := DOWNLOAD_URL_CACHE1.get((share_code, id)):
+            return wrap_url(r[1], url_detail)
+        url = await get_share_file_url(share_code, receive_code, id, use_web_api=web)
+        if "&c=0&f=&" in url:
+            expire_ts = int(next(v for k, v in parse_qsl(urlsplit(url).query) if k == "t")) - 60 * 5
+            DOWNLOAD_URL_CACHE1[(share_code, id)] = (expire_ts, url)
+        return wrap_url(url, url_detail)
+
+    if default_web_page:
         @skip_if_only_webdav(app.router.route("/%3Cshare", methods=["GET", "HEAD"]))
         @skip_if_only_webdav(app.router.route("/%3Cshare/<path:path2>", methods=["GET", "HEAD"]))
-        async def get_share_page(
+        async def share_get_page(
             request: Request, 
             share_code: str = "", 
             receive_code: str = "", 
@@ -1485,11 +1683,23 @@ def make_application(
             file: None | bool = None, 
             image: bool = False, 
             web: bool = False, 
-        ):
+        ) -> Response:
+            """对于分享，根据实际情况分流到具体接口
+
+            :param share_code: 分享码
+            :param receive_code: 提取码，如果是你自己的分享，可以不传
+            :param id: 文件或目录的 id，优先级高于 `sha1`
+            :param sha1: 文件的 sha1，优先级高于 `path`
+            :param path: 文件或目录的 path，优先级高于 `path2`
+            :param path2: 文件或目录的 path，优先级最低
+            :param file: 是否为文件，如果为 None，则需要进一步确定
+            :param image: 是否为图片
+            :param web: 是否使用 web 接口
+            """
             if str(request.url) == "/service-worker.js":
                 return text("not found 'service-worker.js'", 404)
             if file is None:
-                attr = await get_share_attr(
+                attr = await share_get_attr(
                     share_code, 
                     id=id, 
                     sha1=sha1, 
@@ -1500,7 +1710,7 @@ def make_application(
                 id = int(attr["id"])
             else:
                 is_dir = not file
-                id = await get_share_id(
+                id = await share_get_id(
                     share_code, 
                     id=id, 
                     sha1=sha1, 
@@ -1508,7 +1718,7 @@ def make_application(
                     receive_code=receive_code, 
                 )
             if not is_dir:
-                resp = await get_share_url(
+                resp = await share_get_url(
                     share_code, 
                     id=id, 
                     image=image, 
@@ -1531,7 +1741,7 @@ def make_application(
                         (b"Location", bytes(url, "utf-8")), 
                         (b"Content-Disposition", b'attachment; filename="%s"' % bytes(quote(url["name"], safe=""), "latin-1")), 
                     ], Content(b"application/json; charset=utf-8", dumps(url.__dict__)))
-            file_list = await get_share_list(share_code, id=id, receive_code=receive_code)
+            file_list = await share_get_list(share_code, id=id, receive_code=receive_code)
             ancestors = file_list["ancestors"]
             children  = file_list["children"]
             return await view_async(
@@ -1545,6 +1755,8 @@ def make_application(
                 int=int, 
                 IMAGE_URL_CACHE=IMAGE_URL_CACHE, 
             )
+
+    # NOTE: 下面是一些其它的工具接口
 
     @app.router.route("/%3Cdownload", methods=["GET", "HEAD", "POST"])
     @app.router.route("/%3Cdownload/*", methods=["GET", "HEAD", "POST"])
@@ -1629,6 +1841,8 @@ def make_application(
             async_=True, 
         )
         return SSAFile.from_string(content.decode("utf-8"), format_=format).to_string("ass")
+
+    # NOTE: 下面是 WebDAV 的实现
 
     class DavPathBase:
 
@@ -1755,7 +1969,7 @@ def make_application(
             if dir_ != "/":
                 dir_ += "/"
             if dir_ == "/<share/":
-                shares = run_coroutine_threadsafe(list_shares(), loop).result()
+                shares = run_coroutine_threadsafe(list_my_shares(), loop).result()
                 for share in shares:
                     share_code = share["share_code"]
                     children[share["share_code"]] = FolderResource(
@@ -1778,7 +1992,7 @@ def make_application(
                 id = int(self.attr["id"])
                 if dir_.startswith("/<share/"):
                     share_code = self.attr["share_code"]
-                    coro = get_share_list(share_code, id, receive_code=self.attr["receive_code"])
+                    coro = share_get_list(share_code, id, receive_code=self.attr["receive_code"])
                 else:
                     is_root = dir_ == "/"
                     coro = get_list(id)
@@ -1855,7 +2069,7 @@ def make_application(
             else:
                 if path.startswith("/<share/"):
                     share_code, _, share_path = path[8:].partition("/")
-                    coro = get_share_attr(share_code=share_code, path=share_path)
+                    coro = share_get_attr(share_code=share_code, path=share_path)
                 else:
                     coro = get_attr(path=path)
                 try:

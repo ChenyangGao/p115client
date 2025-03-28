@@ -66,6 +66,7 @@ def get_attr(
                 pickcode=info["pick_code"], 
                 sha1=info["sha1"], 
                 size=int(info["file_size"]), 
+                is_dir=not info["sha1"], 
             )
         else:
             resp = yield client.fs_file(id, async_=async_, **request_kwargs)

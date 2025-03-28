@@ -3,10 +3,10 @@
 
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
 __all__ = [
-    "init_db", "iter_id_to_path", "id_to_path", "get_id", "get_pickcode", 
-    "get_sha1", "get_path", "get_ancestors", "get_children", "get_file_list", 
-    "share_is_loaded", "share_get_parent_id", "share_get_id", "share_get_sha1", 
-    "share_get_path", "share_get_ancestors", "share_get_children", 
+    "init_db", "iter_id_to_path", "id_to_path", "get_parent_id", "get_id", 
+    "get_pickcode", "get_sha1", "get_path", "get_ancestors", "get_children", 
+    "get_file_list", "share_is_loaded", "share_get_parent_id", "share_get_id", 
+    "share_get_sha1", "share_get_path", "share_get_ancestors", "share_get_children", 
     "share_get_file_list", "get_updated_at", 
 ]
 
@@ -19,7 +19,7 @@ from typing import overload, Any, Literal
 
 from dictattr import AttrDict
 from orjson import dumps, loads
-from posixpatht import escape, path_is_dir_form, splits
+from posixpatht import dirname, escape, path_is_dir_form, splits
 from sqlitetools import find, query
 
 
@@ -285,6 +285,40 @@ def id_to_path(
 
 
 @can_async
+def get_parent_id(
+    con: Connection | Cursor, 
+    /, 
+    id: int = -1, 
+    pickcode: str = "", 
+    sha1: str = "", 
+    path: str = "", 
+) -> None | int:
+    if pickcode:
+        return find(
+            con, 
+            "SELECT parent_id FROM data WHERE pickcode=? LIMIT 1", 
+            pickcode, 
+        )
+    elif id >= 0:
+        if not id:
+            return 0
+        return find(
+            con, 
+            "SELECT parent_id FROM data WHERE id=? LIMIT 1", 
+            id, 
+        )
+    elif sha1:
+        return find(
+            con, 
+            "SELECT parent_id FROM data WHERE sha1=? LIMIT 1", 
+            sha1, 
+        )
+    elif path:
+        return get_id(con, path=dirname(path))
+    return 0
+
+
+@can_async
 def get_id(
     con: Connection | Cursor, 
     /, 
@@ -492,7 +526,7 @@ def share_get_parent_id(
     id: int = -1, 
     sha1: str = "", 
     path: str = "", 
-):
+) -> None | int:
     if not id:
         return 0
     pid: None | int = None
