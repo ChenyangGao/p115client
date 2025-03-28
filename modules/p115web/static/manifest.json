@@ -1,0 +1,15 @@
+{
+  "short_name": "115FileLister",
+  "name": "115FileLister",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "any",
+      "type": "image/png"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#171717",
+  "background_color": "#171717"
+}

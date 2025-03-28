@@ -1,0 +1,135 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  width: 100%;
+  height: calc(100% + env(safe-area-inset-top));
+  color: #fff;
+}
+
+body,
+#root {
+  height: 100%;
+}
+
+/* 设置滚动条的样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  background: #131313;
+}
+
+/* 滚动槽 */
+::-webkit-scrollbar-track {
+  /*-webkit-box-shadow: rgba(255, 0, 0, 1);*/
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0);
+}
+
+/* 滚动条滑块-窗口激活 */
+::-webkit-scrollbar-thumb {
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  /*-webkit-box-shadow:  rgba(255, 0, 0, 0);*/
+}
+
+/* 滚动条滑块-窗口失去焦点 */
+::-webkit-scrollbar-thumb:window-inactive {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.icon {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.15em;
+  fill: currentColor;
+  overflow: hidden;
+}
+
+:root {
+  box-sizing: border-box;
+  /* padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left); */
+  --safe-area-inset-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+:root::after {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: env(safe-area-inset-top);
+  background: #131313;
+
+  @media (max-width: 768px) {
+    background: #212121;
+  }
+}
+
+:root::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 600px;
+  background: #131313;
+  z-index: -1;
+
+  @media (max-width: 768px) {
+    background: #212121;
+  }
+}
+
+.ant-dropdown-menu {
+  /* background: rgba(255, 255, 255, 7%) !important; */
+  background: #242424 !important;
+  /* backdrop-filter: blur(18px) !important; */
+  /* -webkit-backdrop-filter: blur(18px) !important; */
+  border-radius: 8px !important;
+  padding: 6px !important;
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.5) !important;
+}
+
+.ant-dropdown-menu-item {
+  min-width: 120px;
+  border-radius: 5px !important;
+  margin: 2px !important;
+  padding: 8px !important;
+  color: #fff !important;
+}
+
+.ant-dropdown-menu-item:hover {
+  background: rgba(255, 255, 255, 1) !important;
+  color: #000000 !important;
+}
+
+.ant-modal-content {
+  border-radius: 10px !important;
+  border: 0.5px solid rgba(255, 255, 255, 0.07) !important;
+  background: rgba(242, 243, 255, 0.07) !important;
+  box-shadow: 0px 8px 50px 0px rgba(0, 0, 0, 0.6) !important;
+
+  backdrop-filter: blur(18px) !important;
+  -webkit-backdrop-filter: blur(18px) !important;
+  .ant-modal-title {
+    color: #ffffff;
+    background: #24242400;
+  }
+  .ant-modal-close-x {
+    color: #ffffff5f;
+  }
+  .ant-modal-close-x :hover {
+    color: #ffffff8f;
+    transition: all 0.3s ease-in-out !important;
+  }
+}
