@@ -232,7 +232,7 @@ def make_application(
     logger.addHandler(handler)
 
     # NOTE: 缓存图片的 CDN 直链，缓存 59 分钟
-    IMAGE_URL_CACHE: TTLDict[str | tuple[str, int], str] = TTLDict(cache_size, xr=60*59)
+    IMAGE_URL_CACHE: TTLDict[str | tuple[str, int], str] = TTLDict(cache_size, ttl=60*59)
     # NOTE: 缓存直链（主要是音乐链接）
     if cache_url:
         DOWNLOAD_URL_CACHE: TLRUDict[tuple[str, str], P115URL] = TLRUDict(cache_size)
@@ -2161,4 +2161,4 @@ if __name__ == "__main__":
 # TODO: 缓存 m3u8 和 subtitles
 # TODO: 如果没有 client，则字幕文件使用 listdir
 # TODO: 支持 p115tiny302 的链接格式
-# TODO: 支持多个 app_id 登录后分流
+

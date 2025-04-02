@@ -195,7 +195,7 @@ class MyCustom115Client(P115Client):
 
 ### 3. 检查响应
 
-接口被调用后，如果返回的是 dict 类型的数据（说明原本是 JSON），则可以用 `p115client.check_response` 执行检查。首先会查看其中名为 "state" 的键的对应值，如果为  True、1 或不存在，则原样返回被检查的数据；否则，"state" 的对应值大概是 False 或 0，说明有问题出现，会根据实际情况抛出一个异常，但都是 `OSError` 的实例，其中大部分还是 `p115client.P115OSError` 的实例。
+接口被调用后，如果返回的是 dict 类型的数据（说明原本是 JSON），则可以用 `p115client.check_response` 执行检查。首先会查看其中名为 "state" 的键的对应值，如果为  True、1 或不存在，则原样返回被检查的数据；否则，"state" 的对应值大概是 False 或 0，说明有问题出现，会根据实际情况抛出一个异常，但都是 `p115client.P115OSError` 的实例。
 
 ```python
 from p115client import check_response

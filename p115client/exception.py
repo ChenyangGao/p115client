@@ -3,8 +3,9 @@
 
 __all__ = [
     "P115Warning", "P115OSError", "AuthenticationError", "BusyOSError", "DataError", 
-    "LoginError", "MultipartUploadAbort", "NotSupportedError", "OperationalError", 
-    "P115FileExistsError", "P115FileNotFoundError", "P115IsADirectoryError", 
+    "LoginError", "MultipartUploadAbort", "OpenAppAuthLimitExceeded", 
+    "NotSupportedError", "OperationalError", "P115FileExistsError", 
+    "P115FileNotFoundError", "P115IsADirectoryError", 
     "P115NotADirectoryError", "P115PermissionError", "P115TimeoutError", 
 ]
 
@@ -79,6 +80,11 @@ class MultipartUploadAbort(P115OSError):
 
     def __repr__(self, /) -> str:
         return f"{type(self).__module__}.{type(self).__qualname__}({self.ticket})"
+
+
+class OpenAppAuthLimitExceeded(AuthenticationError):
+    """当授权应用数达到上限时抛出
+    """
 
 
 class NotSupportedError(P115OSError):

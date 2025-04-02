@@ -14,7 +14,7 @@ from typing import Final
 
 
 #: 可用的 AppID 列表
-AVAILABLE_APP_IDS = range(100195123, 100196837, 2)
+AVAILABLE_APP_IDS = range(100195123, 100196845, 2)
 
 
 #: 目前可用的登录设备

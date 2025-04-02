@@ -13,6 +13,7 @@ __all__ = [
     "iter_selected_nodes_using_edit", "iter_selected_nodes_using_star_event", 
     "iter_selected_dirs_using_star", "iter_files_with_dirname", "iter_files_with_path", 
     "iter_files_with_path_by_export_dir", "iter_parents_3_level", "iter_dir_nodes", 
+    "search_for_any_file", 
 ]
 __doc__ = "这个模块提供了一些和目录信息罗列有关的函数"
 
@@ -276,9 +277,6 @@ def get_file_count(
 ) -> int | Coroutine[Any, Any, int]:
     """获取文件总数
 
-    .. caution::
-        我通过一些经验，搭配了多个接口的占比和参数分布，可能不够合理，以后会根据实际情况调整
-
     :param client: 115 客户端或 cookies
     :param cid: 目录 id
     :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
@@ -407,9 +405,6 @@ def get_ancestors(
     **request_kwargs, 
 ) -> list[dict] | Coroutine[Any, Any, list[dict]]:
     """获取某个节点对应的祖先节点列表（只有 id、parent_id 和 name 的信息）
-
-    .. caution::
-        我通过一些经验，搭配了多个接口的占比和参数分布，可能不够合理，以后会根据实际情况调整
 
     :param client: 115 客户端或 cookies
     :param attr: 待查询节点 `id` 或信息（必须有 `id`，可选有 `parent_id`）
@@ -5101,4 +5096,83 @@ def iter_dir_nodes(
                         identity=True, 
                     )
     return run_gen_step_iter(gen_step(cid or 0), async_=async_)
+
+
+@overload
+def search_for_any_file(
+    client: str | P115Client, 
+    cid: int = 0, 
+    search_value: str = ".", 
+    suffix: str = "", 
+    type: int = 99, 
+    app: str = "web", 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> bool:
+    ...
+@overload
+def search_for_any_file(
+    client: str | P115Client, 
+    cid: int = 0, 
+    search_value: str = ".", 
+    suffix: str = "", 
+    type: int = 99, 
+    app: str = "web", 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> Coroutine[Any, Any, bool]:
+    ...
+def search_for_any_file(
+    client: str | P115Client, 
+    cid: int = 0, 
+    search_value: str = ".", 
+    suffix: str = "", 
+    type: int = 99, 
+    app: str = "web", 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+) -> bool | Coroutine[Any, Any, bool]:
+    """搜索以判断是否存在某种文件
+
+    :param client: 115 客户端或 cookies
+    :param cid: 目录 id
+    :param search_value: 搜索关键词，搜索到的文件名必须包含这个字符串
+    :param suffix: 后缀名（优先级高于 type）
+    :param type: 文件类型
+
+        - 1: 文档
+        - 2: 图片
+        - 3: 音频
+        - 4: 视频
+        - 5: 压缩包
+        - 6: 应用
+        - 7: 书籍
+        - 99: 仅文件
+
+    :param app: 使用某个 app （设备）的接口
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+
+    :return: 是否存在某种文件
+    """
+    if isinstance(client, str):
+        client = P115Client(client, check_for_relogin=True)
+    if not isinstance(client, P115Client) or app == "open":
+        fs_search: Callable = client.fs_search_open
+    elif app in ("", "web", "desktop", "harmony"):
+        fs_search = partial(client.fs_search, app=app)
+    else:
+        fs_search = client.fs_search_app
+    def gen_step():
+        resp = yield fs_search(
+            {"cid": cid, "limit": 1, "search_value": search_value, "suffix": suffix, "type": type}, 
+            async_=async_, 
+            **request_kwargs, 
+        )
+        check_response(resp)
+        return bool(resp["data"])
+    return run_gen_step(gen_step, async_=async_)
 

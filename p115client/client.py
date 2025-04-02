@@ -65,8 +65,8 @@ from yarl import URL
 
 from .const import CLASS_TO_TYPE, CLIENT_API_MAP, SSOENT_TO_APP, SUFFIX_TO_TYPE, errno
 from .exception import (
-    AuthenticationError, BusyOSError, DataError, LoginError, NotSupportedError, 
-    P115OSError, OperationalError, P115Warning, P115FileExistsError, 
+    AuthenticationError, BusyOSError, DataError, LoginError, OpenAppAuthLimitExceeded, 
+    NotSupportedError, P115OSError, OperationalError, P115Warning, P115FileExistsError, 
     P115FileNotFoundError, P115IsADirectoryError, 
 )
 from .type import RequestKeywords, MultipartResumeData, P115Cookies, P115URL
@@ -181,7 +181,7 @@ def complete_proapi(
 ) -> str:
     if path and not path.startswith("/"):
         path = "/" + path
-    if app == "open":
+    if app in ("open", "aps", "web"):
         app = "android"
     if app and not app.startswith("/"):
         app = "/" + app
@@ -529,7 +529,7 @@ def check_response(resp: dict | Awaitable[dict], /) -> dict | Coroutine[Any, Any
                     raise OperationalError(errno.EINVAL, resp)
                 # {"state": 0, "errno": 40140122, "error": "超出授权应用个数上限"}
                 case 40140122:
-                    raise OperationalError(errno.EINVAL, resp)
+                    raise OpenAppAuthLimitExceeded(errno.EDQUOT, resp)
                 # {"state": 0, "errno": 40140123, "error": "access_token 格式错误（防篡改）"}
                 case 40140123:
                     raise OperationalError(errno.EINVAL, resp)
@@ -616,9 +616,6 @@ def normalize_attr_web(
         if "te" in info:
             attr["mtime"] = int(info["te"])
     else:
-        attr["labels"] = info["fl"]
-        if "score" in info:
-            attr["score"] = int(info.get("score") or 0)
         attr["ico"] = info.get("ico", "folder" if is_directory else "")
         if "te" in info:
             attr["mtime"] = attr["user_utime"] = int(info["te"])
@@ -651,12 +648,14 @@ def normalize_attr_web(
             ("c", "violated"), 
             ("c", "is_collect"), 
             ("sh", "is_share"), 
+            ("score", "score"), 
             #("d", "has_desc"), 
             #("p", "has_pass"), 
         ):
             if key in info:
                 attr[name] = int(info[key] or 0)
         for key, name in (
+            ("fl", "labels"), 
             ("dp", "dir_path"), 
             ("style", "style"), 
             ("ns", "name_show"), 
@@ -744,10 +743,7 @@ def normalize_attr_app(
         if "upt" in info:
             attr["mtime"] = int(info["upt"])
     else:
-        attr["labels"] = info["fl"]
         attr["ico"] = info.get("ico", "folder" if attr["is_dir"] else "")
-        if "ftype" in info:
-            attr["file_type"] = int(info["ftype"] or 0)
         if "thumb" in info:
             thumb = info["thumb"]
             if thumb.startswith("?"):
@@ -763,6 +759,7 @@ def normalize_attr_app(
             ("aid", "area_id"), 
             ("fatr", "audio_play_long"), 
             ("fta", "status"), 
+            ("ftype", "file_type"), 
             ("ism", "star"), 
             ("ism", "is_mark"), 
             ("is_top", "is_top"), 
@@ -784,6 +781,7 @@ def normalize_attr_app(
             ("fco", "cover"), 
             ("fco", "folder_cover"), 
             ("fdesc", "desc"), 
+            ("fl", "labels"), 
             ("flabel", "fflabel"), 
             ("multitrack", "multitrack"), 
             ("play_long", "play_long"), 
@@ -838,18 +836,28 @@ def normalize_attr_app2(
         else:
             dict_cls = AttrDict
     attr: dict[str, Any] = dict_cls()
-    is_directory = attr["is_dir"] = "file_id" not in info
-    if not simple:
-        attr["is_directory"] = is_directory
-    if is_directory:
+    if "file_id" in info and "parent_id" in info:
+        if "file_category" in info:
+            is_directory = not int(info["file_category"])
+        else:
+            is_directory = bool(info.get("sha1") or info.get("file_sha1"))
         attr["id"] = int(info["file_id"])
-        attr["parent_id"] = int(info["category_id"])
+        attr["parent_id"] = int(info["parent_id"])
         attr["name"] = info["file_name"]
     else:
-        attr["id"] = int(info["category_id"])
-        attr["parent_id"] = int(info["parent_id"])
-        attr["name"] = info["category_name"]
-    attr["sha1"] = info.get("sha1") or ""
+        is_directory = "file_id" not in info
+        if is_directory:
+            attr["id"] = int(info["file_id"])
+            attr["parent_id"] = int(info["category_id"])
+            attr["name"] = info["file_name"]
+        else:
+            attr["id"] = int(info["category_id"])
+            attr["parent_id"] = int(info["parent_id"])
+            attr["name"] = info["category_name"]
+    attr["is_dir"] = is_directory
+    if not simple:
+        attr["is_directory"] = is_directory
+    attr["sha1"] = info.get("sha1") or info.get("file_sha1") or ""
     attr["size"] = int(info.get("file_size") or 0)
     if "pick_code" in info:
         attr["pickcode"] = info["pick_code"]
@@ -890,7 +898,8 @@ def normalize_attr_app2(
             if "utime" in info:
                 attr["utime"] = int(info["utime"])
         attr["ico"] = info.get("ico", "folder" if attr["is_dir"] else "")
-        attr["labels"] = info["fl"]
+        if "fl" in info:
+            attr["labels"] = info["fl"]
         for key, name in (
             ("area_id", "area_id"), 
             ("has_desc", "has_desc"), 
@@ -1158,13 +1167,17 @@ class ClientRequestMixin:
             "user-agent": "Mozilla/5.0 AppleWebKit/600 Safari/600 Chrome/124.0.0.0", 
         })
 
+    @locked_cacheproperty
+    def request_kwargs(self, /) -> dict:
+        return {}
+
     def close(self, /) -> None:
         """删除 session 和 async_session 属性，如果它们未被引用，则应该会被自动清理
         """
         self.__dict__.pop("session", None)
         self.__dict__.pop("async_session", None)
 
-    def request(
+    def _request(
         self, 
         /, 
         url: str, 
@@ -1282,7 +1295,194 @@ class ClientRequestMixin:
         request_kwargs.setdefault("parse", default_parse)
         return request(url=url, method=method, **request_kwargs)
 
+    def request(
+        self, 
+        /, 
+        url: str, 
+        method: str = "GET", 
+        params = None, 
+        data = None, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ):
+        """帮助函数：可执行同步和异步的网络请求
+
+        :param url: HTTP 的请求链接
+        :param method: HTTP 的请求方法
+        :param params: 查询参数
+        :param ecdh_encrypt: 使用 ecdh 算法进行加密（返回值也要解密）
+        :param async_: 说明 `request` 是同步调用还是异步调用
+        :param request: HTTP 请求调用，如果为 None，则默认用 httpx 执行请求
+            如果传入调用，则必须至少能接受以下几个关键词参数：
+
+            - url:     HTTP 的请求链接
+            - method:  HTTP 的请求方法
+            - headers: HTTP 的请求头
+            - data:    HTTP 的请求体
+            - parse:   解析 HTTP 响应的方法，默认会构建一个 Callable，会把响应的字节数据视为 JSON 进行反序列化解析
+
+                - 如果为 None，则直接把响应对象返回
+                - 如果为 ...(Ellipsis)，则把响应对象关闭后将其返回
+                - 如果为 True，则根据响应头来确定把响应得到的字节数据解析成何种格式（反序列化），请求也会被自动关闭
+                - 如果为 False，则直接返回响应得到的字节数据，请求也会被自动关闭
+                - 如果为 Callable，则使用此调用来解析数据，接受 1-2 个位置参数，并把解析结果返回给 `request` 的调用者，请求也会被自动关闭
+                    - 如果只接受 1 个位置参数，则把响应对象传给它
+                    - 如果能接受 2 个位置参数，则把响应对象和响应得到的字节数据（响应体）传给它
+
+        :param request_kwargs: 其余的请求参数，会被传给 `request`
+
+        :return: 直接返回 `request` 执行请求后的返回值
+
+        .. note:: 
+            `request` 可以由不同的请求库来提供，下面是封装了一些模块
+
+            1. `httpx_request <https://pypi.org/project/httpx_request/>`_，由 `httpx <https://pypi.org/project/httpx/>`_ 封装，支持同步和异步调用，本模块默认用的就是这个封装
+
+                .. code:: python
+
+                    from httpx_request import request
+
+            2. `python-urlopen <https://pypi.org/project/python-urlopen/>`_，由 `urllib.request.urlopen <https://docs.python.org/3/library/urllib.request.html#urllib.request.urlopen>`_ 封装，支持同步调用，性能相对最差
+
+                .. code:: python
+
+                    from urlopen import request
+
+            3. `urllib3_request <https://pypi.org/project/urllib3_request/>`_，由 `urllib3 <https://pypi.org/project/urllib3/>`_ 封装，支持同步调用，性能相对较好，推荐使用
+
+                .. code:: python
+
+                    from urllib3_request import request
+
+            4. `requests_request <https://pypi.org/project/requests_request/>`_，由 `requests <https://pypi.org/project/requests/>`_ 封装，支持同步调用
+
+                .. code:: python
+
+                    from requests_request import request
+
+            5. `aiohttp_client_request <https://pypi.org/project/aiohttp_client_request/>`_，由 `aiohttp <https://pypi.org/project/aiohttp/>`_ 封装，支持异步调用，异步并发能力最强，推荐使用
+
+                .. code:: python
+
+                    from aiohttp_client_request import request
+
+            6. `blacksheep_client_request <https://pypi.org/project/blacksheep_client_request/>`_，由 `blacksheep <https://pypi.org/project/blacksheep/>`_ 封装，支持异步调用
+
+                .. code:: python
+
+                    from blacksheep_client_request import request
+        """
+        kwargs = {**self.request_kwargs, **request_kwargs}
+        return self._request(url, method, params, data, async_=async_, **kwargs)
+
     ########## Qrcode API ##########
+
+    @overload
+    def login_authorize_open(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def login_authorize_open(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def login_authorize_open(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """授权码方式请求开放接口应用授权
+
+        GET https://qrcodeapi.115.com/open/authorize
+
+        .. admonition:: Reference
+
+            https://www.yuque.com/115yun/open/okr2cq0wywelscpe#EiOrD
+
+        :payload:
+            - client_id: int | str 💡 AppID
+            - redirect_uri: str 💡 授权成功后重定向到指定的地址并附上授权码 code，需要先到 https://open.115.com/ 应用管理应用域名设置
+            - response_type: str = "code" 💡 授权模式，固定为 code，表示授权码模式
+            - state: int | str = <default> 💡 随机值，会通过 redirect_uri 原样返回，可用于验证以防 MITM 和 CSRF
+        """
+        api = complete_api("/open/authorize", base_url=base_url)
+        payload = {"response_type": "code", **payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    @staticmethod
+    def login_authorize_access_token_open(
+        payload: dict, 
+        /, 
+        request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    @staticmethod
+    def login_authorize_access_token_open(
+        payload: dict, 
+        /, 
+        request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    @staticmethod
+    def login_authorize_access_token_open(
+        payload: dict, 
+        /, 
+        request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """用授权码获取开放接口应用的 access_token
+
+        POST https://qrcodeapi.115.com/open/authCodeToToken
+
+        .. admonition:: Reference
+
+            https://www.yuque.com/115yun/open/okr2cq0wywelscpe#JnDgl
+
+        :payload:
+            - client_id: int | str 💡 AppID
+            - client_secret: str 💡 AppSecret
+            - code: str 💡 授权码，/open/authCodeToToken 重定向地址里面
+            - redirect_uri: str 💡 与 /open/authCodeToToken 传的 redirect_uri 一致，可用于验证以防 MITM 和 CSRF
+            - grant_type: str = "authorization_code" 💡 授权类型，固定为 authorization_code，表示授权码类型
+        """
+        api = complete_api("/open/authCodeToToken", base_url=base_url)
+        payload = {"grant_type": "authorization_code", **payload}
+        request_kwargs.setdefault("parse", default_parse)
+        if request is None:
+            return get_default_request()(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+        else:
+            return request(url=api, method="POST", data=payload, **request_kwargs)
 
     @overload
     @staticmethod
@@ -1290,6 +1490,8 @@ class ClientRequestMixin:
         payload: str | dict, 
         /, 
         request: None | Callable = None, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -1301,6 +1503,8 @@ class ClientRequestMixin:
         payload: str | dict, 
         /, 
         request: None | Callable = None, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -1311,6 +1515,8 @@ class ClientRequestMixin:
         payload: str | dict, 
         /, 
         request: None | Callable = None, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
@@ -1323,7 +1529,7 @@ class ClientRequestMixin:
 
         :return: 图片的二进制数据（PNG 图片）
         """
-        api = "https://qrcodeapi.115.com/api/1.0/web/1.0/qrcode"
+        api = complete_api(f"/api/1.0/{app}/1.0/qrcode", base_url=base_url)
         if isinstance(payload, str):
             payload = {"uid": payload}
         request_kwargs.setdefault("parse", False)
@@ -1338,6 +1544,7 @@ class ClientRequestMixin:
         payload: str | dict, 
         /, 
         request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -1349,6 +1556,7 @@ class ClientRequestMixin:
         payload: str | dict, 
         /, 
         request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -1359,6 +1567,7 @@ class ClientRequestMixin:
         payload: str | dict, 
         /, 
         request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
@@ -1375,7 +1584,7 @@ class ClientRequestMixin:
             - uid: str
             - code_verifier: str = <default> 💡 默认字符串是 64 个 "0"
         """
-        api = "https://qrcodeapi.115.com/open/deviceCodeToToken"
+        api = complete_api("/open/deviceCodeToToken", base_url=base_url)
         if isinstance(payload, str):
             payload = {"uid": payload, "code_verifier": _default_code_verifier}
         request_kwargs.setdefault("parse", default_parse)
@@ -1385,104 +1594,137 @@ class ClientRequestMixin:
             return request(url=api, method="POST", data=payload, **request_kwargs)
 
     @overload
-    @staticmethod
-    def login_qrcode_refresh_token_open(
+    def login_qrcode_scan(
+        self, 
         payload: str | dict, 
         /, 
-        request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
     ) -> dict:
         ...
     @overload
-    @staticmethod
-    def login_qrcode_refresh_token_open(
+    def login_qrcode_scan(
+        self, 
         payload: str | dict, 
         /, 
-        request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
     ) -> Coroutine[Any, Any, dict]:
         ...
-    @staticmethod
-    def login_qrcode_refresh_token_open(
+    def login_qrcode_scan(
+        self, 
         payload: str | dict, 
         /, 
-        request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """用一个 refresh_token 去获取新的 access_token 和 refresh_token，然后原来的 refresh_token 作废
+        """扫描二维码，payload 数据取自 `login_qrcode_token` 接口响应
 
-        POST https://qrcodeapi.115.com/open/refreshToken
-
-        .. admonition:: Reference
-
-            https://www.yuque.com/115yun/open/shtpzfhewv5nag11#ve54x
+        GET https://qrcodeapi.115.com/api/2.0/prompt.php
 
         :payload:
-            - refresh_token: str
+            - uid: str
         """
-        api = "https://qrcodeapi.115.com/open/refreshToken"
+        api = complete_api("/api/2.0/prompt.php", base_url=base_url)
         if isinstance(payload, str):
-            payload = {"refresh_token": payload}
-        request_kwargs.setdefault("parse", default_parse)
-        if request is None:
-            return get_default_request()(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
-        else:
-            return request(url=api, method="POST", data=payload, **request_kwargs)
+            payload = {"uid": payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
-    @staticmethod
     def login_qrcode_scan_cancel(
+        self, 
         payload: str | dict, 
         /, 
-        request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
     ) -> dict:
         ...
     @overload
-    @staticmethod
     def login_qrcode_scan_cancel(
+        self, 
         payload: str | dict, 
         /, 
-        request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
     ) -> Coroutine[Any, Any, dict]:
         ...
-    @staticmethod
     def login_qrcode_scan_cancel(
+        self, 
         payload: str | dict, 
         /, 
-        request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
         """取消扫描二维码，payload 数据取自 `login_qrcode_scan` 接口响应
 
-        GET https://hnqrcodeapi.115.com/api/2.0/cancel.php
+        GET https://qrcodeapi.115.com/api/2.0/cancel.php
 
         :payload:
             - key: str
             - uid: str
             - client: int = 0
         """
-        api = "https://hnqrcodeapi.115.com/api/2.0/cancel.php"
+        api = complete_api("/api/2.0/cancel.php", base_url=base_url)
         if isinstance(payload, str):
             payload = {"key": payload, "uid": payload, "client": 0}
-        request_kwargs.setdefault("parse", default_parse)
-        if request is None:
-            return get_default_request()(url=api, params=payload, async_=async_, **request_kwargs)
-        else:
-            return request(url=api, params=payload, **request_kwargs)
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def login_qrcode_scan_confirm(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def login_qrcode_scan_confirm(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def login_qrcode_scan_confirm(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """确认扫描二维码，payload 数据取自 `login_qrcode_scan` 接口响应
+
+        GET https://qrcodeapi.115.com/api/2.0/slogin.php
+
+        :payload:
+            - key: str
+            - uid: str
+            - client: int = 0
+        """
+        api = complete_api("/api/2.0/slogin.php", base_url=base_url)
+        if isinstance(payload, str):
+            payload = {"key": payload, "uid": payload, "client": 0}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
     @staticmethod
@@ -1490,6 +1732,7 @@ class ClientRequestMixin:
         uid: str, 
         app: str = "alipaymini", 
         request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -1501,6 +1744,7 @@ class ClientRequestMixin:
         uid: str, 
         app: str = "alipaymini", 
         request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -1511,13 +1755,14 @@ class ClientRequestMixin:
         uid: str, 
         app: str = "alipaymini", 
         request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
         """获取扫码登录的结果，包含 cookie
 
-        POST https://passportapi.115.com/app/1.0/{app}/1.0/login/qrcode/
+        POST https://qrcodeapi.115.com/app/1.0/{app}/1.0/login/qrcode/
 
         :param uid: 扫码的 uid
         :param app: 绑定的 app
@@ -1529,7 +1774,7 @@ class ClientRequestMixin:
         """
         if app == "desktop":
             app = "web"
-        api = f"http://passportapi.115.com/app/1.0/{app}/1.0/login/qrcode/"
+        api = complete_api(f"/app/1.0/{app}/1.0/login/qrcode/", base_url=base_url)
         payload = {"account": uid}
         request_kwargs.setdefault("parse", default_parse)
         if request is None:
@@ -1543,6 +1788,7 @@ class ClientRequestMixin:
         payload: dict, 
         /, 
         request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -1554,6 +1800,7 @@ class ClientRequestMixin:
         payload: dict, 
         /, 
         request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -1564,6 +1811,7 @@ class ClientRequestMixin:
         payload: dict, 
         /, 
         request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
@@ -1581,7 +1829,7 @@ class ClientRequestMixin:
             - time: int
             - sign: str
         """
-        api = "https://qrcodeapi.115.com/get/status/"
+        api = complete_api("/get/status/", base_url=base_url)
         request_kwargs.setdefault("parse", default_parse)
         if request is None:
             return get_default_request()(url=api, params=payload, async_=async_, **request_kwargs)
@@ -1592,6 +1840,8 @@ class ClientRequestMixin:
     @staticmethod
     def login_qrcode_token(
         request: None | Callable = None, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -1601,6 +1851,8 @@ class ClientRequestMixin:
     @staticmethod
     def login_qrcode_token(
         request: None | Callable = None, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -1609,6 +1861,8 @@ class ClientRequestMixin:
     @staticmethod
     def login_qrcode_token(
         request: None | Callable = None, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
@@ -1617,7 +1871,7 @@ class ClientRequestMixin:
 
         GET https://qrcodeapi.115.com/api/1.0/web/1.0/token/
         """
-        api = "https://qrcodeapi.115.com/api/1.0/web/1.0/token/"
+        api = complete_api(f"/api/1.0/{app}/1.0/token/", base_url=base_url)
         request_kwargs.setdefault("parse", default_parse)
         if request is None:
             return get_default_request()(url=api, async_=async_, **request_kwargs)
@@ -1630,6 +1884,7 @@ class ClientRequestMixin:
         payload: int | str | dict, 
         /, 
         request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -1641,6 +1896,7 @@ class ClientRequestMixin:
         payload: int | str | dict, 
         /, 
         request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -1651,11 +1907,12 @@ class ClientRequestMixin:
         payload: int | str | dict, 
         /, 
         request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """获取开放平台的登录二维码，扫码可用
+        """获取开放平台的登录二维码，扫码可用，采用 PKCE (Proof Key for Code Exchange)
 
         POST https://qrcodeapi.115.com/open/authDeviceCode
 
@@ -1682,7 +1939,7 @@ class ClientRequestMixin:
 
             - code_challenge_method: str = <default> 💡 计算 `code_challenge` 的 hash 算法，支持 "md5", "sha1", "sha256"
         """
-        api = "https://qrcodeapi.115.com/open/authDeviceCode"
+        api = complete_api("/open/authDeviceCode", base_url=base_url)
         if isinstance(payload, (int, str)):
             payload = {
                 "client_id": payload, 
@@ -1696,12 +1953,69 @@ class ClientRequestMixin:
             return request(url=api, method="POST", data=payload, **request_kwargs)
 
     @overload
+    @staticmethod
+    def login_refresh_token_open(
+        payload: str | dict, 
+        /, 
+        request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    @staticmethod
+    def login_refresh_token_open(
+        payload: str | dict, 
+        /, 
+        request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    @staticmethod
+    def login_refresh_token_open(
+        payload: str | dict, 
+        /, 
+        request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """用一个 refresh_token 去获取新的 access_token 和 refresh_token，然后原来的 refresh_token 作废
+
+        POST https://qrcodeapi.115.com/open/refreshToken
+
+        .. admonition:: Reference
+
+            https://www.yuque.com/115yun/open/shtpzfhewv5nag11#ve54x
+
+            https://www.yuque.com/115yun/open/opnx8yezo4at2be6
+
+        :payload:
+            - refresh_token: str
+        """
+        api = complete_api("/open/refreshToken", base_url=base_url)
+        if isinstance(payload, str):
+            payload = {"refresh_token": payload}
+        request_kwargs.setdefault("parse", default_parse)
+        if request is None:
+            return get_default_request()(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+        else:
+            return request(url=api, method="POST", data=payload, **request_kwargs)
+
+    @overload
     @classmethod
     def login_with_qrcode(
         cls, 
         /, 
         app: None | str = "", 
         console_qrcode: bool = True, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -1714,6 +2028,7 @@ class ClientRequestMixin:
         /, 
         app: None | str = "", 
         console_qrcode: bool = True, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -1725,6 +2040,7 @@ class ClientRequestMixin:
         /, 
         app: None | str = "", 
         console_qrcode: bool = True, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
@@ -1825,6 +2141,7 @@ class ClientRequestMixin:
         def gen_step():
             resp = yield cls.login_qrcode_token(
                 async_=async_, 
+                base_url=base_url, 
                 **request_kwargs, 
             )
             qrcode_token = resp["data"]
@@ -1838,7 +2155,7 @@ class ClientRequestMixin:
                 qr.add_data(qrcode)
                 qr.print_ascii(tty=isatty(1))
             else:
-                url = "https://qrcodeapi.115.com/api/1.0/web/1.0/qrcode?uid=" + login_uid
+                url = complete_api(f"/api/1.0/web/1.0/qrcode?uid={login_uid}", base_url=base_url)
                 if async_:
                     yield partial(startfile_async, url)
                 else:
@@ -1847,6 +2164,7 @@ class ClientRequestMixin:
                 try:
                     resp = yield cls.login_qrcode_scan_status(
                         qrcode_token, 
+                        base_url=base_url, 
                         async_=async_, 
                         **request_kwargs, 
                     )
@@ -1870,6 +2188,7 @@ class ClientRequestMixin:
                 return cls.login_qrcode_scan_result(
                     login_uid, 
                     app, 
+                    base_url=base_url, 
                     async_=async_, 
                     **request_kwargs, 
                 )
@@ -1884,6 +2203,7 @@ class ClientRequestMixin:
         /, 
         app_id: int | str = 100195993, 
         console_qrcode: bool = True, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -1896,6 +2216,7 @@ class ClientRequestMixin:
         /, 
         app_id: int | str = 100195993, 
         console_qrcode: bool = True, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -1907,6 +2228,7 @@ class ClientRequestMixin:
         /, 
         app_id: int | str = 100195993, 
         console_qrcode: bool = True, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
@@ -1922,6 +2244,7 @@ class ClientRequestMixin:
         def gen_step():
             resp = yield cls.login_qrcode_token_open(
                 app_id, 
+                base_url=base_url, 
                 async_=async_, 
                 **request_kwargs, 
             )
@@ -1936,7 +2259,7 @@ class ClientRequestMixin:
                 qr.add_data(qrcode)
                 qr.print_ascii(tty=isatty(1))
             else:
-                url = "https://qrcodeapi.115.com/api/1.0/web/1.0/qrcode?uid=" + login_uid
+                url = complete_api(f"/api/1.0/web/1.0/qrcode?uid={login_uid}", base_url=base_url)
                 if async_:
                     yield partial(startfile_async, url)
                 else:
@@ -1945,6 +2268,7 @@ class ClientRequestMixin:
                 try:
                     resp = yield cls.login_qrcode_scan_status(
                         qrcode_token, 
+                        base_url=base_url, 
                         async_=async_, 
                         **request_kwargs, 
                     )
@@ -1966,10 +2290,13 @@ class ClientRequestMixin:
                         raise LoginError(errno.EAUTH, f"qrcode: aborted with {resp!r}")
             return cls.login_qrcode_access_token_open(
                 login_uid, 
+                base_url=base_url, 
                 async_=async_, 
                 **request_kwargs, 
             )
         return run_gen_step(gen_step, async_=async_)
+
+    ########## Upload API ##########
 
     upload_endpoint = "http://oss-cn-shenzhen.aliyuncs.com"
 
@@ -2543,7 +2870,7 @@ class P115OpenClient(ClientRequestMixin):
                 app_id_or_refresh_token.startswith("0") or 
                 app_id_or_refresh_token.strip(digits)
             ):
-                resp = yield self.login_qrcode_refresh_token_open(
+                resp = yield self.login_refresh_token_open(
                     app_id_or_refresh_token, 
                     async_=async_, 
                     **request_kwargs, 
@@ -2618,7 +2945,7 @@ class P115OpenClient(ClientRequestMixin):
         """更新 access_token 和 refresh_token （⚠️ 目前是 7200 秒内就要求刷新一次）
         """
         def gen_step():
-            resp = yield self.login_qrcode_refresh_token_open(
+            resp = yield self.login_refresh_token_open(
                 self.refresh_token, 
                 async_=async_, 
                 **request_kwargs, 
@@ -4663,82 +4990,6 @@ class P115Client(P115OpenClient):
         return run_gen_step(gen_step, async_=async_)
 
     @overload
-    def login_qrcode_scan(
-        self, 
-        payload: str | dict, 
-        /, 
-        async_: Literal[False] = False, 
-        **request_kwargs, 
-    ) -> dict:
-        ...
-    @overload
-    def login_qrcode_scan(
-        self, 
-        payload: str | dict, 
-        /, 
-        async_: Literal[True], 
-        **request_kwargs, 
-    ) -> Coroutine[Any, Any, dict]:
-        ...
-    def login_qrcode_scan(
-        self, 
-        payload: str | dict, 
-        /, 
-        async_: Literal[False, True] = False, 
-        **request_kwargs, 
-    ) -> dict | Coroutine[Any, Any, dict]:
-        """扫描二维码，payload 数据取自 `login_qrcode_token` 接口响应
-
-        GET https://qrcodeapi.115.com/api/2.0/prompt.php
-
-        :payload:
-            - uid: str
-        """
-        api = "https://qrcodeapi.115.com/api/2.0/prompt.php"
-        if isinstance(payload, str):
-            payload = {"uid": payload}
-        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
-
-    @overload
-    def login_qrcode_scan_confirm(
-        self, 
-        payload: str | dict, 
-        /, 
-        async_: Literal[False] = False, 
-        **request_kwargs, 
-    ) -> dict:
-        ...
-    @overload
-    def login_qrcode_scan_confirm(
-        self, 
-        payload: str | dict, 
-        /, 
-        async_: Literal[True], 
-        **request_kwargs, 
-    ) -> Coroutine[Any, Any, dict]:
-        ...
-    def login_qrcode_scan_confirm(
-        self, 
-        payload: str | dict, 
-        /, 
-        async_: Literal[False, True] = False, 
-        **request_kwargs, 
-    ) -> dict | Coroutine[Any, Any, dict]:
-        """确认扫描二维码，payload 数据取自 `login_qrcode_scan` 接口响应
-
-        GET https://hnqrcodeapi.115.com/api/2.0/slogin.php
-
-        :payload:
-            - key: str
-            - uid: str
-            - client: int = 0
-        """
-        api = "https://hnqrcodeapi.115.com/api/2.0/slogin.php"
-        if isinstance(payload, str):
-            payload = {"key": payload, "uid": payload, "client": 0}
-        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
-
-    @overload
     def login_with_app(
         self, 
         /, 
@@ -5371,7 +5622,7 @@ class P115Client(P115OpenClient):
                 return None
         return self.logout_by_ssoent(ssoent, async_=async_, **request_kwargs)
 
-    def request(
+    def _request(
         self, 
         /, 
         url: str, 
@@ -5612,6 +5863,90 @@ class P115Client(P115OpenClient):
                         check_response(resp)
                     return resp
         return run_gen_step(gen_step, async_=async_)
+
+    def request(
+        self, 
+        /, 
+        url: str, 
+        method: str = "GET", 
+        params = None, 
+        data = None, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ):
+        """帮助函数：可执行同步和异步的网络请求
+
+        :param url: HTTP 的请求链接
+        :param method: HTTP 的请求方法
+        :param params: 查询参数
+        :param check: 是否用 `check_response` 函数检查返回值
+        :param ecdh_encrypt: 使用 ecdh 算法进行加密（返回值也要解密）
+        :param fetch_cert_headers: 调用以获取认证信息头
+        :param revert_cert_headers: 调用以退还认证信息头
+        :param async_: 说明 `request` 是同步调用还是异步调用
+        :param request: HTTP 请求调用，如果为 None，则默认用 httpx 执行请求
+            如果传入调用，则必须至少能接受以下几个关键词参数：
+
+            - url:     HTTP 的请求链接
+            - method:  HTTP 的请求方法
+            - headers: HTTP 的请求头
+            - data:    HTTP 的请求体
+            - parse:   解析 HTTP 响应的方法，默认会构建一个 Callable，会把响应的字节数据视为 JSON 进行反序列化解析
+
+                - 如果为 None，则直接把响应对象返回
+                - 如果为 ...(Ellipsis)，则把响应对象关闭后将其返回
+                - 如果为 True，则根据响应头来确定把响应得到的字节数据解析成何种格式（反序列化），请求也会被自动关闭
+                - 如果为 False，则直接返回响应得到的字节数据，请求也会被自动关闭
+                - 如果为 Callable，则使用此调用来解析数据，接受 1-2 个位置参数，并把解析结果返回给 `request` 的调用者，请求也会被自动关闭
+                    - 如果只接受 1 个位置参数，则把响应对象传给它
+                    - 如果能接受 2 个位置参数，则把响应对象和响应得到的字节数据（响应体）传给它
+
+        :param request_kwargs: 其余的请求参数，会被传给 `request`
+
+        :return: 直接返回 `request` 执行请求后的返回值
+
+        .. note:: 
+            `request` 可以由不同的请求库来提供，下面是封装了一些模块
+
+            1. `httpx_request <https://pypi.org/project/httpx_request/>`_，由 `httpx <https://pypi.org/project/httpx/>`_ 封装，支持同步和异步调用，本模块默认用的就是这个封装
+
+                .. code:: python
+
+                    from httpx_request import request
+
+            2. `python-urlopen <https://pypi.org/project/python-urlopen/>`_，由 `urllib.request.urlopen <https://docs.python.org/3/library/urllib.request.html#urllib.request.urlopen>`_ 封装，支持同步调用，性能相对最差
+
+                .. code:: python
+
+                    from urlopen import request
+
+            3. `urllib3_request <https://pypi.org/project/urllib3_request/>`_，由 `urllib3 <https://pypi.org/project/urllib3/>`_ 封装，支持同步调用，性能相对较好，推荐使用
+
+                .. code:: python
+
+                    from urllib3_request import request
+
+            4. `requests_request <https://pypi.org/project/requests_request/>`_，由 `requests <https://pypi.org/project/requests/>`_ 封装，支持同步调用
+
+                .. code:: python
+
+                    from requests_request import request
+
+            5. `aiohttp_client_request <https://pypi.org/project/aiohttp_client_request/>`_，由 `aiohttp <https://pypi.org/project/aiohttp/>`_ 封装，支持异步调用，异步并发能力最强，推荐使用
+
+                .. code:: python
+
+                    from aiohttp_client_request import request
+
+            6. `blacksheep_client_request <https://pypi.org/project/blacksheep_client_request/>`_，由 `blacksheep <https://pypi.org/project/blacksheep/>`_ 封装，支持异步调用
+
+                .. code:: python
+
+                    from blacksheep_client_request import request
+        """
+        kwargs = {**self.request_kwargs, **request_kwargs}
+        return self._request(url, method, params, data, async_=async_, **kwargs)
 
     ########## Activity API ##########
 
@@ -14965,9 +15300,142 @@ class P115Client(P115OpenClient):
         return run_gen_step(gen_step, async_=async_)
 
     @overload
+    def login_open_auth_detail(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def login_open_auth_detail(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def login_open_auth_detail(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取某个开放应用的授权信息
+
+        GET https://qrcodeapi.115.com/app/1.0/web/1.0/user/getAppAuthDetail
+
+        :payload:
+            - auth_id: int | str 💡 授权 id
+        """
+        api = complete_api(f"/app/1.0/{app}/1.0/user/getAppAuthDetail", base_url=base_url)
+        if isinstance(payload, (int, str)):
+            payload = {"auth_id": payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def login_open_auth_list(
+        self, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def login_open_auth_list(
+        self, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def login_open_auth_list(
+        self, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取所有授权的开放应用的列表
+
+        GET https://qrcodeapi.115.com/app/1.0/web/1.0/user/getAppAuthList
+        """
+        api = complete_api(f"/app/1.0/{app}/1.0/user/getAppAuthList", base_url=base_url)
+        return self.request(url=api, async_=async_, **request_kwargs)
+
+    @overload
+    def login_open_deauth(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def login_open_deauth(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def login_open_deauth(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """取消某个开放应用的授权
+
+        GET https://qrcodeapi.115.com/app/1.0/web/1.0/user/deauthApp
+
+        :payload:
+            - auth_id: int | str 💡 授权 id
+        """
+        api = complete_api(f"/app/1.0/{app}/1.0/user/deauthApp", base_url=base_url)
+        if isinstance(payload, (int, str)):
+            payload = {"auth_id": payload}
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
     def login_check_sso(
         self, 
         /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
     ) -> dict:
@@ -14976,6 +15444,9 @@ class P115Client(P115OpenClient):
     def login_check_sso(
         self, 
         /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
         async_: Literal[True], 
         **request_kwargs, 
     ) -> Coroutine[Any, Any, dict]:
@@ -14983,14 +15454,17 @@ class P115Client(P115OpenClient):
     def login_check_sso(
         self, 
         /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
         """检查当前 cookies 的登录状态信息，并且自最近一次登录的 60 秒后，使当前设备下除最近一次登录外的所有 cookies 失效
 
-        GET https://passportapi.115.com/app/1.0/web/1.0/check/sso
+        GET https://qrcodeapi.115.com/app/1.0/web/1.0/check/sso
         """
-        api = "https://passportapi.115.com/app/1.0/web/1.0/check/sso"
+        api = complete_api(f"/app/1.0/{app}/1.0/check/sso", base_url=base_url)
         return self.request(url=api, async_=async_, **request_kwargs)
 
     @overload
@@ -15029,6 +15503,9 @@ class P115Client(P115OpenClient):
     def login_devices(
         self, 
         /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
     ) -> dict:
@@ -15037,6 +15514,9 @@ class P115Client(P115OpenClient):
     def login_devices(
         self, 
         /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
         async_: Literal[True], 
         **request_kwargs, 
     ) -> Coroutine[Any, Any, dict]:
@@ -15044,14 +15524,17 @@ class P115Client(P115OpenClient):
     def login_devices(
         self, 
         /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
         """获取所有的已登录设备的信息，不过当前的 cookies 必须是登录状态（未退出或未失效）
 
-        GET https://passportapi.115.com/app/1.0/web/1.0/login_log/login_devices
+        GET https://qrcodeapi.115.com/app/1.0/web/1.0/login_log/login_devices
         """
-        api = "https://passportapi.115.com/app/1.0/web/1.0/login_log/login_devices"
+        api = complete_api(f"/app/1.0/{app}/1.0/login_log/login_devices", base_url=base_url)
         return self.request(url=api, async_=async_, **request_kwargs)
 
     @overload
@@ -15097,6 +15580,8 @@ class P115Client(P115OpenClient):
         self, 
         payload: dict = {}, 
         /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -15107,6 +15592,8 @@ class P115Client(P115OpenClient):
         self, 
         payload: dict = {}, 
         /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -15116,19 +15603,21 @@ class P115Client(P115OpenClient):
         self, 
         payload: dict = {}, 
         /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
         """获取登录信息日志列表
 
-        GET https://passportapi.115.com/app/1.0/web/1.0/login_log/log
+        GET https://qrcodeapi.115.com/app/1.0/web/1.0/login_log/log
 
         :payload:
             - start: int = 0
             - limit: int = 100
         """
-        api = "https://passportapi.115.com/app/1.0/web/1.0/login_log/log"
+        api = complete_api(f"/app/1.0/{app}/1.0/login_log/log", base_url=base_url)
         payload = {"start": 0, "limit": 100, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
@@ -15137,6 +15626,7 @@ class P115Client(P115OpenClient):
         self, 
         /, 
         app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -15147,6 +15637,7 @@ class P115Client(P115OpenClient):
         self, 
         /, 
         app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -15156,15 +15647,16 @@ class P115Client(P115OpenClient):
         self, 
         /, 
         app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
         """当前登录的设备总数和最近登录的设备
 
-        GET https://passportapi.115.com/app/1.0/web/1.0/login_log/login_online
+        GET https://qrcodeapi.115.com/app/1.0/web/1.0/login_log/login_online
         """
-        api = f"http://passportapi.115.com/app/1.0/{app}/1.0/login_log/login_online"
+        api = complete_api(f"/app/1.0/{app}/1.0/login_log/login_online", base_url=base_url)
         return self.request(url=api, async_=async_, **request_kwargs)
 
     @overload
@@ -15226,6 +15718,7 @@ class P115Client(P115OpenClient):
         /, 
         app: None | str = None, 
         request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -15237,6 +15730,7 @@ class P115Client(P115OpenClient):
         /, 
         app: None | str = None, 
         request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -15247,13 +15741,14 @@ class P115Client(P115OpenClient):
         /, 
         app: None | str = None, 
         request: None | Callable = None, 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> None | Coroutine[Any, Any, None]:
         """退出登录状态（可以把某个客户端下线，所有已登录设备可从 `login_devices` 获取）
 
-        GET https://passportapi.115.com/app/1.0/{app}/1.0/logout/logout
+        GET https://qrcodeapi.115.com/app/1.0/{app}/1.0/logout/logout
 
         :param app: 退出登录的 app
 
@@ -15319,7 +15814,7 @@ class P115Client(P115OpenClient):
                 app = yield self.login_app(async_=async_)
             if app == "desktop":
                 app = "web"
-            api = f"http://passportapi.115.com/app/1.0/{app}/1.0/logout/logout"
+            api = complete_api(f"/app/1.0/{app}/1.0/logout/logout", base_url=base_url)
             request_kwargs["headers"] = {**(request_kwargs.get("headers") or {}), "Cookie": self.cookies_str}
             request_kwargs.setdefault("parse", ...)
             if request is None:
@@ -15333,6 +15828,8 @@ class P115Client(P115OpenClient):
         self, 
         payload: None | str | dict = None, 
         /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -15343,6 +15840,8 @@ class P115Client(P115OpenClient):
         self, 
         payload: None | str | dict = None, 
         /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -15352,13 +15851,15 @@ class P115Client(P115OpenClient):
         self, 
         payload: None | str | dict = None, 
         /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
         """退出登录状态（可以把某个客户端下线，所有已登录设备可从 `login_devices` 获取）
 
-        POST https://passportapi.115.com/app/1.0/web/1.0/logout/mange
+        POST https://qrcodeapi.115.com/app/1.0/web/1.0/logout/mange
 
         :payload:
             - ssoent: str
@@ -15419,7 +15920,7 @@ class P115Client(P115OpenClient):
         | 24    | S1       | harmony    | 115(Harmony端)          |
         +-------+----------+------------+-------------------------+
         """
-        api = "https://passportapi.115.com/app/1.0/web/1.0/logout/mange"
+        api = complete_api(f"/app/1.0/{app}/1.0/logout/mange", base_url=base_url)
         if payload is None:
             payload = {"ssoent": self.login_ssoent or ""}
         elif isinstance(payload, str):
