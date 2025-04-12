@@ -181,7 +181,7 @@ def complete_proapi(
 ) -> str:
     if path and not path.startswith("/"):
         path = "/" + path
-    if app in ("open", "aps", "web"):
+    if app in ("aps", "desktop", "open", "web"):
         app = "android"
     if app and not app.startswith("/"):
         app = "/" + app
@@ -266,7 +266,7 @@ def get_default_request():
     return _httpx_request
 
 
-def parse_upload_init_response(resp, content: bytes, /) -> dict:
+def parse_upload_init_response(_, content: bytes, /) -> dict:
     data = ecdh_aes_decode(content, decompress=True)
     if not isinstance(data, (bytes, bytearray, memoryview)):
         data = memoryview(data)
@@ -541,6 +541,36 @@ def check_response(resp: dict | Awaitable[dict], /) -> dict | Coroutine[Any, Any
                     raise OperationalError(errno.EINVAL, resp)
                 # {"state": 0, "errno": 40140126, "error": "access_token 校验失败（防篡改）"}
                 case 40140126:
+                    raise OperationalError(errno.EINVAL, resp)
+                # {"state": 0, "errno": 40140127, "error": "response_type 错误"}
+                case 40140127:
+                    raise OperationalError(errno.EINVAL, resp)
+                # {"state": 0, "errno": 40140128, "error": "redirect_uri 缺少协议"}
+                case 40140128:
+                    raise OperationalError(errno.EINVAL, resp)
+                # {"state": 0, "errno": 40140129, "error": "redirect_uri 缺少域名"}
+                case 40140129:
+                    raise OperationalError(errno.EINVAL, resp)
+                # {"state": 0, "errno": 40140130, "error": "没有配置重定向域名"}
+                case 40140130:
+                    raise OperationalError(errno.EINVAL, resp)
+                # {"state": 0, "errno": 40140131, "error": "redirect_uri 非法域名"}
+                case 40140131:
+                    raise OperationalError(errno.EINVAL, resp)
+                # {"state": 0, "errno": 40140132, "error": "grant_type 错误"}
+                case 40140132:
+                    raise OperationalError(errno.EINVAL, resp)
+                # {"state": 0, "errno": 40140133, "error": "client_secret 验证失败"}
+                case 40140133:
+                    raise OperationalError(errno.EINVAL, resp)
+                # {"state": 0, "errno": 40140134, "error": "授权码 code 验证失败"}
+                case 40140134:
+                    raise OperationalError(errno.EINVAL, resp)
+                # {"state": 0, "errno": 40140135, "error": "client_id 验证失败"}
+                case 40140135:
+                    raise OperationalError(errno.EINVAL, resp)
+                # {"state": 0, "errno": 40140136, "error": "redirect_uri 验证失败（防MITM）"}
+                case 40140136:
                     raise OperationalError(errno.EINVAL, resp)
         elif "msg_code" in resp:
             match resp["msg_code"]:
@@ -2157,7 +2187,7 @@ class ClientRequestMixin:
             else:
                 url = complete_api(f"/api/1.0/web/1.0/qrcode?uid={login_uid}", base_url=base_url)
                 if async_:
-                    yield partial(startfile_async, url)
+                    yield startfile_async(url)
                 else:
                     startfile(url)
             while True:
@@ -2194,7 +2224,7 @@ class ClientRequestMixin:
                 )
             else:
                 return qrcode_token
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     @overload
     @classmethod
@@ -2261,7 +2291,7 @@ class ClientRequestMixin:
             else:
                 url = complete_api(f"/api/1.0/web/1.0/qrcode?uid={login_uid}", base_url=base_url)
                 if async_:
-                    yield partial(startfile_async, url)
+                    yield startfile_async(url)
                 else:
                     startfile(url)
             while True:
@@ -2294,7 +2324,7 @@ class ClientRequestMixin:
                 async_=async_, 
                 **request_kwargs, 
             )
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     ########## Upload API ##########
 
@@ -2677,7 +2707,7 @@ class ClientRequestMixin:
                 async_=async_, 
                 **request_kwargs, 
             )
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     @overload
     def read_bytes_range(
@@ -2792,7 +2822,7 @@ class ClientRequestMixin:
                 async_=async_, 
                 **request_kwargs, 
             )
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
 
 class P115OpenClient(ClientRequestMixin):
@@ -2888,7 +2918,7 @@ class P115OpenClient(ClientRequestMixin):
             self.refresh_token = data["refresh_token"]
             self.access_token = data["access_token"]
             return self
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     @classmethod
     def from_token(cls, /, access_token: str, refresh_token: str) -> P115OpenClient:
@@ -2955,7 +2985,7 @@ class P115OpenClient(ClientRequestMixin):
             self.refresh_token = data["refresh_token"]
             access_token = self.access_token = data["access_token"]
             return access_token
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     @overload
     def download_url(
@@ -3656,6 +3686,250 @@ class P115OpenClient(ClientRequestMixin):
         return self.fs_update(payload, async_=async_, **request_kwargs)
 
     @overload
+    def fs_video_history(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def fs_video_history(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def fs_video_history(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取视频播放进度
+
+        GET https://proapi.115.com/open/video/history
+
+        .. admonition:: Reference
+
+            https://www.yuque.com/115yun/open/gssqdrsq6vfqigag
+
+        :payload:
+            - pick_code: str 💡 文件提取码
+        """
+        api = complete_proapi("/open/video/history", base_url)
+        if isinstance(payload, str):
+            payload = {"pick_code": payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def fs_video_history_set(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def fs_video_history_set(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def fs_video_history_set(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """记忆视频播放进度
+
+        POST https://proapi.115.com/open/video/history
+
+        .. admonition:: Reference
+
+            https://www.yuque.com/115yun/open/bshagbxv1gzqglg4
+
+        :payload:
+            - pick_code: str 💡 文件提取码
+            - time: int = <default> 💡 视频播放进度时长 (单位秒)
+            - watch_end: int = <default> 💡 视频是否播放播放完毕 0:未完毕 1:完毕
+        """
+        api = complete_proapi("/open/video/history", base_url)
+        if isinstance(payload, str):
+            payload = {"pick_code": payload}
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def fs_video_play(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def fs_video_play(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def fs_video_play(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取视频在线播放地址（和视频文件相关数据）
+
+        GET https://proapi.115.com/open/video/play
+        
+        .. admonition:: Reference
+
+            https://www.yuque.com/115yun/open/hqglxv3cedi3p9dz
+
+        .. hint::
+            需切换音轨时，在请求返回的播放地址中增加请求参数 `&audio_track=${index}`，值就是接口响应中 `multitrack_list` 中某个成员的索引，从 0 开始计数
+
+        :payload:
+            - pick_code: str 💡 文件提取码
+            - share_id: int | str = <default> 💡 共享 id，获取共享文件播放地址所需
+        """
+        api = complete_proapi("/open/video/play", base_url)
+        if isinstance(payload, str):
+            payload = {"pick_code": payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def fs_video_push(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def fs_video_push(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def fs_video_push(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """提交视频转码
+
+        POST https://proapi.115.com/open/video/video_push
+
+        .. admonition:: Reference
+
+            https://www.yuque.com/115yun/open/nxt8r1qcktmg3oan
+
+        :payload:
+            - pick_code: str 💡 文件提取码
+            - op: str = "vip_push" 💡 提交视频加速转码方式：vip_push:根据；vip 等级加速 pay_push:枫叶加速
+        """
+        api = complete_proapi("/open/video/video_push", base_url)
+        if isinstance(payload, str):
+            payload = {"pick_code": payload, "op": "vip_push"}
+        else:
+            payload.setdefault("op", "vip_push")
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def fs_video_subtitle(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def fs_video_subtitle(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def fs_video_subtitle(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """视频字幕列表
+
+        GET https://proapi.115.com/open/video/subtitle
+
+        .. admonition:: Reference
+
+            https://www.yuque.com/115yun/open/nx076h3glapoyh7u
+
+        :payload:
+            - pick_code: str 💡 文件提取码
+        """
+        api = complete_proapi("/open/video/subtitle", base_url)
+        if isinstance(payload, str):
+            payload = {"pick_code": payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
     def fs_update(
         self, 
         payload: dict, 
@@ -3710,6 +3984,340 @@ class P115OpenClient(ClientRequestMixin):
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
+    def offline_add_torrent(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def offline_add_torrent(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def offline_add_torrent(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """添加云下载 BT 任务
+
+        POST https://proapi.115.com/open/offline/add_task_bt 
+
+        .. admonition:: Reference
+
+            https://www.yuque.com/115yun/open/svfe4unlhayvluly
+
+        :payload:
+            - info_hash: str 💡 种子文件的 info_hash
+            - pick_code: str 💡 种子文件的提取码
+            - save_path: str 💡 保存到 `wp_path_id` 对应目录下的相对路径
+            - torrent_sha1: str 💡 种子文件的 sha1
+            - wanted: str 💡 选择文件进行下载（是数字索引，从 0 开始计数，用 "," 分隔）
+            - wp_path_id: int | str = <default> 💡 保存目标文件夹 id
+        """
+        api = complete_proapi("/open/offline/add_task_bt ", base_url)
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def offline_add_urls(
+        self, 
+        payload: str | Iterable[str] | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def offline_add_urls(
+        self, 
+        payload: str | Iterable[str] | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def offline_add_urls(
+        self, 
+        payload: str | Iterable[str] | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """添加云下载链接任务
+
+        POST https://proapi.115.com/open/offline/add_task_urls
+
+        .. admonition:: Reference
+
+            https://www.yuque.com/115yun/open/zkyfq2499gdn3mty
+
+        :payload:
+            - urls: str 💡 链接，用 "\\n" 分隔，支持HTTP、HTTPS、FTP、磁力链和电驴链接
+            - wp_path_id: int | str = <default> 💡 保存到目录的 id
+        """
+        api = complete_proapi("/open/offline/add_task_urls", base_url)
+        if isinstance(payload, str):
+            payload = {"urls": payload.strip("\n")}
+        elif not isinstance(payload, dict):
+            payload = {"urls": ",".join(payload)}
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def offline_clear(
+        self, 
+        payload: int | dict = 0, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def offline_clear(
+        self, 
+        payload: int | dict = 0, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def offline_clear(
+        self, 
+        payload: int | dict = 0, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """清空云下载任务
+
+        POST https://proapi.115.com/open/offline/clear_task
+
+        .. admonition:: Reference
+
+            https://www.yuque.com/115yun/open/uu5i4urb5ylqwfy4
+
+        :payload:
+            - flag: int = 0 💡 标识，用于对应某种情况
+
+              - 0: 已完成
+              - 1: 全部
+              - 2: 已失败
+              - 3: 进行中
+              - 4: 已完成+删除源文件
+              - 5: 全部+删除源文件
+        """
+        api = complete_proapi("/open/offline/clear_task", base_url)
+        if isinstance(payload, int):
+            payload = {"flag": payload}
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def offline_list(
+        self, 
+        payload: int | dict = 1, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def offline_list(
+        self, 
+        payload: int | dict = 1, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def offline_list(
+        self, 
+        payload: int | dict = 1, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取用户云下载任务列表
+
+        GET https://proapi.115.com/open/offline/get_task_list
+
+        .. admonition:: Reference
+
+            https://www.yuque.com/115yun/open/av2mluz7uwigz74k
+
+        :payload:
+            - page: int | str = 1
+        """
+        api = complete_proapi("/open/offline/get_task_list", base_url)
+        if isinstance(payload, int):
+            payload = {"page": payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def offline_quota_info(
+        self, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def offline_quota_info(
+        self, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def offline_quota_info(
+        self, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取云下载配额信息
+
+        GET https://proapi.115.com/open/offline/get_quota_info
+
+        .. admonition:: Reference
+
+            https://www.yuque.com/115yun/open/gif2n3smh54kyg0p
+        """
+        api = complete_proapi("/open/offline/get_quota_info", base_url)
+        return self.request(url=api, async_=async_, **request_kwargs)
+
+    @overload
+    def offline_remove(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def offline_remove(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def offline_remove(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """删除用户云下载任务
+
+        POST https://proapi.115.com/open/offline/del_task
+
+        .. admonition:: Reference
+
+            https://www.yuque.com/115yun/open/pmgwc86lpcy238nw
+
+        :payload:
+            - info_hash: str 💡 待删除任务的 info_hash
+            - del_source_file: 0 | 1 = <default> 💡 是否删除源文件 1:删除 0:不删除
+        """
+        api = complete_proapi("/open/offline/del_task", base_url)
+        if isinstance(payload, str):
+            payload = {"info_hash": payload}
+        return self.request(api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def offline_torrent_info(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def offline_torrent_info(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def offline_torrent_info(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """解析 BT 种子
+
+        POST https://proapi.115.com/open/offline/torrent
+
+        .. admonition:: Reference
+
+            https://www.yuque.com/115yun/open/evez3u50cemoict1
+
+        :payload:
+            - torrent_sha1: str 💡 种子文件的 sha1
+            - pick_code: str    💡 种子文件的提取码
+        """
+        api = complete_proapi("/open/offline/torrent", base_url)
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
     def recyclebin_clean(
         self, 
         payload: int | str | Iterable[int | str] | dict = {}, 
@@ -3744,7 +4352,8 @@ class P115OpenClient(ClientRequestMixin):
 
         POST https://proapi.115.com/open/rb/del
 
-        .. note:
+        .. admonition:: Reference
+
             https://www.yuque.com/115yun/open/gwtof85nmboulrce
 
         :payload:
@@ -4102,7 +4711,7 @@ class P115OpenClient(ClientRequestMixin):
                 check_response(resp)
             resp["data"] = {**payload, **resp["data"], "sha1": filesha1, "cid": pid}
             return resp
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     @overload
     def upload_file(
@@ -4446,7 +5055,7 @@ class P115OpenClient(ClientRequestMixin):
                     async_=async_, # type: ignore
                     **request_kwargs, 
                 )
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     @overload
     def user_info(
@@ -4497,7 +5106,19 @@ class P115OpenClient(ClientRequestMixin):
     fs_move_open = fs_move
     fs_search_open = fs_search
     fs_star_set_open = fs_star_set
+    fs_video_history_open = fs_video_history
+    fs_video_history_set_open = fs_video_history_set
+    fs_video_play_open = fs_video_play
+    fs_video_push_open = fs_video_push
+    fs_video_subtitle_open = fs_video_subtitle
     fs_update_open = fs_update
+    offline_add_torrent_open = offline_add_torrent
+    offline_add_urls_open = offline_add_urls
+    offline_clear_open = offline_clear
+    offline_list_open = offline_list
+    offline_quota_info_open = offline_quota_info
+    offline_remove_open = offline_remove
+    offline_torrent_info_open = offline_torrent_info
     recyclebin_clean_open = recyclebin_clean
     recyclebin_list_open = recyclebin_list
     recyclebin_revert_open = recyclebin_revert
@@ -4815,7 +5436,7 @@ class P115Client(P115OpenClient):
                     )
             setattr(self, "check_for_relogin", check_for_relogin)
             return self
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     @locked_cacheproperty
     def request_lock(self, /) -> Lock:
@@ -4987,7 +5608,7 @@ class P115Client(P115OpenClient):
                 check_response(resp)
             setattr(self, "cookies", resp["data"]["cookie"])
             return self
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     @overload
     def login_with_app(
@@ -5119,7 +5740,7 @@ class P115Client(P115OpenClient):
                 async_=async_, 
                 **request_kwargs, 
             )
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     @overload
     def login_without_app(
@@ -5177,7 +5798,7 @@ class P115Client(P115OpenClient):
             )
             check_response(resp)
             return uid
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     @overload
     def login_with_open(
@@ -5229,7 +5850,7 @@ class P115Client(P115OpenClient):
             resp = yield self.login_qrcode_scan_confirm(login_uid, async_=async_, **request_kwargs)
             check_response(resp)
             return self.login_qrcode_access_token_open(login_uid, async_=async_, **request_kwargs)
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     @overload
     def login_another_app(
@@ -5373,7 +5994,7 @@ class P115Client(P115OpenClient):
             if self is not inst and ssoent == inst.login_ssoent:
                 warn(f"login with the same ssoent {ssoent!r}, {self!r} will expire within 60 seconds", category=P115Warning)
             return inst
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     @overload
     def login_another_open(
@@ -5467,7 +6088,7 @@ class P115Client(P115OpenClient):
                 inst.access_token = data["access_token"]
             inst.app_id = app_id
             return inst
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     @overload
     @classmethod
@@ -5586,7 +6207,7 @@ class P115Client(P115OpenClient):
             resp = yield cls.login_qrcode_scan_result(uid, app, async_=async_, **request_kwargs)
             cookies = check_response(resp)["data"]["cookie"]
             return cls(cookies, check_for_relogin=check_for_relogin)
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     @overload
     def logout(
@@ -5738,7 +6359,7 @@ class P115Client(P115OpenClient):
             if async_:
                 fetch_cert_headers = ensure_async(fetch_cert_headers)
             if fetch_cert_headers_argcount:
-                fetch_cert_headers = partial(fetch_cert_headers, async_)
+                fetch_cert_headers = cast(Callable, fetch_cert_headers)(async_)
             if revert_cert_headers is not None and async_:
                 revert_cert_headers = ensure_async(revert_cert_headers)
             if is_open_api:
@@ -5792,8 +6413,7 @@ class P115Client(P115OpenClient):
                             cert: str = headers["authorization"]
                         else:
                             cert = headers["cookie"]
-                    resp = yield partial(
-                        cast(Callable, request), 
+                    resp = yield cast(Callable, request)(
                         url=url, 
                         method=method, 
                         **request_kwargs, 
@@ -5806,10 +6426,10 @@ class P115Client(P115OpenClient):
                         not is_auth_error and
                         get_status_code(e) != 405
                     ):
-                        yield partial(revert_cert_headers, cert_headers)
+                        yield revert_cert_headers(cert_headers)
                     if not need_to_check:
                         raise
-                    res = yield partial(cast(Callable, check_for_relogin), e)
+                    res = yield cast(Callable, check_for_relogin)(e)
                     if not res if isinstance(res, bool) else res != 405:
                         raise
                     if fetch_cert_headers is not None:
@@ -5858,11 +6478,11 @@ class P115Client(P115OpenClient):
                             lock.release()
                 else:
                     if cert_headers is not None and revert_cert_headers is not None:
-                        yield partial(revert_cert_headers, cert_headers)
+                        yield revert_cert_headers(cert_headers)
                     if check and isinstance(resp, dict):
                         check_response(resp)
                     return resp
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     def request(
         self, 
@@ -6714,15 +7334,14 @@ class P115Client(P115OpenClient):
             if "sign" not in payload:
                 resp = yield self.captcha_sign(async_=async_)
                 payload["sign"] = resp["sign"]
-            return partial(
-                self.request, 
+            return self.request(
                 url=api, 
                 method="POST", 
                 data=payload, 
                 async_=async_, 
                 **request_kwargs, 
             )
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     ########## Download API ##########
 
@@ -15297,7 +15916,7 @@ class P115Client(P115OpenClient):
             if device is None:
                 return None
             return device["icon"]
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     @overload
     def login_open_auth_detail(
@@ -15821,7 +16440,7 @@ class P115Client(P115OpenClient):
                 return get_default_request()(url=api, async_=async_, **request_kwargs)
             else:
                 return request(url=api, **request_kwargs)
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     @overload
     def logout_by_ssoent(
@@ -16914,7 +17533,7 @@ class P115Client(P115OpenClient):
             method = self._offline_lixianssp_post
         return method(payload, ac, async_=async_, ecdh_encrypt=ecdh_encrypt, **request_kwargs)
 
-    @overload
+    @overload # type: ignore
     def offline_add_torrent(
         self, 
         payload: str | dict, 
@@ -16956,8 +17575,8 @@ class P115Client(P115OpenClient):
 
         :payload:
             - info_hash: str 💡 种子文件的 info_hash
-            - wanted: str = <default> 💡 选择文件进行下载（是数字用 "," 分隔）
-            - savepath: str = <default> 💡 保存到目录下的相对路径
+            - wanted: str = <default> 💡 选择文件进行下载（是数字索引，从 0 开始计数，用 "," 分隔）
+            - savepath: str = <default> 💡 保存到 `wp_path_id` 对应目录下的相对路径
             - wp_path_id: int | str = <default> 💡 保存到目录的 id
         """
         if isinstance(payload, str):
@@ -17008,7 +17627,7 @@ class P115Client(P115OpenClient):
             payload = {"url": payload}
         return self._offline_post(payload, "add_task_url", use_web_api=use_web_api, async_=async_, **request_kwargs)
 
-    @overload
+    @overload # type: ignore
     def offline_add_urls(
         self, 
         payload: str | Iterable[str] | dict, 
@@ -17051,7 +17670,7 @@ class P115Client(P115OpenClient):
             - wp_path_id: int | str = <default> 💡 保存到目录的 id
         """
         if isinstance(payload, str):
-            payload = payload.strip().split("\n")
+            payload = payload.strip("\n").split("\n")
         if not isinstance(payload, dict):
             payload = {f"url[{i}]": url for i, url in enumerate(payload)}
             if not payload:
@@ -17061,7 +17680,7 @@ class P115Client(P115OpenClient):
     @overload
     def offline_clear(
         self, 
-        payload: int | dict, 
+        payload: int | dict = 0, 
         /, 
         base_url: None | bool | str | Callable[[], str] = None, 
         *, 
@@ -17072,7 +17691,7 @@ class P115Client(P115OpenClient):
     @overload
     def offline_clear(
         self, 
-        payload: int | dict, 
+        payload: int | dict = 0, 
         /, 
         base_url: None | bool | str | Callable[[], str] = None, 
         *, 
@@ -17082,7 +17701,7 @@ class P115Client(P115OpenClient):
         ...
     def offline_clear(
         self, 
-        payload: int | dict = {"flag": 0}, 
+        payload: int | dict = 0, 
         /, 
         base_url: None | bool | str | Callable[[], str] = None, 
         *, 
@@ -17105,11 +17724,6 @@ class P115Client(P115OpenClient):
         """
         api = complete_lixian_api("?ct=lixian&ac=task_clear", base_url=base_url)
         if isinstance(payload, int):
-            flag = payload
-            if flag < 0:
-                flag = 0
-            elif flag > 5:
-                flag = 5
             payload = {"flag": payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
@@ -17183,7 +17797,7 @@ class P115Client(P115OpenClient):
         api = complete_api("/?ct=offline&ac=space", base_url=base_url)
         return self.request(url=api, async_=async_, **request_kwargs)
 
-    @overload
+    @overload # type: ignore
     def offline_list(
         self, 
         payload: int | dict = 1, 
@@ -17219,7 +17833,7 @@ class P115Client(P115OpenClient):
         POST https://lixian.115.com/lixian/?ct=lixian&ac=task_lists
 
         :payload:
-            - page: int | str
+            - page: int | str = 1
         """
         api = complete_lixian_api("?ct=lixian&ac=task_lists", base_url=base_url)
         if isinstance(payload, int):
@@ -17334,7 +17948,7 @@ class P115Client(P115OpenClient):
     @overload
     def offline_remove(
         self, 
-        payload: str | dict, 
+        payload: str | Iterable[str] | dict, 
         /, 
         base_url: None | bool | str | Callable[[], str] = None, 
         *, 
@@ -17345,7 +17959,7 @@ class P115Client(P115OpenClient):
     @overload
     def offline_remove(
         self, 
-        payload: str | dict, 
+        payload: str | Iterable[str] | dict, 
         /, 
         base_url: None | bool | str | Callable[[], str] = None, 
         *, 
@@ -17355,7 +17969,7 @@ class P115Client(P115OpenClient):
         ...
     def offline_remove(
         self, 
-        payload: str | dict, 
+        payload: str | Iterable[str] | dict, 
         /, 
         base_url: None | bool | str | Callable[[], str] = None, 
         *, 
@@ -19720,7 +20334,7 @@ class P115Client(P115OpenClient):
             if resp["state"]:
                 self.user_key = resp["data"]["userkey"]
             return resp
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     @overload
     def upload_resume(
@@ -20087,7 +20701,7 @@ class P115Client(P115OpenClient):
                 "pickcode": resp["pickcode"], 
             }
             return resp
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     @overload
     def upload_file_sample(
@@ -20223,7 +20837,7 @@ class P115Client(P115OpenClient):
                 async_=async_, 
                 **request_kwargs, 
             )
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     @overload # type: ignore
     def upload_file(
@@ -20582,7 +21196,7 @@ class P115Client(P115OpenClient):
                     async_=async_, # type: ignore
                     **request_kwargs, 
                 )
-        return run_gen_step(gen_step, async_=async_)
+        return run_gen_step(gen_step, simple=True, async_=async_)
 
     ########## User API ##########
 

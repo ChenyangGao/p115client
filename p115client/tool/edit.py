@@ -74,7 +74,7 @@ def update_abstract(
     if max_workers is None or max_workers <= 0:
         max_workers = 20 if async_ else None
     def gen_step():
-        setter = partial(getattr(client, method), async_=async_, **request_kwargs)
+        setter = getattr(client, method)(async_=async_, **request_kwargs)
         def call(batch, /):
             return check_response(setter(batch, value))
         if max_workers == 1:
@@ -91,7 +91,7 @@ def update_abstract(
                 chunked(ids, batch_size), 
                 max_workers=max_workers
             ))
-    return run_gen_step(gen_step, async_=async_)
+    return run_gen_step(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -634,5 +634,5 @@ def batch_unstar(
             async_=async_, # type: ignore
             **request_kwargs, 
         )
-    return run_gen_step(gen_step, async_=async_)
+    return run_gen_step(gen_step, simple=True, async_=async_)
 

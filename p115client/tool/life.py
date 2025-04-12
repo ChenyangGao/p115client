@@ -137,14 +137,14 @@ def iter_life_list(
                 for items in data["list"]:
                     if "items" not in items:
                         if start_time < items["update_time"] < end_time:
-                            yield Yield(items, identity=True)
+                            yield Yield(items, may_await=False)
                         continue
                     behavior_type = items["behavior_type"]
                     date = items["date"]
                     for item in items["items"]:
                         item["behavior_type"] = behavior_type
                         item["date"] = date
-                        yield Yield(item, identity=True)
+                        yield Yield(item, may_await=False)
                     if behavior_type.startswith("upload_") or items["total"] > len(items["items"]):
                         seen_items: set[str] = {item["id"] for item in items["items"]}
                         payload = {"offset": 0, "limit": 32, "type": behavior_type, "date": date}
@@ -158,7 +158,7 @@ def iter_life_list(
                                 seen_items.add(item["id"])
                                 item["behavior_type"] = behavior_type
                                 item["date"] = date
-                                yield Yield(item, identity=True)
+                                yield Yield(item, may_await=False)
                             else:
                                 if not resp["data"]["next_page"]:
                                     break
@@ -172,7 +172,7 @@ def iter_life_list(
                 else:
                     sleep(1 - diff)
             end_time = int(time())
-    return run_gen_step_iter(gen_step, async_=async_)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -262,7 +262,7 @@ def iter_life_behavior_once(
                     return
                 fid = event["file_id"]
                 if fid not in seen:
-                    yield Yield(event, identity=True)
+                    yield Yield(event, may_await=False)
                     seen_add(fid)
             offset += len(events)
             if offset >= int(resp["data"]["count"]):
@@ -276,7 +276,7 @@ def iter_life_behavior_once(
             ts_last_call = time()
             resp = yield life_behavior_detail(payload, async_=async_)
             events = check_response(resp)["data"]["list"]
-    return run_gen_step_iter(gen_step, async_=async_)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -376,8 +376,8 @@ def iter_life_behavior(
                         sub_first_loop = False
                     if not type and ignore_types and event["type"] in ignore_types:
                         continue
-                    yield Yield(event, identity=True)
-    return run_gen_step_iter(gen_step, async_=async_)
+                    yield Yield(event, may_await=False)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -468,6 +468,6 @@ def iter_life_behavior_list(
                     if not type and ignore_types and event["type"] in ignore_types:
                         continue
                     push(event)
-            yield Yield(ls, identity=True)
-    return run_gen_step_iter(gen_step, async_=async_)
+            yield Yield(ls, may_await=False)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 

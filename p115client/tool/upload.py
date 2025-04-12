@@ -418,12 +418,12 @@ def iter_115_to_115_resume(
         if async_:
             return YieldFrom(
                 taskgroup_map(upload, from_files, arg_func=get_pid, max_workers=max_workers), 
-                identity=True, 
+                may_await=False, 
             )
         else:
             return YieldFrom(
                 threadpool_map(upload, from_files, arg_func=get_pid, max_workers=max_workers), 
-                identity=True, 
+                may_await=False, 
             )
-    return run_gen_step_iter(gen_step, async_=async_)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 

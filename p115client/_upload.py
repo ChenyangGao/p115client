@@ -281,11 +281,11 @@ def oss_multipart_part_iter(
                 **request_kwargs, 
             )
             for el in etree.iterfind("Part"):
-                yield Yield({sel.tag: maybe_integer(sel.text) for sel in el}, identity=True)
+                yield Yield({sel.tag: maybe_integer(sel.text) for sel in el}, may_await=False)
             if getattr(etree.find("IsTruncated"), "text") == "false":
                 break
             params["part-number-marker"] = getattr(etree.find("NextPartNumberMarker"), "text")
-    return run_gen_step_iter(gen_step, async_=async_)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -679,7 +679,7 @@ def oss_multipart_upload_part_iter(
             ))
             if part["Size"] < partsize:
                 break
-    return run_gen_step_iter(gen_step, async_=async_)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -885,14 +885,14 @@ def oss_multipart_upload(
             elif isinstance(reporthook, AsyncGenerator):
                 close_reporthook = reporthook.aclose
                 reporthook = reporthook.asend
-                yield partial(reporthook, None)
+                yield reporthook(None)
         try:
             resume_data: MultipartResumeData = {
                 "bucket": bucket, "object": object, "token": token, "callback": callback, 
                 "upload_id": upload_id, "partsize": partsize, "filesize": filesize, "parts": parts, 
             }
             if collect_resume_data is not None:
-                yield partial(collect_resume_data, resume_data)
+                yield collect_resume_data(resume_data)
             yield foreach(
                 add_part, 
                 oss_multipart_upload_part_iter(
@@ -927,7 +927,7 @@ def oss_multipart_upload(
         finally:
             if close_reporthook is not None:
                 yield close_reporthook
-    return run_gen_step(gen_step, async_=async_)
+    return run_gen_step(gen_step, simple=True, async_=async_)
 
 
 # class MultipartUploader:

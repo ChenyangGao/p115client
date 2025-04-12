@@ -59,7 +59,7 @@ def wish_info(
         )
         check_response(resp)
         return resp["data"]
-    return run_gen_step(gen_step, async_=async_)
+    return run_gen_step(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -110,7 +110,7 @@ def wish_make(
         )
         check_response(resp)
         return P115StrID(resp["data"]["xys_id"], resp["data"])
-    return run_gen_step(gen_step, async_=async_)
+    return run_gen_step(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -146,6 +146,9 @@ def wish_answer(
 ) -> P115StrID | Coroutine[Any, Any, P115StrID]:
     """许愿树活动：创建助愿（助愿创建后需要等审核）
 
+    .. note::
+        如果从未调用过 `wish_info(client, wish_id)`，请先调用，否则会报参数错误
+
     :param client: 115 客户端或 cookies
     :param wish_id: 许愿 id
     :param content: 助愿内容
@@ -167,7 +170,7 @@ def wish_answer(
         )
         check_response(resp)
         return P115StrID(resp["data"]["aid_id"], resp["data"])
-    return run_gen_step(gen_step, async_=async_)
+    return run_gen_step(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -323,11 +326,11 @@ def wish_iter(
             )
             check_response(resp)
             ls = resp["data"]["list"]
-            yield YieldFrom(ls, identity=True)
+            yield YieldFrom(ls, may_await=False)
             if not ls:
                 break
             payload["page"] += 1
-    return run_gen_step_iter(gen_step, async_=async_)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -382,11 +385,11 @@ def wish_aid_iter(
             )
             check_response(resp)
             ls = resp["data"]["list"]
-            yield YieldFrom(ls, identity=True)
+            yield YieldFrom(ls, may_await=False)
             if not ls:
                 break
             payload["page"] += 1
-    return run_gen_step_iter(gen_step, async_=async_)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 # TODO: 再实现一个漂流瓶

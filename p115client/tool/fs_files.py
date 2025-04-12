@@ -141,20 +141,17 @@ def iter_fs_files(
                         warn(message, category=P115Warning)
                     count = count_new
                 if callback is not None:
-                    if async_:
-                        resp["callback"] = yield partial(callback, resp)
-                    else:
-                        resp["callback"] = callback(resp)
+                    resp["callback"] = yield callback(resp)
                 return resp
     def gen_step():
         while True:
-            resp = yield run_gen_step(get_files(payload), async_=async_)
+            resp = yield run_gen_step(get_files(payload), simple=True, async_=async_)
             payload["limit"] = page_size
-            yield Yield(resp, identity=True)
+            yield Yield(resp, may_await=False)
             payload["offset"] += len(resp["data"])
             if payload["offset"] >= count:
                 break
-    return run_gen_step_iter(gen_step, async_=async_)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 def iter_fs_files_threaded(

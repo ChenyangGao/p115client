@@ -238,7 +238,7 @@ def get_path_to_cid(
             return "/" + path
         else:
             return path
-    return run_gen_step(gen_step, async_=async_)
+    return run_gen_step(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -370,7 +370,7 @@ def get_file_count(
                     node = DirNode(info["file_name"], pid)
                     id_to_dirnode[(pid := int(info["file_id"]))] = node
             return int(resp["count"]) - int(resp.get("folder_count") or 0)
-    return run_gen_step(gen_step, async_=async_)
+    return run_gen_step(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -590,7 +590,7 @@ def get_ancestors(
                 if not resp.get("sha1") and id_to_dirnode is not ...:
                     id_to_dirnode[ans["id"]] = DirNode(ans["name"], ans["parent_id"])
         return ancestors
-    return run_gen_step(gen_step, async_=async_)
+    return run_gen_step(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -692,7 +692,7 @@ def get_ancestors_to_cid(
             parts.append({"id": 0, "name": "", "parent_id": 0})
             parts.reverse()
         return parts
-    return run_gen_step(gen_step, async_=async_)
+    return run_gen_step(gen_step, simple=True, async_=async_)
 
 
 # TODO: 使用 search 接口以在特定目录之下搜索某个名字，以便减少风控
@@ -887,7 +887,7 @@ def get_id_to_path(
                     if ensure_file is None or ensure_file ^ attr["is_dir"]:
                         return P115ID(attr["id"], attr, about="path")
         raise error
-    return run_gen_step(gen_step, async_=async_)
+    return run_gen_step(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -941,7 +941,7 @@ def get_id_to_pickcode(
         check_response(resp)
         data = resp["data"]
         return P115ID(data["file_id"], data, about="pickcode")
-    return run_gen_step(gen_step, async_=async_)
+    return run_gen_step(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -1001,7 +1001,7 @@ def get_id_to_sha1(
             else:
                 raise FileNotFoundError(ENOENT, file_sha1)
         return P115ID(data["file_id"], data, about="sha1", file_sha1=file_sha1)
-    return run_gen_step(gen_step, async_=async_)
+    return run_gen_step(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -1053,8 +1053,8 @@ def iter_nodes_skim(
             check_response(resp)
             for a in resp["data"]:
                 a["file_name"] = unescape_115_charref(a["file_name"])
-            yield YieldFrom(resp["data"], identity=True)
-    return run_gen_step_iter(gen_step, async_=async_)
+            yield YieldFrom(resp["data"], may_await=False)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -1191,7 +1191,7 @@ def _iter_fs_files(
                             attr = _overview_attr(info)
                             if attr.is_dir:
                                 id_to_dirnode[attr.id] = DirNode(attr.name, attr.parent_id)
-                    yield YieldFrom(resp["data"], identity=True)
+                    yield YieldFrom(resp["data"], may_await=False)
                 else:
                     for info in resp["data"]:
                         attr = _overview_attr(info)
@@ -1200,10 +1200,10 @@ def _iter_fs_files(
                                 id_to_dirnode[attr.id] = DirNode(attr.name, attr.parent_id)
                         elif ensure_file is False:
                             return
-                        yield Yield(info, identity=True)
+                        yield Yield(info, may_await=False)
         except (StopAsyncIteration, StopIteration):
             pass
-    return run_gen_step_iter(gen_step, async_=async_)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -1592,8 +1592,8 @@ def ensure_attr_path[D: dict](
                         warn(f"{type(e).__module__}.{type(e).__qualname__}: {e} of {attr}", category=P115Warning)
                 attr.setdefault("ancestors", None)
                 attr.setdefault("path", "")
-            yield Yield(attr, identity=True)
-    return run_gen_step_iter(gen_step, async_=async_)
+            yield Yield(attr, may_await=False)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -2075,10 +2075,10 @@ def iterdir(
                         name = escape(name)
                     attr["path"] = dirname + name
                 return attr
-            yield YieldFrom(do_map(process, it), identity=True) # type: ignore
+            yield YieldFrom(do_map(process, it), may_await=False) # type: ignore
         else:
-            yield YieldFrom(do_map(normalize_attr, it), identity=True) # type: ignore
-    return run_gen_step_iter(gen_step, async_=async_)
+            yield YieldFrom(do_map(normalize_attr, it), may_await=False) # type: ignore
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 def iterdir_limited(
@@ -2187,8 +2187,8 @@ def iterdir_limited(
                 attr["path"] = dirname + name
             yield attr
     def gen_step():
-        resp: dict = yield run_gen_step(request, async_=async_)
-        yield YieldFrom(iter_attrs(resp), identity=True)
+        resp: dict = yield run_gen_step(request, simple=True, async_=async_)
+        yield YieldFrom(iter_attrs(resp), may_await=False)
         count = int(resp["count"])
         count_fetched = len(resp["data"])
         if count > count_fetched:
@@ -2216,30 +2216,30 @@ def iterdir_limited(
             count_top = count_top_dirs + count_top_files
             if count <= count_fetched * 2 - count_top:
                 resp = request({"asc": 0, "offset": count_top, "limit": count - count_fetched})
-                yield YieldFrom(iter_attrs(resp), identity=True)
+                yield YieldFrom(iter_attrs(resp), may_await=False)
                 return
             if diff := count_dirs - len(seen_dirs):
                 if diff > count_fetched - count_top_dirs:
                     resp = request({"nf": 1, "offset": len(seen_dirs)})
-                    yield YieldFrom(iter_attrs(resp), identity=True)
+                    yield YieldFrom(iter_attrs(resp), may_await=False)
                     diff = count_dirs - len(seen_dirs)
                 if diff > 0:
                     resp = request({"asc": 0, "nf": 1, "offset": count_top_dirs, "limit": diff})
-                    yield YieldFrom(iter_attrs(resp), identity=True)
+                    yield YieldFrom(iter_attrs(resp), may_await=False)
                     
                     if diff := count_dirs - len(seen_dirs):
                         warn(f"lost {diff} directories: cid={cid}", category=P115Warning)
             if diff := count_files - len(seen_files):
                 if diff > count_fetched - count_top_files:
                     resp = request({"show_dir": 0, "offset": len(seen_files)})
-                    yield YieldFrom(iter_attrs(resp), identity=True)
+                    yield YieldFrom(iter_attrs(resp), may_await=False)
                     diff = count_files - len(seen_files)
                 if diff > 0:
                     resp = request({"asc": 0, "show_dir": 0, "offset": count_top_files, "limit": diff})
-                    yield YieldFrom(iter_attrs(resp), identity=True)
+                    yield YieldFrom(iter_attrs(resp), may_await=False)
                     if diff := count_files - len(seen_files):
                         warn(f"lost {diff} files: cid={cid}", category=P115Warning)
-    return run_gen_step_iter(gen_step, async_=async_)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -2592,9 +2592,9 @@ def iter_files(
                     add_to_cache(attr)
                 else:
                     return attr
-            yield YieldFrom(do_filter(bool, do_map(process, it)), identity=True) # type: ignore
+            yield YieldFrom(do_filter(bool, do_map(process, it)), may_await=False) # type: ignore
         else:
-            yield YieldFrom(do_map(normalize_attr, it), identity=True) # type: ignore
+            yield YieldFrom(do_map(normalize_attr, it), may_await=False) # type: ignore
         if (with_ancestors or with_path) and cache:
             yield YieldFrom(ensure_attr_path(
                 client, 
@@ -2608,8 +2608,8 @@ def iter_files(
                 app=app, 
                 async_=async_, # type: ignore
                 **request_kwargs, 
-            ), identity=True)
-    return run_gen_step_iter(gen_step, async_=async_)
+            ), may_await=False)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -2736,8 +2736,7 @@ def traverse_files(
     def gen_step():
         nonlocal cid
         if auto_splitting_tasks:
-            get_count = partial(
-                get_file_count, 
+            get_count = get_file_count(
                 client, 
                 id_to_dirnode=id_to_dirnode, 
                 **{**request_kwargs, "timeout": auto_splitting_statistics_timeout}
@@ -2773,7 +2772,7 @@ def traverse_files(
                         max_workers=max_workers, 
                         async_=async_, # type: ignore
                         **request_kwargs, 
-                    ), identity=True)
+                    ), may_await=False)
                 else:
                     yield YieldFrom(iter_files(
                         client, 
@@ -2789,7 +2788,7 @@ def traverse_files(
                         max_workers=max_workers, 
                         async_=async_, # type: ignore
                         **request_kwargs, 
-                    ), identity=True)
+                    ), may_await=False)
             else:
                 with with_iter_next(iterdir(
                     client, 
@@ -2814,8 +2813,8 @@ def traverse_files(
                         type > 7 or 
                         type_of_attr(attr) == type
                     ):
-                        yield Yield(attr, identity=True)
-    return run_gen_step_iter(gen_step, async_=async_)
+                        yield Yield(attr, may_await=False)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -2908,8 +2907,8 @@ def iter_dirs(
             )) as get_next:
                 while True:
                     batch = yield get_next
-                    yield YieldFrom(batch, identity=True)
-        it = run_gen_step_iter(gen_step(it), async_=async_)
+                    yield YieldFrom(batch, may_await=False)
+        it = run_gen_step_iter(gen_step(it), simple=True, async_=async_)
     return it
 
 
@@ -3156,12 +3155,12 @@ def iter_image_files(
                 count = int(resp.get("count") or 0)
             if offset != resp["offset"]:
                 break
-            yield YieldFrom(map(normalize, resp["data"]), identity=True)
+            yield YieldFrom(map(normalize, resp["data"]), may_await=False)
             offset += len(resp["data"])
             if offset >= count:
                 break
             payload["offset"] = offset
-    return run_gen_step_iter(gen_step, async_=async_)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -3270,11 +3269,11 @@ def share_iterdir(
                         id_to_dirnode[oattr.id] = DirNode(oattr.name, oattr.parent_id)
                 if normalize_attr is not None:
                     attr = normalize_attr(attr)
-                yield Yield(attr, identity=True)
+                yield Yield(attr, may_await=False)
             payload["offset"] += page_size # type: ignore
             if payload["offset"] >= count: # type: ignore
                 break
-    return run_gen_step_iter(gen_step, async_=async_)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -3372,12 +3371,12 @@ def share_iter_files(
                             "name": info["fn"], 
                             "size": int(info["si"]), 
                             "path": f"/{info['pt']}/{info['fn']}", 
-                        }, identity=True)
+                        }, may_await=False)
                 else:
-                    yield Yield({k: attr[k] for k in ("id", "sha1", "name", "size", "path")}, identity=True)
+                    yield Yield({k: attr[k] for k in ("id", "sha1", "name", "size", "path")}, may_await=False)
         except (StopIteration, StopAsyncIteration):
             pass
-    return run_gen_step(gen_step, async_=async_)
+    return run_gen_step(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -3547,7 +3546,7 @@ def share_get_id_to_path(
                     if ensure_file is None or ensure_file ^ attr["is_dir"]:
                         return P115ID(attr["id"], attr, about="path")
         raise error
-    return run_gen_step(gen_step, async_=async_)
+    return run_gen_step(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -4059,7 +4058,7 @@ def iter_selected_nodes_using_star_event(
                     id_to_dirnode[fid] = DirNode(name, pid)
                 if fid in ids:
                     if not normalize_attr:
-                        yield Yield(event, identity=True)
+                        yield Yield(event, may_await=False)
                     elif normalize_attr is True:
                         attr = {
                             "id": fid, 
@@ -4081,15 +4080,15 @@ def iter_selected_nodes_using_star_event(
                             attr["type"] = 3
                         else:
                             attr["type"] = type_of_attr(attr)
-                        yield Yield(attr, identity=True)
+                        yield Yield(attr, may_await=False)
                     else:
-                        yield Yield(normalize_attr(event), identity=True)
+                        yield Yield(normalize_attr(event), may_await=False)
                     discard(fid)
                     if not ids:
                         break
         except (StopIteration, StopAsyncIteration):
             pass
-    return run_gen_step_iter(gen_step, async_=async_)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -4183,13 +4182,13 @@ def iter_selected_dirs_using_star(
                     break
                 cid = attr["id"]
                 if cid in ids:
-                    yield Yield(info, identity=True)
+                    yield Yield(info, may_await=False)
                     discard(cid)
                     if not ids:
                         break
         except (StopIteration, StopAsyncIteration):
             pass
-    return run_gen_step_iter(gen_step, async_=async_)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -4350,7 +4349,7 @@ def iter_files_with_dirname(
                 resp = yield get_next
                 for attr in resp["data"]:
                     attr.update(pid_to_info[attr["parent_id"]])
-                    yield Yield(attr, identity=True)
+                    yield Yield(attr, may_await=False)
         except (StopIteration, StopAsyncIteration):
             pass
     if with_parents_4_level:
@@ -4363,7 +4362,7 @@ def iter_files_with_dirname(
             it = iter_parents_3_level(
                 client, 
                 iter_unique((async_map if async_ else map)( 
-                    get_pid, run_gen_step_iter(gen_step, async_=async_))), # type: ignore
+                    get_pid, run_gen_step_iter(gen_step, simple=True, async_=async_))), # type: ignore
                 async_=async_, # type: ignore
                 **request_kwargs, 
             )
@@ -4376,9 +4375,9 @@ def iter_files_with_dirname(
             id_to_parents[0] = ("", "", "")
             for attr in files:
                 attr["parents"] = (attr["dir_name"], *id_to_parents[attr["parent_id"]])
-                yield Yield(attr, identity=True)
-        return run_gen_step_iter(gen_step2, async_=async_)
-    return run_gen_step_iter(gen_step, async_=async_)
+                yield Yield(attr, may_await=False)
+        return run_gen_step_iter(gen_step2, simple=True, async_=async_)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -4518,7 +4517,7 @@ def iter_files_with_path(
     _path_already: None | bool = None if path_already else False
     if not path_already:
         from .download import iter_download_nodes
-        def set_path_already(*a):
+        def set_path_already(*_):
             nonlocal _path_already
             _path_already = True
         def fetch_dirs(id: int | str, /):
@@ -4551,7 +4550,7 @@ def iter_files_with_path(
                 )) as get_next:
                     while True:
                         attr = yield get_next
-                        yield run_gen_step(fetch_dirs(attr["pickcode"]), async_=async_)
+                        yield run_gen_step(fetch_dirs(attr["pickcode"]), simple=True, async_=async_)
     if with_ancestors:
         id_to_ancestors: dict[int, list[dict]] = {}
         def get_ancestors(id: int, attr: dict | tuple[str, int] | DirNode, /) -> list[dict]:
@@ -4598,7 +4597,7 @@ def iter_files_with_path(
         add_to_cache = cache.append
         if not path_already:
             if async_:
-                task: Any = create_task(run_gen_step(fetch_dirs(cid), async_=True))
+                task: Any = create_task(run_gen_step(fetch_dirs(cid), simple=True, async_=True))
             else:
                 task = run_as_thread(run_gen_step, fetch_dirs(cid))
             task.add_done_callback(set_path_already)
@@ -4623,16 +4622,16 @@ def iter_files_with_path(
             while True:
                 attr = yield get_next
                 if _path_already is None:
-                    yield Yield(update_path(attr), identity=True)
+                    yield Yield(update_path(attr), may_await=False)
                 elif _path_already:
                     if async_:
                         yield task
                     else:
                         task.result()
                     if cache:
-                        yield YieldFrom(map(update_path, cache), identity=True)
+                        yield YieldFrom(map(update_path, cache), may_await=False)
                         cache.clear()
-                    yield Yield(update_path(attr), identity=True)
+                    yield Yield(update_path(attr), may_await=False)
                     _path_already = None
                 else:
                     add_to_cache(attr)
@@ -4641,8 +4640,8 @@ def iter_files_with_path(
                 yield task
             else:
                 task.result()
-            yield YieldFrom(map(update_path, cache), identity=True)
-    return run_gen_step_iter(gen_step, async_=async_)
+            yield YieldFrom(map(update_path, cache), may_await=False)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -4898,8 +4897,8 @@ def iter_files_with_path_by_export_dir(
                 if escape is not None:
                     name = escape(name)
                 attr["path"] = dir_path + name
-                yield Yield(attr, identity=True)
-    return run_gen_step_iter(gen_step, async_=async_)
+                yield Yield(attr, may_await=False)
+    return run_gen_step_iter(gen_step, simple=True, async_=async_)
 
 
 @overload
@@ -4990,7 +4989,7 @@ def iter_parents_3_level(
     ids = (async_filter if async_ else filter)(None, ids) # type: ignore
     return flatten(
         batch_map(
-            lambda ids, /: run_gen_step(get_parents(ids), async_=async_), 
+            lambda ids, /: run_gen_step(get_parents(ids), simple=True, async_=async_), 
             chunked(ids, 1150), 
             max_workers=max_workers, 
         ), 
@@ -5070,7 +5069,7 @@ def iter_dir_nodes(
                         id_to_dirnode[id] = DirNode(name, parent_id)
                     yield Yield(
                         {"id": id, "parent_id": parent_id, "name": name}, 
-                        identity=True, 
+                        may_await=False, 
                     )
         else:
             with with_iter_next(iterdir(
@@ -5089,13 +5088,13 @@ def iter_dir_nodes(
                             "parent_id": attr["parent_id"], 
                             "name": attr["name"], 
                         }, 
-                        identity=True, 
+                        may_await=False, 
                     )
                     yield YieldFrom(
-                        run_gen_step_iter(gen_step(attr["pickcode"]), async_=async_), 
-                        identity=True, 
+                        run_gen_step_iter(gen_step(attr["pickcode"]), simple=True, async_=async_), 
+                        may_await=False, 
                     )
-    return run_gen_step_iter(gen_step(cid or 0), async_=async_)
+    return run_gen_step_iter(gen_step(cid or 0), simple=True, async_=async_)
 
 
 @overload
@@ -5174,5 +5173,5 @@ def search_for_any_file(
         )
         check_response(resp)
         return bool(resp["data"])
-    return run_gen_step(gen_step, async_=async_)
+    return run_gen_step(gen_step, simple=True, async_=async_)
 
