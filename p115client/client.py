@@ -596,13 +596,34 @@ def check_response(resp: dict | Awaitable[dict], /) -> dict | Coroutine[Any, Any
     raise P115OSError(errno.EIO, resp)
 
 
+@overload
 def normalize_attr_web(
     info: Mapping, 
     /, 
     simple: bool = False, 
     keep_raw: bool = False, 
-    dict_cls: None | type[dict] = None, 
+    *, 
+    dict_cls: None = None, 
 ) -> dict[str, Any]:
+    ...
+@overload
+def normalize_attr_web[D: dict[str, Any]](
+    info: Mapping, 
+    /, 
+    simple: bool = False, 
+    keep_raw: bool = False, 
+    *, 
+    dict_cls: type[D], 
+) -> D:
+    ...
+def normalize_attr_web[D: dict[str, Any]](
+    info: Mapping, 
+    /, 
+    simple: bool = False, 
+    keep_raw: bool = False, 
+    *, 
+    dict_cls: None | type[D] = None, 
+) -> dict[str, Any] | D:
     """翻译 `P115Client.fs_files`、`P115Client.fs_search`、`P115Client.share_snap` 等接口响应的文件信息数据，使之便于阅读
 
     :param info: 原始数据
@@ -613,10 +634,7 @@ def normalize_attr_web(
     :return: 翻译后的 dict 类型数据
     """
     if dict_cls is None:
-        if simple:
-            dict_cls = dict
-        else:
-            dict_cls = AttrDict
+        dict_cls = cast(type[D], dict)
     attr: dict[str, Any] = dict_cls()
     is_directory = attr["is_dir"] = "fid" not in info
     if not simple:
@@ -720,10 +738,10 @@ def normalize_attr_web(
         attr["type"] = 0
     elif info.get("iv") or "vdi" in info:
         attr["type"] = 4
-    elif type := CLASS_TO_TYPE.get(attr.get("class", "")):
-        attr["type"] = type
-    elif type := SUFFIX_TO_TYPE.get(splitext(attr["name"])[1].lower()):
-        attr["type"] = type
+    elif type_ := CLASS_TO_TYPE.get(attr.get("class", "")):
+        attr["type"] = type_
+    elif type_ := SUFFIX_TO_TYPE.get(splitext(attr["name"])[1].lower()):
+        attr["type"] = type_
     else:
         attr["type"] = 99
     if keep_raw:
@@ -731,13 +749,33 @@ def normalize_attr_web(
     return attr
 
 
+@overload
 def normalize_attr_app(
     info: Mapping, 
     /, 
     simple: bool = False, 
     keep_raw: bool = False, 
-    dict_cls: None | type[dict] = None, 
+    *, 
+    dict_cls: None = None, 
 ) -> dict[str, Any]:
+    ...
+@overload
+def normalize_attr_app[D: dict[str, Any]](
+    info: Mapping, 
+    /, 
+    simple: bool = False, 
+    keep_raw: bool = False, 
+    *, 
+    dict_cls: None | type[D] = None, 
+) -> D:
+    ...
+def normalize_attr_app[D: dict[str, Any]](
+    info: Mapping, 
+    /, 
+    simple: bool = False, 
+    keep_raw: bool = False, 
+    dict_cls: None | type[D] = None, 
+) -> dict[str, Any] | D:
     """翻译 `P115Client.fs_files_app` 接口响应的文件信息数据，使之便于阅读
 
     :param info: 原始数据
@@ -748,10 +786,7 @@ def normalize_attr_app(
     :return: 翻译后的 dict 类型数据
     """
     if dict_cls is None:
-        if simple:
-            dict_cls = dict
-        else:
-            dict_cls = AttrDict
+        dict_cls = cast(type[D], dict)
     attr: dict[str, Any] = dict_cls()
     is_directory = attr["is_dir"] = info["fc"] == "0" # fc => file_category
     if not simple:
@@ -835,8 +870,8 @@ def normalize_attr_app(
         attr["type"] = 3
     elif info.get("isv") or "def" in info or "def2" in info or "v_img" in info:
         attr["type"] = 4
-    elif type := SUFFIX_TO_TYPE.get(splitext(attr["name"])[1].lower()):
-        attr["type"] = type
+    elif type_ := SUFFIX_TO_TYPE.get(splitext(attr["name"])[1].lower()):
+        attr["type"] = type_
     else:
         attr["type"] = 99
     if keep_raw:
@@ -844,13 +879,33 @@ def normalize_attr_app(
     return attr
 
 
+@overload
 def normalize_attr_app2(
     info: Mapping, 
     /, 
     simple: bool = False, 
     keep_raw: bool = False, 
-    dict_cls: None | type[dict] = None, 
+    *, 
+    dict_cls: None = None, 
 ) -> dict[str, Any]:
+    ...
+@overload
+def normalize_attr_app2[D: dict[str, Any]](
+    info: Mapping, 
+    /, 
+    simple: bool = False, 
+    keep_raw: bool = False, 
+    *, 
+    dict_cls: None | type[D] = None, 
+) -> D:
+    ...
+def normalize_attr_app2[D: dict[str, Any]](
+    info: Mapping, 
+    /, 
+    simple: bool = False, 
+    keep_raw: bool = False, 
+    dict_cls: None | type[D] = None, 
+) -> dict[str, Any] | D:
     """翻译 `P115Client.fs_files_app2` 接口响应的文件信息数据，使之便于阅读
 
     :param info: 原始数据
@@ -861,10 +916,7 @@ def normalize_attr_app2(
     :return: 翻译后的 dict 类型数据
     """
     if dict_cls is None:
-        if simple:
-            dict_cls = dict
-        else:
-            dict_cls = AttrDict
+        dict_cls = cast(type[D], dict)
     attr: dict[str, Any] = dict_cls()
     if "file_id" in info and "parent_id" in info:
         if "file_category" in info:
@@ -970,8 +1022,8 @@ def normalize_attr_app2(
         attr["type"] = 3
     elif info.get("is_video") or "definition" in info or "definition2" in info or "video_img_url" in info:
         attr["type"] = 4
-    elif type := SUFFIX_TO_TYPE.get(splitext(attr["name"])[1].lower()):
-        attr["type"] = type
+    elif type_ := SUFFIX_TO_TYPE.get(splitext(attr["name"])[1].lower()):
+        attr["type"] = type_
     else:
         attr["type"] = 99
     if keep_raw:
@@ -979,13 +1031,34 @@ def normalize_attr_app2(
     return attr
 
 
+@overload
 def normalize_attr(
     info: Mapping, 
     /, 
     simple: bool = False, 
     keep_raw: bool = False, 
-    dict_cls: None | type[dict] = None, 
+    *, 
+    dict_cls: None, 
 ) -> dict[str, Any]:
+    ...
+@overload
+def normalize_attr[D: dict[str, Any]](
+    info: Mapping, 
+    /, 
+    simple: bool = False, 
+    keep_raw: bool = False, 
+    *, 
+    dict_cls: type[D] = AttrDict, # type: ignore
+) -> D:
+    ...
+def normalize_attr[D: dict[str, Any]](
+    info: Mapping, 
+    /, 
+    simple: bool = False, 
+    keep_raw: bool = False, 
+    *, 
+    dict_cls: None | type[D] = AttrDict, # type: ignore
+) -> dict[str, Any] | D:
     """翻译获取自罗列目录、搜索、获取文件信息等接口的数据，使之便于阅读
 
     :param info: 原始数据
@@ -1003,12 +1076,37 @@ def normalize_attr(
         return normalize_attr_web(info, simple=simple, keep_raw=keep_raw, dict_cls=dict_cls)
 
 
+@overload
 def normalize_attr_simple(
     info: Mapping, 
     /, 
     keep_raw: bool = False, 
+    *, 
+    dict_cls: None = None, 
 ) -> dict[str, Any]:
-    return normalize_attr(info, simple=True, keep_raw=keep_raw)
+    ...
+@overload
+def normalize_attr_simple[D: dict[str, Any]](
+    info: Mapping, 
+    /, 
+    keep_raw: bool = False, 
+    *, 
+    dict_cls: type[D], 
+) -> D:
+    ...
+def normalize_attr_simple[D: dict[str, Any]](
+    info: Mapping, 
+    /, 
+    keep_raw: bool = False, 
+    *, 
+    dict_cls: None | type[D] = None, 
+) -> dict[str, Any] | D:
+    return normalize_attr(
+        info, 
+        may_call=False, 
+        keep_raw=keep_raw, 
+        dict_cls=dict_cls, # type: ignore
+    )
 
 
 class IgnoreCaseDict[V](dict[str, V]):
@@ -2224,7 +2322,7 @@ class ClientRequestMixin:
                 )
             else:
                 return qrcode_token
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @overload
     @classmethod
@@ -2324,7 +2422,7 @@ class ClientRequestMixin:
                 async_=async_, 
                 **request_kwargs, 
             )
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     ########## Upload API ##########
 
@@ -2707,7 +2805,7 @@ class ClientRequestMixin:
                 async_=async_, 
                 **request_kwargs, 
             )
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @overload
     def read_bytes_range(
@@ -2822,7 +2920,7 @@ class ClientRequestMixin:
                 async_=async_, 
                 **request_kwargs, 
             )
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
 
 class P115OpenClient(ClientRequestMixin):
@@ -2918,7 +3016,7 @@ class P115OpenClient(ClientRequestMixin):
             self.refresh_token = data["refresh_token"]
             self.access_token = data["access_token"]
             return self
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @classmethod
     def from_token(cls, /, access_token: str, refresh_token: str) -> P115OpenClient:
@@ -2985,7 +3083,7 @@ class P115OpenClient(ClientRequestMixin):
             self.refresh_token = data["refresh_token"]
             access_token = self.access_token = data["access_token"]
             return access_token
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @overload
     def download_url(
@@ -4711,7 +4809,7 @@ class P115OpenClient(ClientRequestMixin):
                 check_response(resp)
             resp["data"] = {**payload, **resp["data"], "sha1": filesha1, "cid": pid}
             return resp
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @overload
     def upload_file(
@@ -5055,7 +5153,7 @@ class P115OpenClient(ClientRequestMixin):
                     async_=async_, # type: ignore
                     **request_kwargs, 
                 )
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @overload
     def user_info(
@@ -5436,7 +5534,7 @@ class P115Client(P115OpenClient):
                     )
             setattr(self, "check_for_relogin", check_for_relogin)
             return self
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @locked_cacheproperty
     def request_lock(self, /) -> Lock:
@@ -5608,7 +5706,7 @@ class P115Client(P115OpenClient):
                 check_response(resp)
             setattr(self, "cookies", resp["data"]["cookie"])
             return self
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @overload
     def login_with_app(
@@ -5740,7 +5838,7 @@ class P115Client(P115OpenClient):
                 async_=async_, 
                 **request_kwargs, 
             )
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @overload
     def login_without_app(
@@ -5798,7 +5896,7 @@ class P115Client(P115OpenClient):
             )
             check_response(resp)
             return uid
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @overload
     def login_with_open(
@@ -5850,7 +5948,7 @@ class P115Client(P115OpenClient):
             resp = yield self.login_qrcode_scan_confirm(login_uid, async_=async_, **request_kwargs)
             check_response(resp)
             return self.login_qrcode_access_token_open(login_uid, async_=async_, **request_kwargs)
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @overload
     def login_another_app(
@@ -5994,7 +6092,7 @@ class P115Client(P115OpenClient):
             if self is not inst and ssoent == inst.login_ssoent:
                 warn(f"login with the same ssoent {ssoent!r}, {self!r} will expire within 60 seconds", category=P115Warning)
             return inst
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @overload
     def login_another_open(
@@ -6088,7 +6186,7 @@ class P115Client(P115OpenClient):
                 inst.access_token = data["access_token"]
             inst.app_id = app_id
             return inst
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @overload
     @classmethod
@@ -6207,7 +6305,7 @@ class P115Client(P115OpenClient):
             resp = yield cls.login_qrcode_scan_result(uid, app, async_=async_, **request_kwargs)
             cookies = check_response(resp)["data"]["cookie"]
             return cls(cookies, check_for_relogin=check_for_relogin)
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @overload
     def logout(
@@ -6389,7 +6487,7 @@ class P115Client(P115OpenClient):
         def gen_step():
             cert_headers: None | Mapping = None
             if need_fetch_cert_first:
-                cert_headers = yield fetch_cert_headers
+                cert_headers = yield cast(Callable, fetch_cert_headers)()
                 headers.update(cert_headers)
             if async_:
                 lock: Lock | AsyncLock = self.request_alock
@@ -6433,7 +6531,7 @@ class P115Client(P115OpenClient):
                     if not res if isinstance(res, bool) else res != 405:
                         raise
                     if fetch_cert_headers is not None:
-                        cert_headers = yield fetch_cert_headers
+                        cert_headers = yield fetch_cert_headers()
                         headers.update(cert_headers)
                     elif is_open_api:
                         yield lock.acquire
@@ -6482,7 +6580,7 @@ class P115Client(P115OpenClient):
                     if check and isinstance(resp, dict):
                         check_response(resp)
                     return resp
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     def request(
         self, 
@@ -7341,7 +7439,7 @@ class P115Client(P115OpenClient):
                 async_=async_, 
                 **request_kwargs, 
             )
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     ########## Download API ##########
 
@@ -15916,7 +16014,7 @@ class P115Client(P115OpenClient):
             if device is None:
                 return None
             return device["icon"]
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @overload
     def login_open_auth_detail(
@@ -16440,7 +16538,7 @@ class P115Client(P115OpenClient):
                 return get_default_request()(url=api, async_=async_, **request_kwargs)
             else:
                 return request(url=api, **request_kwargs)
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @overload
     def logout_by_ssoent(
@@ -20334,7 +20432,7 @@ class P115Client(P115OpenClient):
             if resp["state"]:
                 self.user_key = resp["data"]["userkey"]
             return resp
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @overload
     def upload_resume(
@@ -20701,7 +20799,7 @@ class P115Client(P115OpenClient):
                 "pickcode": resp["pickcode"], 
             }
             return resp
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @overload
     def upload_file_sample(
@@ -20837,7 +20935,7 @@ class P115Client(P115OpenClient):
                 async_=async_, 
                 **request_kwargs, 
             )
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @overload # type: ignore
     def upload_file(
@@ -21196,7 +21294,7 @@ class P115Client(P115OpenClient):
                     async_=async_, # type: ignore
                     **request_kwargs, 
                 )
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
 
     ########## User API ##########
 

@@ -145,13 +145,13 @@ def iter_fs_files(
                 return resp
     def gen_step():
         while True:
-            resp = yield run_gen_step(get_files(payload), simple=True, async_=async_)
+            resp = yield run_gen_step(get_files(payload), may_call=False, async_=async_)
             payload["limit"] = page_size
-            yield Yield(resp, may_await=False)
+            yield Yield(resp)
             payload["offset"] += len(resp["data"])
             if payload["offset"] >= count:
                 break
-    return run_gen_step_iter(gen_step, simple=True, async_=async_)
+    return run_gen_step_iter(gen_step, may_call=False, async_=async_)
 
 
 def iter_fs_files_threaded(

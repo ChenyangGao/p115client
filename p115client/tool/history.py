@@ -105,7 +105,7 @@ def iter_history_list_once(
                 if from_id and event_id <= from_id or from_time and int(event["update_time"]) < from_time:
                     return
                 if event_id not in seen:
-                    yield Yield(event, may_await=False)
+                    yield Yield(event)
                     seen_add(event_id)
             offset += len(events)
             if offset >= int(resp["data"]["total"]):
@@ -119,7 +119,7 @@ def iter_history_list_once(
             ts_last_call = time()
             resp = yield history_list(payload, async_=async_)
             events = check_response(resp)["data"]["list"]
-    return run_gen_step_iter(gen_step, simple=True, async_=async_)
+    return run_gen_step_iter(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -214,11 +214,11 @@ def iter_history_list(
             )) as get_next:
                 sub_first_loop = True
                 while True:
-                    event = yield get_next
+                    event = yield get_next()
                     if sub_first_loop:
                         from_id = int(event["id"])
                         from_time = int(event["update_time"])
                         sub_first_loop = False
-                    yield Yield(event, may_await=False)
-    return run_gen_step_iter(gen_step, simple=True, async_=async_)
+                    yield Yield(event)
+    return run_gen_step_iter(gen_step, may_call=False, async_=async_)
 

@@ -281,11 +281,11 @@ def oss_multipart_part_iter(
                 **request_kwargs, 
             )
             for el in etree.iterfind("Part"):
-                yield Yield({sel.tag: maybe_integer(sel.text) for sel in el}, may_await=False)
+                yield Yield({sel.tag: maybe_integer(sel.text) for sel in el})
             if getattr(etree.find("IsTruncated"), "text") == "false":
                 break
             params["part-number-marker"] = getattr(etree.find("NextPartNumberMarker"), "text")
-    return run_gen_step_iter(gen_step, simple=True, async_=async_)
+    return run_gen_step_iter(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -679,7 +679,7 @@ def oss_multipart_upload_part_iter(
             ))
             if part["Size"] < partsize:
                 break
-    return run_gen_step_iter(gen_step, simple=True, async_=async_)
+    return run_gen_step_iter(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -846,7 +846,7 @@ def oss_multipart_upload(
                             if part["Size"] != partsize:
                                 break
                             add_part(part)
-                    yield async_request
+                    yield async_request()
                 else:
                     for part in oss_multipart_part_iter(
                         request, 
@@ -926,8 +926,8 @@ def oss_multipart_upload(
             raise MultipartUploadAbort(resume_data) from e
         finally:
             if close_reporthook is not None:
-                yield close_reporthook
-    return run_gen_step(gen_step, simple=True, async_=async_)
+                yield close_reporthook()
+    return run_gen_step(gen_step, may_call=False, async_=async_)
 
 
 # class MultipartUploader:

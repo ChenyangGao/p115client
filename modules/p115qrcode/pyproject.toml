@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "p115qrcode"
-version = "0.0.4"
+version = "0.0.5.1"
 description = "115 网盘二维码扫码登录"
 authors = ["ChenyangGao <wosiwujm@gmail.com>"]
 license = "MIT"
@@ -31,7 +31,7 @@ flask = "*"
 orjson = "*"
 httpx = "*"
 httpx_request = ">=0.1"
-python-iterutils = ">=0.1.8"
+python-iterutils = ">=0.2.1"
 python-startfile = ">=0.0.2"
 qrcode = "*"
 

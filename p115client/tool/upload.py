@@ -348,7 +348,7 @@ def iter_115_to_115_resume(
                         **request_kwargs, 
                     )) as get_next:
                         while True:
-                            attr = yield get_next
+                            attr = yield get_next()
                             if attr["name"] == name:
                                 to_cid = attr["id"]
                                 break
@@ -416,14 +416,18 @@ def iter_115_to_115_resume(
         else:
             dirt_to_cid[()] = 0
         if async_:
-            return YieldFrom(
-                taskgroup_map(upload, from_files, arg_func=get_pid, max_workers=max_workers), 
-                may_await=False, 
-            )
+            return YieldFrom(taskgroup_map(
+                upload, 
+                from_files, 
+                arg_func=get_pid, 
+                max_workers=max_workers, 
+            ))
         else:
-            return YieldFrom(
-                threadpool_map(upload, from_files, arg_func=get_pid, max_workers=max_workers), 
-                may_await=False, 
-            )
-    return run_gen_step_iter(gen_step, simple=True, async_=async_)
+            return YieldFrom(threadpool_map(
+                upload, 
+                from_files, 
+                arg_func=get_pid, 
+                max_workers=max_workers, 
+            ))
+    return run_gen_step_iter(gen_step, may_call=False, async_=async_)
 

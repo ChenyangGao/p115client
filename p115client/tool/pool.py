@@ -88,7 +88,7 @@ def generate_auth_factory(
                     "authorization": "Bearer " + resp["data"]["access_token"], 
                     "app_id": str(app_id), 
                 }
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
     return make_cookies
 
 
@@ -142,7 +142,7 @@ def generate_cookies_factory(
                     "cookie": "; ".join(f"{k}={v}" for k, v in resp["data"]["cookie"].items()), 
                     "app": app, 
                 }
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
     return make_cookies
 
 
@@ -165,7 +165,7 @@ def generate_client_factory(
         def gen_step():
             headers = yield call(async_=async_)
             return cls(headers["cookie"])
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
     return make_client
 
 
@@ -215,7 +215,7 @@ def make_pool[T](
                     value = generate()
                 val = ComparedWithID(value)
             return value, partial(heappush, heap_, (time(), val))
-        return run_gen_step(call, simple=True, async_=async_)
+        return run_gen_step(call, may_call=False, async_=async_)
     if not lock:
         setattr(get_value, "heap", heap_)
         return get_value
@@ -377,7 +377,7 @@ def call_wrap_with_pool(get_cert_headers: Callable, /, func: Callable) -> Callab
                     if not isinstance(e, (AuthenticationError, LoginError)) and get_status_code(e) != 405:
                         revert()
                         raise
-        return run_gen_step(gen_step, simple=True, async_=async_)
+        return run_gen_step(gen_step, may_call=False, async_=async_)
     return update_wrapper(wrapper, func)
 
 

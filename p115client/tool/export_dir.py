@@ -95,7 +95,7 @@ def parse_export_dir_as_dict_iter(
                     stack[depth]["name"] += "\n" + line[:-1]
                     continue
                 else:
-                    yield Yield(stack[depth], may_await=False)
+                    yield Yield(stack[depth])
                 name = m[1]
                 depth = (len(line) - len(name)) // 2 - 1
                 item = {
@@ -110,17 +110,17 @@ def parse_export_dir_as_dict_iter(
                     push(item)
         except (StopIteration, StopAsyncIteration):
             if depth:
-                yield Yield(stack[depth], may_await=False)
+                yield Yield(stack[depth])
         finally:
             if close_file:
                 if async_:
                     if callable(aclose := getattr(file, "aclose", None)):
-                        yield aclose
+                        yield aclose()
                     elif callable(close := getattr(file, "close", None)):
                         yield ensure_async(close, threaded=True)
                 elif callable(close := getattr(file, "close", None)):
                     close()
-    return run_gen_step_iter(gen_step, simple=True, async_=async_)
+    return run_gen_step_iter(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -206,7 +206,7 @@ def parse_export_dir_as_path_iter(
                     stack[depth] += "\n" + line[:-1]
                     continue
                 elif depth:
-                    yield Yield(stack[depth], may_await=False)
+                    yield Yield(stack[depth])
                 else:
                     yield "/" if root == "根目录" else root
                 name = m[1]
@@ -220,17 +220,17 @@ def parse_export_dir_as_path_iter(
                     push(path)
         except (StopIteration, StopAsyncIteration):
             if depth:
-                yield Yield(stack[depth], may_await=False)
+                yield Yield(stack[depth])
         finally:
             if close_file:
                 if async_:
                     if callable(aclose := getattr(file, "aclose", None)):
-                        yield aclose
+                        yield aclose()
                     elif callable(close := getattr(file, "close", None)):
                         yield ensure_async(close, threaded=True)
                 elif callable(close := getattr(file, "close", None)):
                     close()
-    return run_gen_step_iter(gen_step, simple=True, async_=async_)
+    return run_gen_step_iter(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -298,7 +298,7 @@ def parse_export_dir_as_patht_iter(
                     stack[depth] += "\n" + line[:-1]
                     continue
                 else:
-                    yield Yield(stack[:depth+1], may_await=False)
+                    yield Yield(stack[:depth+1])
                 name = m[1]
                 depth = (len(line) - len(name)) // 2 - from_top_root
                 try:
@@ -307,17 +307,17 @@ def parse_export_dir_as_patht_iter(
                     push(name)
         except (StopIteration, StopAsyncIteration):
             if depth:
-                yield Yield(stack[:depth+1], may_await=False)
+                yield Yield(stack[:depth+1])
         finally:
             if close_file:
                 if async_:
                     if callable(aclose := getattr(file, "aclose", None)):
-                        yield aclose
+                        yield aclose()
                     elif callable(close := getattr(file, "close", None)):
                         yield ensure_async(close, threaded=True)
                 elif callable(close := getattr(file, "close", None)):
                     close()
-    return run_gen_step_iter(gen_step, simple=True, async_=async_)
+    return run_gen_step_iter(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -406,7 +406,7 @@ def export_dir(
             payload["layer_limit"] = layer_limit
         resp = yield client.fs_export_dir(payload, async_=async_, **request_kwargs)
         return check_response(resp)["data"]["export_id"]
-    return run_gen_step(gen_step, simple=True, async_=async_)
+    return run_gen_step(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -486,7 +486,7 @@ def export_dir_result(
                 raise TimeoutError(export_id)
             if check_interval:
                 yield do_sleep(min(check_interval, remaining_seconds))
-    return run_gen_step(gen_step, simple=True, async_=async_)
+    return run_gen_step(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -629,11 +629,11 @@ def export_dir_parse_iter(
                     file_wrapper: IO = AsyncTextIOWrapper(AsyncBufferedReader(file), encoding="utf-16", newline="\n")
                 else:
                     file_wrapper = TextIOWrapper(BufferedReader(file), encoding="utf-16", newline="\n")
-                yield YieldFrom(parse_iter(file_wrapper), may_await=False) # type: ignore
+                yield YieldFrom(parse_iter(file_wrapper)) # type: ignore
             finally:
                 if async_:
                     if callable(aclose := getattr(file, "aclose", None)):
-                        yield aclose
+                        yield aclose()
                     elif callable(close := getattr(file, "close", None)):
                         yield ensure_async(close, threaded=True)
                 elif callable(close := getattr(file, "close", None)):
@@ -645,5 +645,5 @@ def export_dir_parse_iter(
                     async_=async_, # type: ignore
                     **request_kwargs, 
                 )
-    return run_gen_step_iter(gen_step, simple=True, async_=async_)
+    return run_gen_step_iter(gen_step, may_call=False, async_=async_)
 

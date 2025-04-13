@@ -145,7 +145,7 @@ def batch_get_url(
             for id, info in resp["data"].items()
             if info["url"]
         }
-    return run_gen_step(gen_step, simple=True, async_=async_)
+    return run_gen_step(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -227,8 +227,8 @@ def iter_url_batches(
                         sha1=info["sha1"], 
                         is_directory=False,
                         headers=headers, 
-                    ), may_await=False)
-    return run_gen_step_iter(gen_step, simple=True, async_=async_)
+                    ))
+    return run_gen_step_iter(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -376,8 +376,7 @@ def iter_files_with_url(
                         app=app, 
                         user_agent=user_agent, 
                         **params, # type: ignore
-                    ), 
-                    may_await=False, 
+                    )
                 )
             return
         if headers := request_kwargs.get("headers"):
@@ -386,7 +385,7 @@ def iter_files_with_url(
             request_kwargs["headers"] = {"user-agent": user_agent}
         with with_iter_next(it) as get_next:
             while True:
-                attr = yield get_next
+                attr = yield get_next()
                 if attr.get("violated", False):
                     if attr["size"] < 1024 * 1024 * 115:
                         attr["url"] = yield get_url(
@@ -403,8 +402,8 @@ def iter_files_with_url(
                         async_=async_, 
                         **request_kwargs, 
                     )
-                yield Yield(attr, may_await=False)
-    return run_gen_step_iter(gen_step, simple=True, async_=async_)
+                yield Yield(attr)
+    return run_gen_step_iter(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -536,13 +535,12 @@ def iter_images_with_url(
                         suffixes=suffix, 
                         app=app, 
                         **params, # type: ignore
-                    ), 
-                    may_await=False, 
+                    )
                 )
             return
         with with_iter_next(it) as get_next:
             while True:
-                attr = yield get_next
+                attr = yield get_next()
                 try:
                     attr["url"] = reduce_image_url_layers(attr["thumb"])
                 except KeyError:
@@ -562,8 +560,8 @@ def iter_images_with_url(
                             async_=async_, 
                             **request_kwargs, 
                         )
-                yield Yield(attr, may_await=False)
-    return run_gen_step_iter(gen_step, simple=True, async_=async_)
+                yield Yield(attr)
+    return run_gen_step_iter(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -689,7 +687,7 @@ def iter_subtitles_with_url(
         do_next = anext if async_ else next
         with with_iter_next(it) as get_next:
             while True:
-                items: tuple[dict] = yield get_next
+                items: tuple[dict] = yield get_next()
                 resp = yield client.fs_mkdir(
                     f"subtitle-{uuid4()}", 
                     async_=async_, 
@@ -728,7 +726,7 @@ def iter_subtitles_with_url(
                 if subtitles:
                     for attr in items:
                         attr["url"] = subtitles[attr["sha1"]]
-                        yield Yield(attr, may_await=False)
+                        yield Yield(attr)
                 else:
                     for attr in items:
                         if attr.get("violated", False):
@@ -747,8 +745,8 @@ def iter_subtitles_with_url(
                                 async_=async_, 
                                 **request_kwargs, 
                             )
-                        yield Yield(attr, may_await=False)
-    return run_gen_step_iter(gen_step, simple=True, async_=async_)
+                        yield Yield(attr)
+    return run_gen_step_iter(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -832,14 +830,13 @@ def iter_subtitle_batches(
                 )
                 check_response(resp)
                 yield YieldFrom(
-                    filter(lambda info: "file_id" in info, resp["data"]["list"]), 
-                    may_await=False, 
+                    filter(lambda info: "file_id" in info, resp["data"]["list"])
                 )
             except (StopIteration, StopAsyncIteration):
                 pass
             finally:
                 yield client.fs_delete(scid, async_=async_, **request_kwargs)
-    return run_gen_step_iter(gen_step, simple=True, async_=async_)
+    return run_gen_step_iter(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -1080,7 +1077,7 @@ def make_strm(
         if use_abspath is not None:
             params["path_already"] = path_already
         yield (async_batch if async_ else thread_batch)(
-            lambda attr: run_gen_step(save(attr), simple=True, async_=async_), 
+            lambda attr: run_gen_step(save(attr), may_call=False, async_=async_), 
             (iter_files if use_abspath is None else iter_files_with_path)(
                 client, 
                 cid, 
@@ -1117,7 +1114,7 @@ def make_strm(
             "ignore": ignored, 
             "remove": removed, 
         }
-    return run_gen_step(gen_step, simple=True, async_=async_)
+    return run_gen_step(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -1185,7 +1182,7 @@ def iter_download_nodes(
                 resp = yield get_nodes(payload)
                 check_response(resp)
                 data = resp["data"]
-                yield YieldFrom(data["list"], may_await=False)
+                yield YieldFrom(data["list"])
                 if not data["has_next_page"]:
                     break
     else:
@@ -1259,16 +1256,16 @@ def iter_download_nodes(
                 for i in range(n):
                     submit(run_gen_step, request(pickcode), async_=async_).add_done_callback(countdown)
                 while True:
-                    ls = yield get
+                    ls = yield get()
                     if ls is sentinel:
                         break
                     elif isinstance(ls, BaseException):
                         raise ls
-                    yield YieldFrom(ls, may_await=False)
+                    yield YieldFrom(ls)
             finally:
-                yield shutdown
+                yield shutdown()
     if pickcode:
-        return run_gen_step_iter(gen_step(pickcode), simple=True, async_=async_)
+        return run_gen_step_iter(gen_step(pickcode), may_call=False, async_=async_)
     else:
         def chain():
             with with_iter_next(iterdir(
@@ -1281,17 +1278,17 @@ def iter_download_nodes(
                 **request_kwargs, 
             )) as get_next:
                 while True:
-                    attr = yield get_next
+                    attr = yield get_next()
                     if not files:
                         yield Yield(
-                            {"fid": str(attr["id"]), "pid": "0", "fn": attr["name"]}, 
-                            may_await=False, 
+                            {"fid": str(attr["id"]), "pid": "0", "fn": attr["name"]}
                         )
-                    yield YieldFrom(
-                        run_gen_step_iter(gen_step(attr["pickcode"]), simple=True, async_=async_), 
-                        may_await=False, 
-                    )
-        return run_gen_step_iter(chain, simple=True, async_=async_)
+                    yield YieldFrom(run_gen_step_iter(
+                        gen_step(attr["pickcode"]), 
+                        may_call=False, 
+                        async_=async_, 
+                    ))
+        return run_gen_step_iter(chain, may_call=False, async_=async_)
 
 
 @overload
@@ -1427,7 +1424,7 @@ def iter_download_files(
                 **request_kwargs, 
             )) as get_next:
                 while True:
-                    attr = yield get_next
+                    attr = yield get_next()
                     if attr["is_dir"]:
                         pickcodes.append(attr["pickcode"])
                     else:
@@ -1436,12 +1433,13 @@ def iter_download_files(
                             "pickcode": attr["pickcode"], 
                             "size": attr["size"], 
                             **defaults, 
-                        }, may_await=False)
+                        })
             for pickcode in pickcodes:
-                yield YieldFrom(
-                    run_gen_step_iter(gen_step(pickcode), simple=True, async_=async_), 
-                    may_await=False, 
-                )
+                yield YieldFrom(run_gen_step_iter(
+                    gen_step(pickcode), 
+                    may_call=False, 
+                    async_=async_, 
+                ))
             return
         if not pickcode:
             resp = yield client.fs_file_skim(cid, async_=async_, **request_kwargs)
@@ -1473,12 +1471,12 @@ def iter_download_files(
                     **request_kwargs, 
                 )) as get_next:
                     while True:
-                        info = yield get_next
+                        info = yield get_next()
                         id_to_dirnode[int(info["fid"])] = DirNode(info["fn"], int(info["pid"]))
             finally:
                 ancestors_loaded = True
         if async_:
-            task: Any = create_task(run_gen_step(load_ancestors, simple=True, async_=True))
+            task: Any = create_task(run_gen_step(load_ancestors, may_call=False, async_=True))
         else:
             task = run_as_thread(run_gen_step, load_ancestors)
         cache: list[dict] = []
@@ -1493,11 +1491,11 @@ def iter_download_files(
             **request_kwargs, 
         )) as get_next:
             while True:
-                info = yield get_next
+                info = yield get_next()
                 if ancestors_loaded is None:
-                    yield Yield(norm_attr(info), may_await=False)
+                    yield Yield(norm_attr(info))
                 elif ancestors_loaded:
-                    yield YieldFrom(map(norm_attr, cache), may_await=False)
+                    yield YieldFrom(map(norm_attr, cache))
                     cache.clear()
                     if async_:
                         yield task
@@ -1511,8 +1509,8 @@ def iter_download_files(
                 yield task
             else:
                 task.result()
-            yield YieldFrom(map(norm_attr, cache), may_await=False)
-    return run_gen_step_iter(gen_step, simple=True, async_=async_)
+            yield YieldFrom(map(norm_attr, cache))
+    return run_gen_step_iter(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -1571,7 +1569,7 @@ def get_remaining_open_count(
                 **request_kwargs, 
             )) as get_next:
                 while True:
-                    info = yield get_next
+                    info = yield get_next()
                     if int(info["fs"]) <= 1024 * 1024 * 200:
                         continue
                     try:
@@ -1588,5 +1586,5 @@ def get_remaining_open_count(
             for f in cache:
                 f.close()
             return len(cache)
-    return run_gen_step(gen_step, simple=True, async_=async_)
+    return run_gen_step(gen_step, may_call=False, async_=async_)
 

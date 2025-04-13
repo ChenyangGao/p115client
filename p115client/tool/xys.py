@@ -59,7 +59,7 @@ def wish_info(
         )
         check_response(resp)
         return resp["data"]
-    return run_gen_step(gen_step, simple=True, async_=async_)
+    return run_gen_step(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -110,7 +110,7 @@ def wish_make(
         )
         check_response(resp)
         return P115StrID(resp["data"]["xys_id"], resp["data"])
-    return run_gen_step(gen_step, simple=True, async_=async_)
+    return run_gen_step(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -170,7 +170,7 @@ def wish_answer(
         )
         check_response(resp)
         return P115StrID(resp["data"]["aid_id"], resp["data"])
-    return run_gen_step(gen_step, simple=True, async_=async_)
+    return run_gen_step(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -326,11 +326,11 @@ def wish_iter(
             )
             check_response(resp)
             ls = resp["data"]["list"]
-            yield YieldFrom(ls, may_await=False)
+            yield YieldFrom(ls)
             if not ls:
                 break
             payload["page"] += 1
-    return run_gen_step_iter(gen_step, simple=True, async_=async_)
+    return run_gen_step_iter(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -385,11 +385,11 @@ def wish_aid_iter(
             )
             check_response(resp)
             ls = resp["data"]["list"]
-            yield YieldFrom(ls, may_await=False)
+            yield YieldFrom(ls)
             if not ls:
                 break
             payload["page"] += 1
-    return run_gen_step_iter(gen_step, simple=True, async_=async_)
+    return run_gen_step_iter(gen_step, may_call=False, async_=async_)
 
 
 # TODO: 再实现一个漂流瓶

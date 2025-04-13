@@ -91,7 +91,7 @@ def update_abstract(
                 chunked(ids, batch_size), 
                 max_workers=max_workers
             ))
-    return run_gen_step(gen_step, simple=True, async_=async_)
+    return run_gen_step(gen_step, may_call=False, async_=async_)
 
 
 @overload
@@ -634,5 +634,5 @@ def batch_unstar(
             async_=async_, # type: ignore
             **request_kwargs, 
         )
-    return run_gen_step(gen_step, simple=True, async_=async_)
+    return run_gen_step(gen_step, may_call=False, async_=async_)
 

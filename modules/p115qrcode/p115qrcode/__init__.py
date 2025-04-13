@@ -4,7 +4,7 @@
 "扫码获取 115 cookies"
 
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
-__version__ = (0, 0, 4)
+__version__ = (0, 0, 5)
 __license__ = "GPLv3 <https://www.gnu.org/licenses/gpl-3.0.txt>"
 __all__ = [
     "AVAILABLE_ORIGINS", "AVAILABLE_APPS", "APP_TO_SSOENT", "SSOENT_TO_APP", 
@@ -23,7 +23,6 @@ from enum import IntEnum
 from errno import EIO
 from functools import cached_property, partial
 from inspect import isawaitable
-from itertools import cycle
 from sys import stderr
 from _thread import start_new_thread
 from types import MappingProxyType
@@ -441,7 +440,6 @@ def auto_scan_qrcode(
 def auto_scan_qrcode(
     cookies: str, 
     app: int | str = "alipaymini", 
-    console_qrcode: None | bool = True, 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -450,7 +448,6 @@ def auto_scan_qrcode(
 def auto_scan_qrcode(
     cookies: str, 
     app: int | str = "alipaymini", 
-    console_qrcode: None | bool = True, 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -480,7 +477,7 @@ def auto_scan_qrcode(
             return qrcode_access_token(uid, headers=headers, async_=async_, **request_kwargs)
         else:
             return qrcode_result(uid, app, headers=headers, async_=async_, **request_kwargs)
-    return run_gen_step(gen_step, async_=async_)
+    return run_gen_step(gen_step, may_call=False, async_=async_)
 
 
 @overload

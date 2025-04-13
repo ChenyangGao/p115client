@@ -72,7 +72,7 @@ def get_attr(
             resp = yield client.fs_file(id, async_=async_, **request_kwargs)
             check_response(resp)
             return normalize_attr_web(resp["data"][0])
-    return run_gen_step(gen_step, simple=True, async_=async_)
+    return run_gen_step(gen_step, may_call=False, async_=async_)
 
 
 def type_of_attr(attr: Mapping, /) -> int:
