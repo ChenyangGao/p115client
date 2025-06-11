@@ -5,8 +5,8 @@ __author__ = "ChenyangGao <https://chenyanggao.github.io>"
 __all__ = ["get_attr", "type_of_attr"]
 __doc__ = "这个模块提供了一些和文件或目录信息有关的函数"
 
-from collections.abc import Mapping
-from typing import overload, Literal
+from collections.abc import Coroutine, Mapping
+from typing import overload, Any, Literal
 
 from iterutils import run_gen_step
 from p115client import check_response, normalize_attr_web, P115Client
@@ -32,7 +32,7 @@ def get_attr(
     *, 
     async_: Literal[True], 
     **request_kwargs, 
-) -> dict:
+) -> Coroutine[Any, Any, dict]:
     ...
 def get_attr(
     client: str | P115Client, 
@@ -41,7 +41,7 @@ def get_attr(
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
-) -> dict:
+) -> dict | Coroutine[Any, Any, dict]:
     """获取文件或目录的信息
 
     :param client: 115 客户端或 cookies
@@ -55,8 +55,8 @@ def get_attr(
     if isinstance(client, str):
         client = P115Client(client, check_for_relogin=True)
     def gen_step():
+        from dictattr import AttrDict
         if skim:
-            from dictattr import AttrDict
             resp = yield client.fs_file_skim(id, async_=async_, **request_kwargs)
             check_response(resp)
             info = resp["data"][0]
@@ -71,7 +71,7 @@ def get_attr(
         else:
             resp = yield client.fs_file(id, async_=async_, **request_kwargs)
             check_response(resp)
-            return normalize_attr_web(resp["data"][0])
+            return normalize_attr_web(resp["data"][0], dict_cls=AttrDict)
     return run_gen_step(gen_step, may_call=False, async_=async_)
 
 

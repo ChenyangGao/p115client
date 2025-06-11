@@ -38,7 +38,7 @@ options:
                             p115dav --cookies-path <(echo "$COOKIES")
                         
   -a APP_ID, --app-id APP_ID
-                        开放平台应用的 AppID，如果传入 0，则自动确定
+                        开放平台应用的 AppID
   -o STRM_ORIGIN, --strm-origin STRM_ORIGIN
                         [WEBDAV] origin 或者说 base_url，用来拼接路径，获取完整链接，默认行为是自行确定
   -t TTL, --ttl TTL     缓存存活时间

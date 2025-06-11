@@ -766,7 +766,7 @@ def normalize_attr_app[D: dict[str, Any]](
     simple: bool = False, 
     keep_raw: bool = False, 
     *, 
-    dict_cls: None | type[D] = None, 
+    dict_cls: type[D], 
 ) -> D:
     ...
 def normalize_attr_app[D: dict[str, Any]](
@@ -896,7 +896,7 @@ def normalize_attr_app2[D: dict[str, Any]](
     simple: bool = False, 
     keep_raw: bool = False, 
     *, 
-    dict_cls: None | type[D] = None, 
+    dict_cls: type[D], 
 ) -> D:
     ...
 def normalize_attr_app2[D: dict[str, Any]](
@@ -1082,7 +1082,7 @@ def normalize_attr_simple(
     /, 
     keep_raw: bool = False, 
     *, 
-    dict_cls: None = None, 
+    dict_cls: None, 
 ) -> dict[str, Any]:
     ...
 @overload
@@ -1091,7 +1091,7 @@ def normalize_attr_simple[D: dict[str, Any]](
     /, 
     keep_raw: bool = False, 
     *, 
-    dict_cls: type[D], 
+    dict_cls: type[D] = AttrDict, # type: ignore
 ) -> D:
     ...
 def normalize_attr_simple[D: dict[str, Any]](
@@ -1099,13 +1099,13 @@ def normalize_attr_simple[D: dict[str, Any]](
     /, 
     keep_raw: bool = False, 
     *, 
-    dict_cls: None | type[D] = None, 
+    dict_cls: None | type[D] = AttrDict, # type: ignore
 ) -> dict[str, Any] | D:
     return normalize_attr(
         info, 
-        may_call=False, 
+        simple=True, 
         keep_raw=keep_raw, 
-        dict_cls=dict_cls, # type: ignore
+        dict_cls=dict_cls, 
     )
 
 
@@ -1138,7 +1138,7 @@ class IgnoreCaseDict[V](dict[str, V]):
         return cls(zip(map(str.lower, iterable), repeat(value)))
 
     @overload
-    def get(self, key: str) -> None | V:
+    def get(self, key: str, default: None = None) -> None | V:
         ...
     @overload
     def get[T](self, key: str, default: T) -> V | T:
@@ -2329,7 +2329,7 @@ class ClientRequestMixin:
     def login_with_app_id(
         cls, 
         /, 
-        app_id: int | str = 100195993, 
+        app_id: int | str, 
         console_qrcode: bool = True, 
         base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
@@ -2342,7 +2342,7 @@ class ClientRequestMixin:
     def login_with_app_id(
         cls, 
         /, 
-        app_id: int | str = 100195993, 
+        app_id: int | str, 
         console_qrcode: bool = True, 
         base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
@@ -2354,7 +2354,7 @@ class ClientRequestMixin:
     def login_with_app_id(
         cls, 
         /, 
-        app_id: int | str = 100195993, 
+        app_id: int | str, 
         console_qrcode: bool = True, 
         base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
@@ -4994,7 +4994,7 @@ class P115OpenClient(ClientRequestMixin):
                         else:
                             filesize, filesha1_obj = file_digest(file, "sha1")
                     finally:
-                        yield seek(curpos)
+                        yield cast(Callable, seek)(curpos)
                     filesha1 = filesha1_obj.hexdigest()
                 if filesize < 0:
                     try:
@@ -5006,9 +5006,9 @@ class P115OpenClient(ClientRequestMixin):
                         except TypeError:
                             if seekable:
                                 try:
-                                    filesize = (yield seek(0, 2)) - curpos
+                                    filesize = (yield cast(Callable, seek)(0, 2)) - curpos
                                 finally:
-                                    yield seek(curpos)
+                                    yield cast(Callable, seek)(curpos)
                 if filesize == 0:
                     filesha1 = "DA39A3EE5E6B4B0D3255BFEF95601890AFD80709"
                 elif multipart_resume_data is None and filesize >= 1 << 20:
@@ -5018,13 +5018,13 @@ class P115OpenClient(ClientRequestMixin):
                             async_read = ensure_async(file.read, threaded=True)
                             async def read_range_bytes_or_hash(sign_check: str, /):
                                 start, end = map(int, sign_check.split("-"))
-                                await seek(curpos + start)
+                                await cast(Callable, seek)(curpos + start)
                                 return await async_read(end - start + 1)
                         else:
                             read = cast(Callable[[int], Buffer], file.read)
                             def read_range_bytes_or_hash(sign_check: str, /):
                                 start, end = map(int, sign_check.split("-"))
-                                seek(curpos + start)
+                                cast(Callable, seek)(curpos + start)
                                 return read(end - start + 1)
             elif isinstance(file, (URL, SupportsGeturl)):
                 if isinstance(file, URL):
@@ -5194,6 +5194,60 @@ class P115OpenClient(ClientRequestMixin):
         api = complete_proapi("/open/user/info", base_url)
         return self.request(url=api, async_=async_, **request_kwargs)
 
+    @overload
+    def vip_qr_url(
+        self, 
+        payload: int | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def vip_qr_url(
+        self, 
+        payload: int | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def vip_qr_url(
+        self, 
+        payload: int | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取产品列表地址（即引导用户扫码购买 115 的 VIP 服务，以获取提成）
+
+        GET https://proapi.115.com/open/open/vip/qr_url
+
+        .. admonition:: Reference
+
+            https://www.yuque.com/115yun/open/cguk6qshgapwg4qn#oByvI
+
+        :payload:
+            - open_device: int
+            - default_product_id: int = <default> 💡 打开产品列表默认选中的产品对应的产品id，如果没有则使用默认的产品顺序。
+
+                - 月费: 5
+                - 年费: 1
+                - 尝鲜1天: 101
+                - 长期VIP(长期): 24072401
+                - 超级VIP: 24072402
+        """
+        api = complete_proapi("/open/vip/qr_url", base_url)
+        if not isinstance(payload, dict):
+            payload = {"open_device": payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
     download_url_open = download_url
     download_url_info_open = download_url_info
     fs_copy_open = fs_copy
@@ -5226,6 +5280,7 @@ class P115OpenClient(ClientRequestMixin):
     user_info_open = user_info
     upload_file_init_open = upload_file_init
     upload_file_open = upload_file
+    vip_qr_url_open = vip_qr_url
 
 
 class P115Client(P115OpenClient):
@@ -5902,7 +5957,7 @@ class P115Client(P115OpenClient):
     def login_with_open(
         self, 
         /, 
-        app_id: int | str = 100195993, 
+        app_id: int | str, 
         *, 
         show_warning: bool = False, 
         async_: Literal[False] = False, 
@@ -5913,7 +5968,7 @@ class P115Client(P115OpenClient):
     def login_with_open(
         self, 
         /, 
-        app_id: int | str = 100195993, 
+        app_id: int | str, 
         *, 
         show_warning: bool = False, 
         async_: Literal[True], 
@@ -5923,7 +5978,7 @@ class P115Client(P115OpenClient):
     def login_with_open(
         self, 
         /, 
-        app_id: int | str = 100195993, 
+        app_id: int | str, 
         *, 
         show_warning: bool = False, 
         async_: Literal[False, True] = False, 
@@ -6098,7 +6153,7 @@ class P115Client(P115OpenClient):
     def login_another_open(
         self, 
         /, 
-        app_id: int | str = 100195993, 
+        app_id: int | str, 
         *, 
         replace: Literal[True] | Self, 
         show_warning: bool = False, 
@@ -6110,7 +6165,7 @@ class P115Client(P115OpenClient):
     def login_another_open(
         self, 
         /, 
-        app_id: int | str = 100195993, 
+        app_id: int | str, 
         *, 
         replace: Literal[True] | Self, 
         show_warning: bool = False, 
@@ -6122,7 +6177,7 @@ class P115Client(P115OpenClient):
     def login_another_open(
         self, 
         /, 
-        app_id: int | str = 100195993, 
+        app_id: int | str, 
         *, 
         replace: Literal[False] = False, 
         show_warning: bool = False, 
@@ -6134,7 +6189,7 @@ class P115Client(P115OpenClient):
     def login_another_open(
         self, 
         /, 
-        app_id: int | str = 100195993, 
+        app_id: int | str, 
         *, 
         replace: Literal[False] = False, 
         show_warning: bool = False, 
@@ -6145,7 +6200,7 @@ class P115Client(P115OpenClient):
     def login_another_open(
         self, 
         /, 
-        app_id: int | str = 100195993, 
+        app_id: int | str, 
         *, 
         replace: bool | Self = False, 
         show_warning: bool = False, 
@@ -6495,7 +6550,7 @@ class P115Client(P115OpenClient):
                 lock = self.request_lock
             if is_open_api:
                 if "authorization" not in headers:
-                    yield lock.acquire
+                    yield lock.acquire()
                     try:
                         yield self.login_another_open(
                             async_=async_, # type: ignore
@@ -6534,13 +6589,13 @@ class P115Client(P115OpenClient):
                         cert_headers = yield fetch_cert_headers()
                         headers.update(cert_headers)
                     elif is_open_api:
-                        yield lock.acquire
+                        yield lock.acquire()
                         try:
                             if cert != self.access_token:
                                 continue
                             if i or is_auth_error:
                                 raise
-                            app_id = getattr(self, "app_id", 100195993)
+                            app_id = getattr(self, "app_id")
                             yield self.login_another_open(
                                 app_id, 
                                 replace=True, 
@@ -6550,7 +6605,7 @@ class P115Client(P115OpenClient):
                         finally:
                             lock.release()
                     else:
-                        yield lock.acquire
+                        yield lock.acquire()
                         try:
                             cookies_new: str = self.cookies_str
                             if cookies_equal(cert, cookies_new):
@@ -21125,7 +21180,7 @@ class P115Client(P115OpenClient):
                         else:
                             filesize, filesha1_obj = file_digest(file, "sha1")
                     finally:
-                        yield seek(curpos)
+                        yield cast(Callable, seek)(curpos)
                     filesha1 = filesha1_obj.hexdigest()
                 if filesize < 0:
                     try:
@@ -21137,9 +21192,9 @@ class P115Client(P115OpenClient):
                         except TypeError:
                             if seekable:
                                 try:
-                                    filesize = (yield seek(0, 2)) - curpos
+                                    filesize = (yield cast(Callable, seek)(0, 2)) - curpos
                                 finally:
-                                    yield seek(curpos)
+                                    yield cast(Callable, seek)(curpos)
                 if filesize == 0:
                     filesha1 = "DA39A3EE5E6B4B0D3255BFEF95601890AFD80709"
                 elif not upload_directly and multipart_resume_data is None and filesize >= 1 << 20:
@@ -21149,13 +21204,13 @@ class P115Client(P115OpenClient):
                             async_read = ensure_async(file.read, threaded=True)
                             async def read_range_bytes_or_hash(sign_check: str, /):
                                 start, end = map(int, sign_check.split("-"))
-                                await seek(curpos + start)
+                                await cast(Callable, seek)(curpos + start)
                                 return await async_read(end - start + 1)
                         else:
                             read = cast(Callable[[int], Buffer], file.read)
                             def read_range_bytes_or_hash(sign_check: str, /):
                                 start, end = map(int, sign_check.split("-"))
-                                seek(curpos + start)
+                                cast(Callable, seek)(curpos + start)
                                 return read(end - start + 1)
             elif isinstance(file, (URL, SupportsGeturl)):
                 if isinstance(file, URL):

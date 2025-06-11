@@ -21,7 +21,6 @@ from time import time
 
 from iterutils import run_gen_step
 from p115client import check_response, P115Client
-from p115client.const import AVAILABLE_APP_IDS
 from p115client.exception import P115OSError, AuthenticationError, LoginError
 
 from .util import get_status_code, is_timeouterror
@@ -55,7 +54,7 @@ class ComparedWithID[T]:
 
 def generate_auth_factory(
     client: str | P115Client, 
-    app_ids: Iterable[int] = AVAILABLE_APP_IDS, 
+    app_ids: Iterable[int], 
     **request_kwargs, 
 ) -> Callable:
     """利用一个已登录设备的 cookies，产生若干开放应用的 access_token
@@ -238,7 +237,7 @@ def make_pool[T](
 
 def auth_pool(
     client: str | P115Client, 
-    app_ids: Iterable[int] = AVAILABLE_APP_IDS, 
+    app_ids: Iterable[int], 
     heap: None | list[tuple[float, dict | ComparedWithID[dict]]] = None, 
     cooldown_time: int | float = 1, 
     live_time: int | float = 7000, 

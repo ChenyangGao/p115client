@@ -5,16 +5,12 @@ from __future__ import annotations
 
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
 __all__ = [
-    "AVAILABLE_APP_IDS", "AVAILABLE_APPS", "APP_TO_SSOENT", "SSOENT_TO_APP", 
-    "CLIENT_API_MAP", "CLASS_TO_TYPE", "SUFFIX_TO_TYPE", "errno", 
+    "AVAILABLE_APPS", "APP_TO_SSOENT", "SSOENT_TO_APP", "CLIENT_API_MAP", 
+    "CLASS_TO_TYPE", "SUFFIX_TO_TYPE", "errno", 
 ]
 
 from enum import IntEnum
 from typing import Final
-
-
-#: 可用的 AppID 列表
-AVAILABLE_APP_IDS = range(100195123, 100196845, 2)
 
 
 #: 目前可用的登录设备

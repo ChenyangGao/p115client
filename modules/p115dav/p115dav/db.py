@@ -60,6 +60,8 @@ def init_db(
     con: Connection | Cursor, 
     /, 
 ) -> Cursor:
+    """执行一些 SQL 语句以初始化数据库，并返回游标
+    """
     if isinstance(con, Connection):
         conn = con
     else:
@@ -325,12 +327,12 @@ def get_id(
     pickcode: str = "", 
     sha1: str = "", 
     path: str = "", 
-) -> None | int | Coroutine[Any, Any, None | int]:
+) -> None | int:
     """查询匹配某个字段的文件或目录的 id
 
     :param con: 数据库连接或游标
     :param pickcode: 当前节点的提取码，优先级高于 sha1
-    :param sha1: 当前节点的 sha1 校验散列值，优先级高于 path
+    :param sha1: 当前节点的 sha1，优先级高于 path
     :param path: 当前节点的路径
 
     :return: 当前节点的 id
@@ -359,12 +361,12 @@ def get_pickcode(
     id: int = 0, 
     sha1: str = "", 
     path: str = "", 
-) -> int | Coroutine[Any, Any, int]:
+) -> str:
     """查询匹配某个字段的文件或目录的提取码
 
     :param con: 数据库连接或游标
     :param id: 当前节点的 id，优先级高于 sha1
-    :param sha1: 当前节点的 sha1 校验散列值，优先级高于 path
+    :param sha1: 当前节点的 sha1，优先级高于 path
     :param path: 当前节点的路径
 
     :return: 当前节点的提取码
@@ -396,7 +398,7 @@ def get_sha1(
     id: int = 0, 
     pickcode: str = "", 
     path: str = "", 
-) -> str:
+) -> None | str:
     """查询匹配某个字段的文件的 sha1
 
     :param con: 数据库连接或游标
@@ -404,21 +406,19 @@ def get_sha1(
     :param pickcode: 当前节点的提取码，优先级高于 path
     :param path: 当前节点的路径
 
-    :return: 当前节点的 sha1 校验散列值
+    :return: 当前节点的 sha1
     """
     if id:
         return find(
             con, 
             "SELECT sha1 FROM data WHERE id=? LIMIT 1", 
             id, 
-            default="", 
         )
     elif pickcode:
         return find(
             con, 
             "SELECT sha1 FROM data WHERE pickcode=? LIMIT 1", 
             pickcode, 
-            default="", 
         )
     elif path and path != "/":
         if id := id_to_path(con, path):
@@ -482,6 +482,13 @@ def get_children(
     /, 
     id: int = 0, 
 ) -> None | list[dict]:
+    """获取某个目录 id 的所有子节点信息列表
+
+    :param con: 数据库连接或游标
+    :param id: 当前节点的 id
+
+    :return: 当前节点的子节点信息列表
+    """
     children = find(
         con, 
         "SELECT data FROM list WHERE id=? LIMIT 1", 
@@ -499,6 +506,20 @@ def get_file_list(
     /, 
     id: int = 0, 
 ) -> None | dict:
+    """获取当前节点的祖先节点列表和子节点列表构成的字典
+
+    :param con: 数据库连接或游标
+    :param id: 当前节点的 id
+
+    :return: 当前节点的祖先节点列表和子节点列表构成的字典，形式为
+
+        .. code: python
+
+            {
+                "ancestors": list[dict], # 祖先节点列表
+                "children": list[dict],  # 子节点列表
+            }
+    """
     children = get_children(con, id)
     if children is None:
         return None
@@ -511,6 +532,13 @@ def share_is_loaded(
     /, 
     share_code: str, 
 ) -> bool:
+    """判断某个分享链接的文件树数据是否完全加载
+
+    :param con: 数据库连接或游标
+    :param share_code: 分享码
+
+    :return: 分享的文件树数据是否完全加载到数据库
+    """
     return bool(find(
         con, 
         "SELECT loaded FROM share_list_loaded WHERE share_code=?", 
@@ -527,6 +555,16 @@ def share_get_parent_id(
     sha1: str = "", 
     path: str = "", 
 ) -> None | int:
+    """分享链接中，文件树中某个节点的父节点 id
+
+    :param con: 数据库连接或游标
+    :param share_code: 分享码
+    :param id: 当前节点的 id，优先级高于 sha1
+    :param sha1: 当前节点的 sha1，优先级高于 path
+    :param path: 当前节点的路径
+
+    :return: 当前节点的父节点 id
+    """
     if not id:
         return 0
     pid: None | int = None
@@ -548,6 +586,8 @@ def share_get_parent_id(
             "SELECT parent_id FROM share_data WHERE share_code=? AND path=? LIMIT 1", 
             (share_code, path), 
         )
+    else:
+        pid = 0
     if pid is None and share_is_loaded(con, share_code):
         raise FileNotFoundError(
             ENOENT, 
@@ -564,7 +604,16 @@ def share_get_id(
     sha1: str = "", 
     path: str = "", 
 ) -> None | int:
-    id: None | str = None
+    """分享链接中，文件树中某个节点的 id
+
+    :param con: 数据库连接或游标
+    :param share_code: 分享码
+    :param sha1: 当前节点的 sha1，优先级高于 path
+    :param path: 当前节点的路径
+
+    :return: 当前节点的 id
+    """
+    id: None | int = None
     if sha1:
         id = find(
             con, 
@@ -577,6 +626,8 @@ def share_get_id(
             "SELECT id FROM share_data WHERE share_code=? AND path=? LIMIT 1", 
             (share_code, path), 
         )
+    else:
+        id = 0
     if id is None and share_is_loaded(con, share_code):
         raise FileNotFoundError(
             ENOENT, 
@@ -592,26 +643,37 @@ def share_get_sha1(
     share_code: str, 
     id: int = 0, 
     path: str = "", 
-) -> str:
-    sha1: None | str = ""
+) -> None | str:
+    """分享链接中，文件树中某个节点的 sha1
+
+    :param con: 数据库连接或游标
+    :param share_code: 分享码
+    :param id: 当前节点的 id，优先级高于 path
+    :param path: 当前节点的路径
+
+    :return: 当前节点的 sha1
+    """
+    sha1: None | str = None
     if id:
         sha1 = find(
             con, 
             "SELECT sha1 FROM share_data WHERE share_code=? AND id=? LIMIT 1", 
             (share_code, id), 
         )
-    elif sha1:
+    elif path:
         sha1 = find(
             con, 
             "SELECT sha1 FROM share_data WHERE share_code=? AND path=? LIMIT 1", 
             (share_code, path), 
         )
+    else:
+        sha1 = ""
     if sha1 is None and share_is_loaded(con, share_code):
         raise FileNotFoundError(
             ENOENT, 
             {"share_code": share_code, "id": id, "path": path}, 
         )
-    return sha1 or ""
+    return sha1
 
 
 @can_async
@@ -622,27 +684,40 @@ def share_get_path(
     id: int = -1, 
     sha1: str = "", 
 ) -> str:
+    """分享链接中，文件树中某个节点的路径
+
+    :param con: 数据库连接或游标
+    :param share_code: 分享码
+    :param id: 当前节点的 id，优先级高于 sha1
+    :param sha1: 当前节点的 sha1
+
+    :return: 当前节点的路径
+    """
     if not id:
         return "/"
-    path: None | str = None
+    path: str = ""
     if id > 0:
         path = find(
             con, 
             "SELECT path FROM share_data WHERE share_code=? AND id=? LIMIT 1", 
             (share_code, id), 
+            default="", 
         )
     elif sha1:
         path = find(
             con, 
             "SELECT path FROM share_data WHERE share_code=? AND sha1=? LIMIT 1", 
             (share_code, sha1), 
+            default="", 
         )
-    if path is None and share_is_loaded(con, share_code):
+    else:
+        path = "/"
+    if not path and share_is_loaded(con, share_code):
         raise FileNotFoundError(
             ENOENT, 
             {"share_code": share_code, "id": id, "sha1": sha1}, 
         )
-    return path or ""
+    return path
 
 
 @can_async
@@ -652,6 +727,14 @@ def share_get_ancestors(
     share_code: str, 
     id: int = 0, 
 ) -> list[dict]:
+    """分享链接中，文件树中某个节点的祖先节点列表
+
+    :param con: 数据库连接或游标
+    :param share_code: 分享码
+    :param id: 当前节点的 id
+
+    :return: 当前节点的祖先节点列表
+    """
     if not id:
         return [{"id": "0", "parent_id": "0", "name": ""}]
     ancestors = find(con, """\
@@ -671,6 +754,14 @@ def share_get_children(
     share_code: str, 
     id: int = 0, 
 ) -> None | list[dict]:
+    """分享链接中，文件树中某个节点的子节点信息列表
+
+    :param con: 数据库连接或游标
+    :param share_code: 分享码
+    :param id: 当前节点的 id
+
+    :return: 当前节点的子节点信息列表
+    """
     children = find(con, """\
 SELECT data->>'children' AS "children [JSON]" 
 FROM share_list 
@@ -691,6 +782,21 @@ def share_get_file_list(
     share_code: str, 
     id: int = 0, 
 ) -> None | dict:
+    """分享链接中，文件树中某个节点的祖先节点列表和子节点列表构成的字典
+
+    :param con: 数据库连接或游标
+    :param share_code: 分享码
+    :param id: 当前节点的 id
+
+    :return: 当前节点的祖先节点列表和子节点列表构成的字典，形式为
+
+        .. code: python
+
+            {
+                "ancestors": list[dict], # 祖先节点列表
+                "children": list[dict],  # 子节点列表
+            }
+    """
     file_list = find(con, """\
 SELECT data
 FROM share_list 
@@ -711,6 +817,14 @@ def get_updated_at(
     id: int = 0, 
     share_code: str = "", 
 ) -> int:
+    """从数据库中获取某个节点的子文件信息列表的更新时间
+
+    :param con: 数据库连接或游标
+    :param id: 当前节点的 id
+    :param share_code: 分享码，如果提供 `share_code`，则是分享链接，否则则是自己网盘
+
+    :return: 当前节点的子文件信息列表的更新时间，如果从未拉取过，则返回 0
+    """
     if share_code:
         return find(
             con, 
@@ -726,4 +840,5 @@ def get_updated_at(
             default=0, 
         )
 
-# TODO: 有些数据被更新或者拉取后，更新了 data 表，但不更新 list，并且也不要求路径
+# TODO: 有些数据被更新或者拉取后，更新了 data 表，但不更新 list 表
+# TODO: 允许拉取非自己所分享的分享链接的文件列表

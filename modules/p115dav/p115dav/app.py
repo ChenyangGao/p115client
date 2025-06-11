@@ -54,14 +54,14 @@ from dictattr import AttrDict
 # - https://pypi.org/project/user-agents/
 # - https://github.com/faisalman/ua-parser-js
 from httpagentparser import detect as detect_ua # type: ignore
-from openapidocs.v3 import Info
+from openapidocs.v3 import Info # type: ignore
 from orjson import dumps, loads, OPT_INDENT_2, OPT_SORT_KEYS
 from p115client import check_response, CLASS_TO_TYPE, SUFFIX_TO_TYPE, P115Client, P115URL
 from p115client.exception import AuthenticationError, BusyOSError
 from p115client.type import P115ID
 from p115client.tool import (
     get_id_to_path, get_id_to_pickcode, get_id_to_sha1, share_iterdir, 
-    auth_pool, call_wrap_with_pool, share_get_id_to_path, get_ancestors, 
+    share_get_id_to_path, get_ancestors, 
 )
 from p115client.tool.util import get_status_code, reduce_image_url_layers
 from path_predicate import MappingPath
@@ -188,7 +188,7 @@ def make_application(
 
     :param dbfile: 数据库路径，如果为空则自动确定
     :param cookies_path: 115 的 cookies 的保存路径
-    :param app_id: 开放接口的应用 id，如果为 0，则自动确定
+    :param app_id: 开放接口的应用 id
     :param ttl: 拉取到的文件信息数据的缓存有效时间，如果小于 0，则永久有效
     :param strm_origin: strm 下载链接的 base_url，意味着可以用另一个服务器来承担 302 服务
     :param predicate: 筛选断言，如果文件信息能符合此断言，则被展示，否则会被忽略掉
@@ -204,7 +204,7 @@ def make_application(
 
     :return: blacksheep 应用
     """
-    from .__init__ import __version__
+    from . import __version__
 
     if cookies_path:
         cookies_path = Path(cookies_path)
@@ -249,7 +249,7 @@ def make_application(
     # NOTE: 缓存 115 分享链接的提取码到接收码（密码）的映射
     SHARE_CODE_MAP: dict[str, dict] = {}
     # NOTE: 后台任务队列
-    QUEUE: SimpleQueue[None | tuple[str, Any]] = SimpleQueue()
+    QUEUE: SimpleQueue[None | tuple[str | Callable, Any]] = SimpleQueue()
     # NOTE: webdav 的文件对象缓存
     DAV_FILE_CACHE: LRUDict[str, DAVNonCollection] = LRUDict(cache_size)
 
@@ -364,8 +364,6 @@ def make_application(
                 else:
                     return client.fs_files(*args, **kwds)
             fs_files = get_files
-        elif app_id == 0:
-            fs_files = call_wrap_with_pool(auth_pool(client, cooldown=0.25), client.fs_files_open)
         else:
             fs_files = client.fs_files_open
         async with client.async_session:
@@ -846,7 +844,7 @@ def make_application(
                 if plist := CACHE_ID_TO_LIST.get((share_code, parent_id)):
                     ancestors = list(plist["ancestors"])
                 else:
-                    ancestors = cast(list[dict], await db.get_share_ancestors(
+                    ancestors = cast(list[dict], await db.share_get_ancestors(
                         con, share_code, parent_id, async_=True))
             ancestors.append({
                 "id": str(cid), 
@@ -1044,7 +1042,7 @@ def make_application(
                     id_to_dirnode=SqliteTableDict(con, table="data", key="id", value=("name", "parent_id")), 
                     async_=True, 
                 )
-                push_task_attr(fid)
+                push_task_attr(cast(P115ID, fid))
         return fid
 
     @skip_if_only_webdav(app.router.get("/%3Cpickcode"))
@@ -1197,7 +1195,7 @@ def make_application(
         """
         id = await get_id(id=id, pickcode=pickcode, sha1=sha1, path=path)
         if isinstance(id, P115ID) and id.get("about") == "path":
-            attr = AttrDict(id.__dict__)
+            attr: AttrDict = AttrDict(id.__dict__)
             attr.pop("about")
             skim = False
         else:
@@ -1207,11 +1205,12 @@ def make_application(
                 pid = await db.get_parent_id(con, id, async_=True)
                 if pid is not None:
                     await get_file_list(pid)
-            if attr := ID_TO_ATTR.get(id):
+            if ID_TO_ATTR.get(id):
+                attr = ID_TO_ATTR[id]
                 if attr["type"] != 2 or int(CRE_URL_T_search(urlsplit(attr["thumb"]).query)[0]) - time() >= 60: # type: ignore
                     return attr
             from p115client.tool import get_attr
-            attr = await get_attr(client, id, skim=skim, async_=True)
+            attr = cast(AttrDict, await get_attr(client, id, skim=skim, async_=True))
         if skim:
             push_task_attr(attr)
         else:
@@ -1249,7 +1248,7 @@ def make_application(
 
     @skip_if_only_webdav(app.router.get("/%3Cm3u8"))
     @skip_if_only_webdav(app.router.get("/%3Cm3u8/*"))
-    async def get_m3u8(pickcode: str) -> str:
+    async def get_m3u8(pickcode: str) -> None | str:
         """获取 m3u8 文件链接
 
         :param pickcode: 对应视频文件的提取码
@@ -1267,11 +1266,11 @@ def make_application(
                 "is_dir": False, 
             })
         check_response(resp)
-        return data["video_url"]
+        return data and data.get("video_url")
 
     @skip_if_only_webdav(app.router.get("/%3Csubtitles"))
     @skip_if_only_webdav(app.router.get("/%3Csubtitles/*"))
-    async def get_subtitles(pickcode: str) -> list[dict]:
+    async def get_subtitles(pickcode: str) -> None | list[dict]:
         """获取字幕（随便提供此文件夹内的任何一个文件的提取码即可）
 
         :param pickcode: 提取码，可以是和对应视频相同目录下的任何文件的提取码
@@ -1424,11 +1423,6 @@ def make_application(
                 IMAGE_URL_CACHE=IMAGE_URL_CACHE, 
             )
 
-
-
-
-
-
     # NOTE: 下面的接口用来从分享获取信息
 
     @skip_if_only_webdav(app.router.get("/%3Cshare/%3Cid"))
@@ -1503,6 +1497,36 @@ def make_application(
 
         :return: 对应的 sha1 摘要值
         """
+        if id >= 0:
+            if not id:
+                return ""
+            sha1 = await db.share_get_sha1(con, share_code, id=id, async_=True)
+            if sha1 is None:
+                if not receive_code:
+                    share_info = await get_share_info(share_code)
+                    receive_code = share_info["receive_code"]
+                async for attr in get_share_file_tree(share_code, receive_code):
+                    if attr["id"] == id:
+                        return attr["sha1"]
+                else:
+                    raise FileNotFoundError(ENOENT, {"share_code": share_code, "id": id})
+        elif sha1:
+            return sha1.upper()
+        elif path:
+            sha1 = await db.share_get_sha1(con, share_code, path=path, async_=True)
+            if sha1 is None:
+                if not receive_code:
+                    share_info = await get_share_info(share_code)
+                    receive_code = share_info["receive_code"]
+                path = normpath(path)
+                async for attr in get_share_file_tree(share_code, receive_code):
+                    if attr["path"] == path:
+                        return attr["sha1"]
+                else:
+                    raise FileNotFoundError(ENOENT, {"share_code": share_code, "path": path})
+        else:
+            sha1 = ""
+        return sha1
 
     @skip_if_only_webdav(app.router.get("/%3Cshare/%3Cpath"))
     @skip_if_only_webdav(app.router.get("/%3Cshare/%3Cpath/*"))
@@ -1523,6 +1547,36 @@ def make_application(
 
         :return: 对应的路径
         """
+        if id >= 0:
+            if not id:
+                return "/"
+            path = await db.share_get_path(con, share_code, id=id, async_=True)
+            if not path:
+                if not receive_code:
+                    share_info = await get_share_info(share_code)
+                    receive_code = share_info["receive_code"]
+                async for attr in get_share_file_tree(share_code, receive_code):
+                    if attr["id"] == id:
+                        return attr["path"]
+                else:
+                    raise FileNotFoundError(ENOENT, {"share_code": share_code, "id": id})
+
+        elif sha1:
+            path = await db.share_get_path(con, share_code, sha1=sha1, async_=True)
+            if not path:
+                if not receive_code:
+                    share_info = await get_share_info(share_code)
+                    receive_code = share_info["receive_code"]
+                async for attr in get_share_file_tree(share_code, receive_code):
+                    if attr["sha1"] == sha1:
+                        return attr["path"]
+                else:
+                    raise FileNotFoundError(ENOENT, {"share_code": share_code, "id": id})
+        elif path:
+            return normpath(path)
+        else:
+            path = "/"
+        return path
 
     @skip_if_only_webdav(app.router.get("/%3Cshare/%3Cattr"))
     @skip_if_only_webdav(app.router.get("/%3Cshare/%3Cattr/*"))
@@ -1973,7 +2027,7 @@ def make_application(
                 for share in shares:
                     share_code = share["share_code"]
                     children[share["share_code"]] = FolderResource(
-                        "/<share/" + share_code, 
+                        f"/<share/{share_code}@{share['share_title'].replace('/', ':')}"[:256], 
                         environ, 
                         {
                             "id": 0, 
@@ -2069,6 +2123,7 @@ def make_application(
             else:
                 if path.startswith("/<share/"):
                     share_code, _, share_path = path[8:].partition("/")
+                    share_code = share_code.partition("@")[0]
                     coro = share_get_attr(share_code=share_code, path=share_path)
                 else:
                     coro = get_attr(path=path)
@@ -2091,10 +2146,16 @@ def make_application(
         def is_readonly(self, /) -> bool:
             return True
 
+    @app.router.route("/*", methods=["PROPFIND"])
+    def index(request: Request):
+        return redirect(f"/<dav{request.url}")
+
     if only_webdav:
-        @app.router.route("/*", methods=["GET", "HEAD"])
-        def index(request: Request):
-            return redirect(f"/<dav{request.url}")
+        app.router.route("/*", methods=["GET", "HEAD"])(index)
+
+    @app.router.route("/*", methods=["OPTIONS"])
+    def options(request: Request):
+        return ""
 
     # NOTE: https://wsgidav.readthedocs.io/en/latest/user_guide_configure.html
     wsgidav_config = {
@@ -2153,12 +2214,13 @@ if __name__ == "__main__":
 # TODO: 支持自定义转换规则，把 srt 转换为 ass 时，添加样式和字体，或者添加一个在线的样式选择框，就像 115
 # TODO: 直接用 m3u8 实现播放列表和各种附加，这样一切都是流媒体
 # TODO: 可选参数：文件缓存，文件大小小于一定值的时候，把整个文件下载到数据库，使用 sha1 和 size 作为 key
-# TODO: webdav 支持读写
+# TODO: webdav 支持读写？
 # TODO: 使用多接口+多cookies进行分流，如果是 web 或 harmony，则只分配网页版接口
 # TODO: 把数据库操作的模块专门分拆出来，db.py，原始行为就不是异步
 # TODO: 依然要支持 ctime，不再使用 aps 接口
 # TODO: 图片 CDN 链接
 # TODO: 缓存 m3u8 和 subtitles
+
 # TODO: 如果没有 client，则字幕文件使用 listdir
 # TODO: 支持 p115tiny302 的链接格式
-
+# TODO: 网页版支持另一套更现代化观感的 UI

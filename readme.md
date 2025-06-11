@@ -56,7 +56,7 @@ client = P115Client(Path("~/115-cookies.txt").expanduser(), check_for_relogin=Tr
 
 如果你有一个申请通过的开放接口的应用，则可以创建开放接口的客户端实例
 
-你可以直接从一个 `P115Client` 实例拿到授权（自动扫码登录并授权），如果不提供 `app_id`，则使用默认值
+你可以直接从一个 `P115Client` 实例拿到授权（自动扫码登录并授权）
 
 ```python
 app_id = <开放接口应用的 AppID>

@@ -74,7 +74,7 @@ def update_abstract(
     if max_workers is None or max_workers <= 0:
         max_workers = 20 if async_ else None
     def gen_step():
-        setter = getattr(client, method)(async_=async_, **request_kwargs)
+        setter = partial(getattr(client, method), async_=async_, **request_kwargs)
         def call(batch, /):
             return check_response(setter(batch, value))
         if max_workers == 1:
