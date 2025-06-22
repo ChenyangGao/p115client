@@ -65,9 +65,9 @@ from yarl import URL
 
 from .const import CLASS_TO_TYPE, CLIENT_API_MAP, SSOENT_TO_APP, SUFFIX_TO_TYPE, errno
 from .exception import (
-    AuthenticationError, BusyOSError, DataError, LoginError, OpenAppAuthLimitExceeded, 
-    NotSupportedError, P115OSError, OperationalError, P115Warning, P115FileExistsError, 
-    P115FileNotFoundError, P115IsADirectoryError, 
+    AccessTokenError, AuthenticationError, BusyOSError, DataError, LoginError, 
+    OpenAppAuthLimitExceeded, NotSupportedError, P115OSError, OperationalError, 
+    P115Warning, P115FileExistsError, P115FileNotFoundError, P115IsADirectoryError, 
 )
 from .type import RequestKeywords, MultipartResumeData, P115Cookies, P115URL
 from ._upload import buffer_length, make_dataiter, oss_upload, oss_multipart_upload
@@ -220,6 +220,16 @@ def complete_lixian_api(
     return complete_api(path, base, base_url=base_url)
 
 
+def try_parse_int(s: int | str, /):
+    if not isinstance(s, str):
+        return s
+    if s == "0":
+        return 0
+    if s.startswith("0") or s.strip(digits):
+        return s
+    return int(s)
+
+
 def json_loads(content: Buffer, /):
     try:
         if isinstance(content, (bytes, bytearray, memoryview)):
@@ -232,7 +242,7 @@ def json_loads(content: Buffer, /):
         raise DataError(errno.ENODATA, content) from e
 
 
-def default_parse(resp, content: Buffer, /):
+def default_parse(_, content: Buffer, /):
     if not isinstance(content, (bytes, bytearray, memoryview)):
         content = memoryview(content)
     if content and content[0] + content[-1] not in (b"{}", b"[]", b'""'):
@@ -532,16 +542,16 @@ def check_response(resp: dict | Awaitable[dict], /) -> dict | Coroutine[Any, Any
                     raise OpenAppAuthLimitExceeded(errno.EDQUOT, resp)
                 # {"state": 0, "errno": 40140123, "error": "access_token 格式错误（防篡改）"}
                 case 40140123:
-                    raise OperationalError(errno.EINVAL, resp)
+                    raise AccessTokenError(errno.EINVAL, resp)
                 # {"state": 0, "errno": 40140124, "error": "access_token 签名校验失败（防篡改）"}
                 case 40140124:
-                    raise OperationalError(errno.EINVAL, resp)
+                    raise AccessTokenError(errno.EINVAL, resp)
                 # {"state": 0, "errno": 40140125, "error": "access_token 无效（已过期或者已解除授权）"}
                 case 40140125:
-                    raise OperationalError(errno.EINVAL, resp)
+                    raise AccessTokenError(errno.EINVAL, resp)
                 # {"state": 0, "errno": 40140126, "error": "access_token 校验失败（防篡改）"}
                 case 40140126:
-                    raise OperationalError(errno.EINVAL, resp)
+                    raise AccessTokenError(errno.EINVAL, resp)
                 # {"state": 0, "errno": 40140127, "error": "response_type 错误"}
                 case 40140127:
                     raise OperationalError(errno.EINVAL, resp)
@@ -685,40 +695,36 @@ def normalize_attr_web[D: dict[str, Any]](
             attr["has_desc"] = bool(val)
         for key, name in (
             ("aid", "area_id"), 
-            ("hdf", "hidden"), 
-            ("hdf", "is_private"), 
-            ("issct", "is_shortcut"), 
-            ("ispl", "show_play_long"), 
-            ("is_top", "is_top"), 
-            ("iv", "is_video"), 
-            ("m", "star"), 
-            ("m", "is_mark"), 
+            ("audio_play_long", "audio_play_long"), 
             ("c", "violated"), 
             ("c", "is_collect"), 
-            ("sh", "is_share"), 
-            ("score", "score"), 
-            #("d", "has_desc"), 
-            #("p", "has_pass"), 
-        ):
-            if key in info:
-                attr[name] = int(info[key] or 0)
-        for key, name in (
-            ("fl", "labels"), 
-            ("dp", "dir_path"), 
-            ("style", "style"), 
-            ("ns", "name_show"), 
             ("cc", "cover"), 
-            ("sta", "status"), 
             ("class", "class"), 
-            ("u", "thumb"), 
-            ("play_long", "play_long"), 
-            ("audio_play_long", "audio_play_long"), 
             ("current_time", "current_time"), 
+            #("d", "has_desc"), 
+            ("dp", "dir_path"), 
+            ("fl", "labels"), 
+            ("hdf", "hidden"), 
+            ("hdf", "is_private"), 
+            ("is_top", "is_top"), 
+            ("ispl", "show_play_long"), 
+            ("issct", "is_shortcut"), 
+            ("iv", "is_video"), 
             ("last_time", "last_time"), 
+            ("m", "star"), 
+            ("m", "is_mark"), 
+            ("ns", "name_show"), 
+            #("p", "has_pass"), 
+            ("play_long", "play_long"), 
             ("played_end", "played_end"), 
+            ("score", "score"), 
+            ("sh", "is_share"), 
+            ("sta", "status"), 
+            ("style", "style"), 
+            ("u", "thumb"), 
         ):
             if key in info:
-                attr[name] = info[key]
+                attr[name] = try_parse_int(info[key])
         if vdi := info.get("vdi"):
             attr["defination"] = vdi
             match vdi:
@@ -821,47 +827,43 @@ def normalize_attr_app[D: dict[str, Any]](
         if "uet" in info: # utime
             attr["utime"] = int(info["uet"])
         for key, name in (
-            ("aid", "area_id"), 
-            ("fatr", "audio_play_long"), 
-            ("fta", "status"), 
-            ("ftype", "file_type"), 
-            ("ism", "star"), 
-            ("ism", "is_mark"), 
-            ("is_top", "is_top"), 
-            ("isp", "hidden"), 
-            ("isp", "is_private"), 
-            ("ispl", "show_play_long"), 
-            ("iss", "is_share"), 
-            ("isv", "is_video"), 
-            ("issct", "is_shortcut"), 
-            ("ic", "violated"), 
-            ("ic", "is_collect"), 
-            ("unzip_status", "unzip_status"), 
+            ("aid", "area_id"),           # 域 id，表示文件的状态：1:正常 7:删除(回收站) 120:彻底删除
+            ("audio_play_long", "audio_play_long"), # 音频长度
+            ("current_time", "current_time"), # 视频当前播放位置（从头开始到此为第 `current_time` 秒）
+            ("d_img", "d_img"),           # 目录封面
+            ("def", "defination"),        # 视频清晰度：1:标清 2:高清 3:超清 4:1080P 5:4k 100:原画
+            ("def2", "defination2"),      # 视频清晰度：1:标清 2:高清 3:超清 4:1080P 5:4k 100:原画
+            ("fatr", "audio_play_long"),  # 音频长度
+            ("fco", "cover"),             # 文件夹封面
+            ("fco", "folder_cover"),      # 文件夹封面
+            ("fdesc", "desc"),            # 文件备注
+            ("fl", "labels"),             # 文件标签，得到 1 个字典列表
+            ("flabel", "fflabel"),        # 文件标签（一般为空）
+            ("fta", "status"),            # 文件状态：0/2:未上传完成，1:已上传完成
+            ("ftype", "file_type"),       # 文件类型代码
+            ("ic", "violated"),           # 是否违规
+            ("ic", "is_collect"),         # 是否违规
+            ("is_top", "is_top"),         # 是否置顶
+            ("ism", "star"),              # 是否星标
+            ("ism", "is_mark"),           # 是否星标
+            ("isp", "hidden"),            # 是否加密隐藏（隐藏模式中显示）
+            ("isp", "is_private"),        # 是否加密隐藏（隐藏模式中显示）
+            ("ispl", "show_play_long"),   # 是否统计文件夹下视频时长
+            ("iss", "is_share"),          # 是否共享
+            ("issct", "is_shortcut"),     # 是否在快捷入口
+            ("isv", "is_video"),          # 是否为视频
+            ("last_time", "last_time"),   # 视频上次播放时间戳（秒）
+            ("muc", "cover"),             # 封面
+            ("muc", "music_cover"),       # 音乐封面
+            ("multitrack", "multitrack"), # 音轨数量 
+            ("play_long", "play_long"),   # 音视频时长
+            ("played_end", "played_end"), # 是否播放完成
+            ("unzip_status", "unzip_status"), # 解压状态：0(或无值):未解压或已完成 1:解压中
+            ("uo", "source_url"),         # 原图地址
+            ("v_img", "video_img_url"),   # 图片封面
         ):
             if key in info:
-                attr[name] = int(info[key] or 0)
-        for key, name in (
-            ("def", "defination"), 
-            ("def2", "defination2"), 
-            ("fco", "cover"), 
-            ("fco", "folder_cover"), 
-            ("fdesc", "desc"), 
-            ("fl", "labels"), 
-            ("flabel", "fflabel"), 
-            ("multitrack", "multitrack"), 
-            ("play_long", "play_long"), 
-            ("muc", "cover"), 
-            ("muc", "music_cover"), 
-            ("d_img", "d_img"), 
-            ("v_img", "video_img_url"), 
-            ("audio_play_long", "audio_play_long"), 
-            ("current_time", "current_time"), 
-            ("last_time", "last_time"), 
-            ("played_end", "played_end"), 
-            ("uo", "source_url"), 
-        ):
-            if key in info:
-                attr[name] = info[key]
+                attr[name] = try_parse_int(info[key])
     if is_directory:
         attr["type"] = 0
     elif (thumb := info.get("thumb")) and thumb.startswith("?"):
@@ -983,44 +985,60 @@ def normalize_attr_app2[D: dict[str, Any]](
         if "fl" in info:
             attr["labels"] = info["fl"]
         for key, name in (
-            ("area_id", "area_id"), 
-            ("has_desc", "has_desc"), 
-            ("has_pass", "has_pass"), 
-            ("is_mark", "star"), 
-            ("is_mark", "is_mark"), 
-            ("is_top", "is_top"), 
-            ("is_private", "hidden"), 
-            ("is_private", "is_private"), 
-            ("show_play_long", "show_play_long"), 
-            ("is_share", "is_share"), 
-            ("is_video", "is_video"), 
             ("is_collect", "violated"), 
-            ("is_collect", "is_collect"), 
-            ("can_delete", "can_delete"), 
-            ("file_category", "file_category"), 
+            ("is_mark", "star"), 
+            ("is_private", "hidden"), 
         ):
             if key in info:
                 attr[name] = int(info[key] or 0)
         for name in (
-            "pick_time", "pick_expire", "file_status", "file_sort", "definition", 
-            "definition2", "play_long", "current_time", "played_end", 
-            "last_time", "cate_mark", "category_file_count", "category_order", 
+            "area_id", 
+            "can_delete", 
+            "cate_mark", 
+            "category_file_count", 
+            "category_order", 
+            "current_time", 
+            "d_img", 
+            "definition", 
+            "definition2", 
+            "file_answer", 
+            "file_category", 
+            "file_eda", 
+            "file_question", 
+            "file_sort", 
+            "file_status", 
+            "has_desc", 
+            "has_pass", 
+            "is_collect", 
+            "is_mark", 
+            "is_private", 
+            "is_share", 
+            "is_top", 
+            "is_video", 
+            "last_time", 
+            "password", 
+            "pick_expire", 
+            "pick_time", 
+            "play_long", 
+            "play_url", 
+            "played_end", 
+            "show_play_long", 
+            "video_img_url", 
         ):
             if name in info:
-                attr[name] = int(info[name] or 0)
-        for name in (
-            "file_eda", "file_question", "file_answer", "password", "video_img_url", 
-            "play_url", "d_img", 
-        ):
-            if name in info:
-                attr[name] = info[name]
+                attr[name] = try_parse_int(info[name])
     if is_directory:
         attr["type"] = 0
     elif "thumb_url" in info:
         attr["type"] = 2
     elif "music_cover" in info or "play_url" in info:
         attr["type"] = 3
-    elif info.get("is_video") or "definition" in info or "definition2" in info or "video_img_url" in info:
+    elif (
+        info.get("is_video") or 
+        "definition" in info or 
+        "definition2" in info or 
+        "video_img_url" in info
+    ):
         attr["type"] = 4
     elif type_ := SUFFIX_TO_TYPE.get(splitext(attr["name"])[1].lower()):
         attr["type"] = type_
@@ -2051,6 +2069,34 @@ class ClientRequestMixin:
         .. note::
             code_challenge 默认用的字符串为 64 个 0，hash 算法为 md5
 
+        .. tip::
+            如果仅仅想要检查 AppID 是否有效，可以用如下的代码：
+
+            .. code:: python
+
+                from p115client import P115Client
+
+                app_id = 100195123
+                response = P115Client.login_qrcode_token_open(app_id)
+                if response["code"]:
+                    print("无效 AppID:", app_id, "因为:", response["error"])
+                else:
+                    print("有效 AppID:", app_id)
+
+        .. tip::
+            如果想要罗列出所有可用的 AppID，可以用如下的代码：
+
+            .. code:: python
+
+                from itertools import count
+                from p115client import P115Client
+
+                get_qrcode_token = P115Client.login_qrcode_token_open
+                for app_id in count(100195123, 2):
+                    response = get_qrcode_token(app_id)
+                    if not response["code"]:
+                        print(app_id)
+
         :payload:
             - client_id: int | str 💡 AppID
             - code_challenge: str = <default> 💡 PKCE 相关参数，计算方式如下
@@ -2329,7 +2375,7 @@ class ClientRequestMixin:
     def login_with_app_id(
         cls, 
         /, 
-        app_id: int | str, 
+        app_id: int | str = 100195123, 
         console_qrcode: bool = True, 
         base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
@@ -2342,7 +2388,7 @@ class ClientRequestMixin:
     def login_with_app_id(
         cls, 
         /, 
-        app_id: int | str, 
+        app_id: int | str = 100195123, 
         console_qrcode: bool = True, 
         base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
@@ -2354,7 +2400,7 @@ class ClientRequestMixin:
     def login_with_app_id(
         cls, 
         /, 
-        app_id: int | str, 
+        app_id: int | str = 100195123, 
         console_qrcode: bool = True, 
         base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
@@ -3054,7 +3100,7 @@ class P115OpenClient(ClientRequestMixin):
         /, 
         async_: Literal[False] = False, 
         **request_kwargs, 
-    ) -> str:
+    ) -> dict:
         ...
     @overload
     def refresh_access_token(
@@ -3062,27 +3108,36 @@ class P115OpenClient(ClientRequestMixin):
         /, 
         async_: Literal[True], 
         **request_kwargs, 
-    ) -> Coroutine[Any, Any, str]:
+    ) -> Coroutine[Any, Any, dict]:
         ...
     def refresh_access_token(
         self, 
         /, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
-    ) -> str | Coroutine[Any, Any, str]:
+    ) -> dict | Coroutine[Any, Any, dict]:
         """更新 access_token 和 refresh_token （⚠️ 目前是 7200 秒内就要求刷新一次）
         """
         def gen_step():
-            resp = yield self.login_refresh_token_open(
-                self.refresh_token, 
-                async_=async_, 
-                **request_kwargs, 
-            )
+            if refresh_token := getattr(self, "refresh_token", ""):
+                resp = yield self.login_refresh_token_open(
+                    refresh_token, 
+                    async_=async_, 
+                    **request_kwargs, 
+                )
+            elif hasattr(self, "login_with_open") and (app_id := getattr(self, "app_id", 0)):
+                resp = yield self.login_with_open(
+                    app_id, 
+                    async_=async_, 
+                    **request_kwargs, 
+                )
+            else:
+                raise RuntimeError("no `refresh_token` or `app_id` provided")
             check_response(resp)
             data = resp["data"]
             self.refresh_token = data["refresh_token"]
-            access_token = self.access_token = data["access_token"]
-            return access_token
+            self.access_token = data["access_token"]
+            return data
         return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @overload
@@ -3388,7 +3443,7 @@ class P115OpenClient(ClientRequestMixin):
             https://www.yuque.com/115yun/open/kz9ft9a7s57ep868
 
         :payload:
-            - cid: int | str = 0 💡 目录 id
+            - cid: int | str = 0 💡 目录 id，对应 parent_id
             - limit: int = 32 💡 分页大小，最大值不一定，看数据量，7,000 应该总是安全的，10,000 有可能报错，但有时也可以 20,000 而成功
             - offset: int = 0 💡 分页开始的索引，索引从 0 开始计算
 
@@ -3397,7 +3452,12 @@ class P115OpenClient(ClientRequestMixin):
             - code: int | str = <default>
             - count_folders: 0 | 1 = 1 💡 统计文件数和目录数
             - cur: 0 | 1 = <default>   💡 是否只显示当前目录
-            - custom_order: 0 | 1 | 2 = <default> 💡 是否使用记忆排序。0:使用记忆排序（自定义排序失效） 1:使用自定义排序（不使用记忆排序） 2:自定义排序（非目录置顶）。如果指定了 "asc"、"fc_mix"、"o" 中其一，则此参数会被自动设置为 2
+            - custom_order: 0 | 1 | 2 = <default> 💡 是否使用记忆排序。如果指定了 "asc"、"fc_mix"、"o" 中其一，则此参数会被自动设置为 2
+
+                - 0: 使用记忆排序（自定义排序失效） 
+                - 1: 使用自定义排序（不使用记忆排序） 
+                - 2: 自定义排序（非目录置顶）
+
             - date: str = <default> 💡 筛选日期
             - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
             - fields: str = <default>
@@ -3423,12 +3483,12 @@ class P115OpenClient(ClientRequestMixin):
             - r_all: 0 | 1 = <default>
             - record_open_time: 0 | 1 = 1 💡 是否要记录目录的打开时间
             - scid: int | str = <default>
-            - show_dir: 0 | 1 = 1 💡 是否展示目录：1:展示 0:不展示
+            - show_dir: 0 | 1 = 1 💡 是否显示目录
             - snap: 0 | 1 = <default>
             - source: str = <default>
             - sys_dir: int | str = <default> 💡 系统通用目录
             - star: 0 | 1 = <default> 💡 是否星标文件
-            - stdir: 0 | 1 = <default>
+            - stdir: 0 | 1 = <default> 💡 筛选文件时，是否显示文件夹：1:展示 0:不展示
             - suffix: str = <default> 💡 后缀名（优先级高于 `type`）
             - type: int = <default> 💡 文件类型
 
@@ -3500,8 +3560,11 @@ class P115OpenClient(ClientRequestMixin):
 
         GET https://proapi.115.com/open/folder/get_info
 
+        .. note::
+            支持 GET 和 POST 方法。`file_id` 和 `path` 需必传一个
+
         .. hint::
-            相当于 `P115Client.fs_category_get_app`
+            部分相当于 `P115Client.fs_category_get_app`
 
         .. admonition:: Reference
 
@@ -3509,11 +3572,24 @@ class P115OpenClient(ClientRequestMixin):
 
         :payload:
             - file_id: int | str 💡 文件或目录的 id
+            - path: str = <default> 💡 文件或目录的路径。分隔符支持 / 和 > 两种符号，最前面需分隔符开头，以分隔符分隔目录层级
         """
         api = complete_proapi("/open/folder/get_info", base_url)
-        if isinstance(payload, (int, str)):
+        if isinstance(payload, int):
             payload = {"file_id": payload}
-        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+        elif isinstance(payload, str):
+            if payload.startswith("0") or payload.strip(digits):
+                if not payload.startswith(("/", "<")):
+                    payload = "/" + payload
+                payload = {"path": payload}
+            else:
+                payload = {"file_id": payload}
+        method = request_kwargs.get("method")
+        if method and method.upper() == "POST":
+            request_kwargs["data"] = payload
+        else:
+            request_kwargs["params"] = payload
+        return self.request(url=api, async_=async_, **request_kwargs)
 
     @overload
     def fs_mkdir(
@@ -3694,7 +3770,7 @@ class P115OpenClient(ClientRequestMixin):
             - offset: int = 0  💡 索引偏移，索引从 0 开始计算
             - pick_code: str = <default> 💡 是否查询提取码，如果该值为 1 则查询提取码为 `search_value` 的文件
             - search_value: str = "." 💡 搜索文本，可以是 sha1
-            - show_dir: 0 | 1 = 1
+            - show_dir: 0 | 1 = 1 💡 是否显示目录
             - source: str = <default>
             - star: 0 | 1 = <default>
             - suffix: str = <default>
@@ -5287,7 +5363,7 @@ class P115Client(P115OpenClient):
     """115 的客户端对象
 
     .. note::
-        目前允许 1 个用户同时登录多个开放平台应用（用 AppID 区别），但如果多次登录同 1 个应用，则只有最近登录的有效
+        目前允许 1 个用户同时登录多个开放平台应用（用 AppID 区别），也允许多次登录同 1 个应用
 
         目前不允许短时间内再次用 `refresh_token` 刷新 `access_token`，但你可以用登录的方式再次授权登录以获取 `access_token`，即可不受频率限制
 
@@ -5954,10 +6030,58 @@ class P115Client(P115OpenClient):
         return run_gen_step(gen_step, may_call=False, async_=async_)
 
     @overload
+    def login_info_open(
+        self, 
+        /, 
+        app_id: int | str = 100195123, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def login_info_open(
+        self, 
+        /, 
+        app_id: int | str = 100195123, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def login_info_open(
+        self, 
+        /, 
+        app_id: int | str = 100195123, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取某个开放接口应用的信息（目前可获得名称和头像）
+
+        :param app_id: AppID
+        :param async_: 是否异步
+        :param request_kwargs: 其它请求参数
+
+        :return: 接口返回值
+        """
+        def gen_step():
+            resp = yield self.login_qrcode_token_open(app_id, async_=async_, **request_kwargs)
+            login_uid = check_response(resp)["data"]["uid"]
+            resp = yield self.login_qrcode_scan(login_uid, async_=async_, **request_kwargs)
+            check_response(resp)
+            tip_txt = resp["data"]["tip_txt"]
+            return {
+                "name": tip_txt[:tip_txt.rfind("已经过")], 
+                "icon": resp["data"]["icon"], 
+            }
+        return run_gen_step(gen_step, may_call=False, async_=async_)
+
+    @overload
     def login_with_open(
         self, 
         /, 
-        app_id: int | str, 
+        app_id: int | str = 100195123, 
         *, 
         show_warning: bool = False, 
         async_: Literal[False] = False, 
@@ -5968,7 +6092,7 @@ class P115Client(P115OpenClient):
     def login_with_open(
         self, 
         /, 
-        app_id: int | str, 
+        app_id: int | str = 100195123, 
         *, 
         show_warning: bool = False, 
         async_: Literal[True], 
@@ -5978,7 +6102,7 @@ class P115Client(P115OpenClient):
     def login_with_open(
         self, 
         /, 
-        app_id: int | str, 
+        app_id: int | str = 100195123, 
         *, 
         show_warning: bool = False, 
         async_: Literal[False, True] = False, 
@@ -6153,7 +6277,7 @@ class P115Client(P115OpenClient):
     def login_another_open(
         self, 
         /, 
-        app_id: int | str, 
+        app_id: int | str = 100195123, 
         *, 
         replace: Literal[True] | Self, 
         show_warning: bool = False, 
@@ -6165,7 +6289,7 @@ class P115Client(P115OpenClient):
     def login_another_open(
         self, 
         /, 
-        app_id: int | str, 
+        app_id: int | str = 100195123, 
         *, 
         replace: Literal[True] | Self, 
         show_warning: bool = False, 
@@ -6177,7 +6301,7 @@ class P115Client(P115OpenClient):
     def login_another_open(
         self, 
         /, 
-        app_id: int | str, 
+        app_id: int | str = 100195123, 
         *, 
         replace: Literal[False] = False, 
         show_warning: bool = False, 
@@ -6189,7 +6313,7 @@ class P115Client(P115OpenClient):
     def login_another_open(
         self, 
         /, 
-        app_id: int | str, 
+        app_id: int | str = 100195123, 
         *, 
         replace: Literal[False] = False, 
         show_warning: bool = False, 
@@ -6200,7 +6324,7 @@ class P115Client(P115OpenClient):
     def login_another_open(
         self, 
         /, 
-        app_id: int | str, 
+        app_id: int | str = 100195123, 
         *, 
         replace: bool | Self = False, 
         show_warning: bool = False, 
@@ -6571,8 +6695,16 @@ class P115Client(P115OpenClient):
                         method=method, 
                         **request_kwargs, 
                     )
+                    if (
+                        is_open_api and 
+                        need_to_check and 
+                        isinstance(resp, dict) and 
+                        resp.get("code") in (40140123, 40140124, 40140125, 40140126)
+                    ):
+                        check_response(resp)
                 except BaseException as e:
                     is_auth_error = isinstance(e, (AuthenticationError, LoginError))
+                    not_access_token_error = not isinstance(e, AccessTokenError)
                     if (
                         cert_headers is not None and 
                         revert_cert_headers is not None and 
@@ -6582,26 +6714,25 @@ class P115Client(P115OpenClient):
                         yield revert_cert_headers(cert_headers)
                     if not need_to_check:
                         raise
-                    res = yield cast(Callable, check_for_relogin)(e)
-                    if not res if isinstance(res, bool) else res != 405:
-                        raise
+                    if not_access_token_error:
+                        res = yield cast(Callable, check_for_relogin)(e)
+                        if not res if isinstance(res, bool) else res != 405:
+                            raise
                     if fetch_cert_headers is not None:
                         cert_headers = yield fetch_cert_headers()
                         headers.update(cert_headers)
                     elif is_open_api:
                         yield lock.acquire()
                         try:
-                            if cert != self.access_token:
-                                continue
-                            if i or is_auth_error:
-                                raise
-                            app_id = getattr(self, "app_id")
-                            yield self.login_another_open(
-                                app_id, 
-                                replace=True, 
-                                async_=async_, # type: ignore
-                            )
-                            warn(f"relogin to refresh token: {app_id=}", category=P115Warning)
+                            access_token = self.access_token
+                            if cert.capitalize().removeprefix("Bearer ") == access_token:
+                                if i or is_auth_error or not_access_token_error:
+                                    raise
+                                warn(f"relogin to refresh token", category=P115Warning)
+                                yield self.refresh_access_token(async_=async_)
+                                cert = headers["authorization"] = "Bearer " + self.access_token
+                            else:
+                                cert = headers["authorization"] = "Bearer " + access_token
                         finally:
                             lock.release()
                     else:
@@ -6625,8 +6756,9 @@ class P115Client(P115OpenClient):
                                     replace=True, 
                                     async_=async_, # type: ignore
                                 )
+                                cert = headers["cookie"] = self.cookies_str
                             else:
-                                headers["cookie"] = cookies_new
+                                cert = headers["cookie"] = cookies_new
                         finally:
                             lock.release()
                 else:
@@ -10222,7 +10354,7 @@ class P115Client(P115OpenClient):
                 - 7: 其它
 
         :payload:
-            - cid: int | str = 0 💡 目录 id
+            - cid: int | str = 0 💡 目录 id，对应 parent_id
             - limit: int = 32 💡 分页大小，目前最大值是 1,150，以前是没限制的
             - offset: int = 0 💡 分页开始的索引，索引从 0 开始计算
 
@@ -10232,6 +10364,11 @@ class P115Client(P115OpenClient):
             - count_folders: 0 | 1 = 1 💡 统计文件数和目录数
             - cur: 0 | 1 = <default> 💡 是否只搜索当前目录
             - custom_order: 0 | 1 = <default> 💡 启用自定义排序，如果指定了 "asc"、"fc_mix"、"o" 中其一，则此参数会被自动设置为 1
+
+                - 0: 使用记忆排序（自定义排序失效） 
+                - 1: 使用自定义排序（不使用记忆排序） 
+                - 2: 自定义排序（非目录置顶）
+
             - date: str = <default> 💡 筛选日期
             - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
             - fields: str = <default>
@@ -10256,12 +10393,12 @@ class P115Client(P115OpenClient):
             - r_all: 0 | 1 = <default>
             - record_open_time: 0 | 1 = 1 💡 是否要记录目录的打开时间
             - scid: int | str = <default>
-            - show_dir: 0 | 1 = 1
+            - show_dir: 0 | 1 = 1 💡 是否显示目录
             - snap: 0 | 1 = <default>
             - source: str = <default>
             - sys_dir: int | str = <default>
             - star: 0 | 1 = <default> 💡 是否星标文件
-            - stdir: 0 | 1 = <default>
+            - stdir: 0 | 1 = <default> 💡 筛选文件时，是否显示文件夹：1:展示 0:不展示
             - suffix: str = <default> 💡 后缀名（优先级高于 `type`）
             - suffix_type: int = <default>
             - type: int = <default> 💡 文件类型
@@ -10358,7 +10495,7 @@ class P115Client(P115OpenClient):
             在根目录下且 fc_mix=0 且是特殊名字 ("我的接收", "手机相册", "云下载", "我的时光记录")，会在整个文件列表的最前面，这时可从返回信息的 "sys_count" 字段知道数目
 
         :payload:
-            - cid: int | str = 0 💡 目录 id
+            - cid: int | str = 0 💡 目录 id，对应 parent_id
             - limit: int = 32 💡 分页大小，最大值不一定，看数据量，7,000 应该总是安全的，10,000 有可能报错，但有时也可以 20,000 而成功
             - offset: int = 0 💡 分页开始的索引，索引从 0 开始计算
 
@@ -10367,7 +10504,12 @@ class P115Client(P115OpenClient):
             - code: int | str = <default>
             - count_folders: 0 | 1 = 1 💡 统计文件数和目录数
             - cur: 0 | 1 = <default>   💡 是否只显示当前目录
-            - custom_order: 0 | 1 | 2 = <default> 💡 是否使用记忆排序。0:使用记忆排序（自定义排序失效） 1:使用自定义排序（不使用记忆排序） 2:自定义排序（非目录置顶）。如果指定了 "asc"、"fc_mix"、"o" 中其一，则此参数会被自动设置为 2
+            - custom_order: 0 | 1 | 2 = <default> 💡 是否使用记忆排序。如果指定了 "asc"、"fc_mix"、"o" 中其一，则此参数会被自动设置为 2
+
+                - 0: 使用记忆排序（自定义排序失效） 
+                - 1: 使用自定义排序（不使用记忆排序） 
+                - 2: 自定义排序（非目录置顶）
+
             - date: str = <default> 💡 筛选日期
             - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
             - fields: str = <default>
@@ -10393,12 +10535,12 @@ class P115Client(P115OpenClient):
             - r_all: 0 | 1 = <default>
             - record_open_time: 0 | 1 = 1 💡 是否要记录目录的打开时间
             - scid: int | str = <default>
-            - show_dir: 0 | 1 = 1 💡 是否展示目录：1:展示 0:不展示
+            - show_dir: 0 | 1 = 1 💡 是否显示目录
             - snap: 0 | 1 = <default>
             - source: str = <default>
             - sys_dir: int | str = <default> 💡 系统通用目录
             - star: 0 | 1 = <default> 💡 是否星标文件
-            - stdir: 0 | 1 = <default>
+            - stdir: 0 | 1 = <default> 💡 筛选文件时，是否显示文件夹：1:展示 0:不展示
             - suffix: str = <default> 💡 后缀名（优先级高于 `type`）
             - type: int = <default> 💡 文件类型
 
@@ -10483,7 +10625,7 @@ class P115Client(P115OpenClient):
                 2. fc_mix 无论怎么设置，都和 fc_mix=0 的效果相同（即目录总是置顶），设置为 custom_order=2 也没用
 
         :payload:
-            - cid: int | str = 0 💡 目录 id
+            - cid: int | str = 0 💡 目录 id，对应 parent_id
             - limit: int = 32 💡 分页大小，最大值不一定，看数据量，7,000 应该总是安全的，10,000 有可能报错，但有时也可以 20,000 而成功
             - offset: int = 0 💡 分页开始的索引，索引从 0 开始计算
 
@@ -10493,6 +10635,11 @@ class P115Client(P115OpenClient):
             - count_folders: 0 | 1 = 1 💡 统计文件数和目录数
             - cur: 0 | 1 = <default> 💡 是否只搜索当前目录
             - custom_order: 0 | 1 | 2 = <default> 💡 启用自定义排序，如果指定了 "asc"、"fc_mix"、"o" 中其一，则此参数会被自动设置为 2
+
+                - 0: 使用记忆排序（自定义排序失效） 
+                - 1: 使用自定义排序（不使用记忆排序） 
+                - 2: 自定义排序（非目录置顶）
+ 
             - date: str = <default> 💡 筛选日期
             - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
             - fields: str = <default>
@@ -10518,12 +10665,12 @@ class P115Client(P115OpenClient):
             - r_all: 0 | 1 = <default>
             - record_open_time: 0 | 1 = 1 💡 是否要记录目录的打开时间
             - scid: int | str = <default>
-            - show_dir: 0 | 1 = 1
+            - show_dir: 0 | 1 = 1 💡 是否显示目录
             - snap: 0 | 1 = <default>
             - source: str = <default>
             - sys_dir: int | str = <default>
             - star: 0 | 1 = <default> 💡 是否星标文件
-            - stdir: 0 | 1 = <default>
+            - stdir: 0 | 1 = <default> 💡 筛选文件时，是否显示文件夹：1:展示 0:不展示
             - suffix: str = <default> 💡 后缀名（优先级高于 `type`）
             - type: int = <default> 💡 文件类型
 
@@ -10608,7 +10755,7 @@ class P115Client(P115OpenClient):
             不过在我看来，只要一个目录内的节点数超过 2,400 个，则大概就没必要使用此接口
 
         :payload:
-            - cid: int | str = 0 💡 目录 id
+            - cid: int | str = 0 💡 目录 id，对应 parent_id
             - limit: int = 32 💡 分页大小，最大值是 1,200
             - offset: int = 0 💡 分页开始的索引，索引从 0 开始计算
 
@@ -10618,6 +10765,11 @@ class P115Client(P115OpenClient):
             - count_folders: 0 | 1 = 1 💡 统计文件数和目录数
             - cur: 0 | 1 = <default> 💡 是否只搜索当前目录
             - custom_order: 0 | 1 = <default> 💡 启用自定义排序，如果指定了 "asc"、"fc_mix" 中其一，则此参数会被自动设置为 1
+
+                - 0: 使用记忆排序（自定义排序失效） 
+                - 1: 使用自定义排序（不使用记忆排序） 
+                - 2: 自定义排序（非目录置顶）
+
             - date: str = <default> 💡 筛选日期
             - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
             - fields: str = <default>
@@ -10633,12 +10785,12 @@ class P115Client(P115OpenClient):
             - r_all: 0 | 1 = <default>
             - record_open_time: 0 | 1 = 1 💡 是否要记录目录的打开时间
             - scid: int | str = <default>
-            - show_dir: 0 | 1 = 1
+            - show_dir: 0 | 1 = 1 💡 是否显示目录
             - snap: 0 | 1 = <default>
             - source: str = <default>
             - sys_dir: int | str = <default>
             - star: 0 | 1 = <default> 💡 是否星标文件
-            - stdir: 0 | 1 = <default>
+            - stdir: 0 | 1 = <default> 💡 筛选文件时，是否显示文件夹：1:展示 0:不展示
             - suffix: str = <default> 💡 后缀名（优先级高于 `type`）
             - type: int = <default> 💡 文件类型
 
@@ -10715,7 +10867,7 @@ class P115Client(P115OpenClient):
 
         :payload:
             - file_name: str      💡 文件名，不含后缀
-            - pid: int | str = 0  💡 目录 id
+            - pid: int | str = 0  💡 目录 id，对应 parent_id
             - type: 1 | 2 | 3 = 1 💡 1:Word文档(.docx) 2:Excel表格(.xlsx) 3:PPT文稿(.pptx)
         """
         api = complete_webapi("/files/blank_document", base_url=base_url)
@@ -10860,7 +11012,7 @@ class P115Client(P115OpenClient):
         GET https://webapi.115.com/files/get_second_type
 
         :payload:
-            - cid: int | str = 0 💡 目录 id
+            - cid: int | str = 0 💡 目录 id，对应 parent_id
             - type: int = 1 💡 文件类型
 
               - 1: 文档
@@ -11921,7 +12073,7 @@ class P115Client(P115OpenClient):
             只能获取直属于 `cid` 所在目录的图片，不会遍历整个目录树
 
         :payload:
-            - cid: int | str     💡 目录 id
+            - cid: int | str     💡 目录 id，对应 parent_id
             - file_id: int | str 💡 不能是 0，可以不同于 `cid`，必须是任何一个有效的 id（单纯是被检查一下）
             - limit: int = <default> 💡 最多返回数量
             - offset: int = 0    💡 索引偏移，索引从 0 开始计算
@@ -11984,7 +12136,7 @@ class P115Client(P115OpenClient):
         GET https://proapi.115.com/android/files/imglist
 
         :payload:
-            - cid: int | str = 0 💡 目录 id
+            - cid: int | str = 0 💡 目录 id，对应 parent_id
             - limit: int = 32    💡 一页大小，建议控制在 <= 9000，不然会报错
             - offset: int = 0    💡 索引偏移，索引从 0 开始计算
 
@@ -13890,7 +14042,7 @@ class P115Client(P115OpenClient):
               - "user_ptime": 创建时间
               - "user_otime": 上一次打开时间
 
-            - file_id: int | str = 0 💡 目录 id
+            - file_id: int | str = 0 💡 目录 id，对应 parent_id
             - user_asc: 0 | 1 = <default> 💡 是否升序排列
             - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
             - module: str = <default> 💡 "label_search" 表示用于搜索的排序
@@ -13953,7 +14105,7 @@ class P115Client(P115OpenClient):
               - "user_ptime": 创建时间
               - "user_otime": 上一次打开时间
 
-            - file_id: int | str = 0 💡 目录 id
+            - file_id: int | str = 0 💡 目录 id，对应 parent_id
             - user_asc: 0 | 1 = <default> 💡 是否升序排列
             - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
             - module: str = <default> 💡 "label_search" 表示用于搜索的排序
@@ -14338,7 +14490,7 @@ class P115Client(P115OpenClient):
         :payload:
             - aid: int | str = 1 💡 area_id。1:正常文件 7:回收站文件 12:瞬间文件 120:彻底删除文件、简历附件
             - asc: 0 | 1 = <default> 💡 是否升序排列
-            - cid: int | str = 0 💡 目录 id
+            - cid: int | str = 0 💡 目录 id，对应 parent_id
             - count_folders: 0 | 1 = <default> 💡 是否统计目录数，这样就会增加 "folder_count" 和 "file_count" 字段作为统计
             - date: str = <default> 💡 筛选日期，格式为 YYYY-MM-DD（或者 YYYY-MM 或 YYYY），具体可以看文件信息中的 "t" 字段的值
             - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
@@ -14450,7 +14602,7 @@ class P115Client(P115OpenClient):
             - offset: int = 0  💡 索引偏移，索引从 0 开始计算
             - pick_code: str = <default> 💡 是否查询提取码，如果该值为 1 则查询提取码为 `search_value` 的文件
             - search_value: str = "." 💡 搜索文本，可以是 sha1
-            - show_dir: 0 | 1 = 1
+            - show_dir: 0 | 1 = 1 💡 是否显示目录
             - source: str = <default>
             - star: 0 | 1 = <default>
             - suffix: str = <default>
@@ -14547,7 +14699,7 @@ class P115Client(P115OpenClient):
             - offset: int = 0  💡 索引偏移，索引从 0 开始计算
             - pick_code: str = <default> 💡 是否查询提取码，如果该值为 1 则查询提取码为 `search_value` 的文件
             - search_value: str = "." 💡 搜索文本，可以是 sha1
-            - show_dir: 0 | 1 = 1
+            - show_dir: 0 | 1 = 1 💡 是否显示目录
             - source: str = <default>
             - star: 0 | 1 = <default>
             - suffix: str = <default>
@@ -19391,7 +19543,7 @@ class P115Client(P115OpenClient):
         :payload:
             - share_code: str    💡 分享码
             - receive_code: str  💡 接收码（即密码）
-            - cid: int | str = 0 💡 目录 id
+            - cid: int | str = 0 💡 目录 id，对应 parent_id
             - limit: int = 32    💡 一页大小，意思就是 page_size
             - offset: int = 0   💡 索引偏移，索引从 0 开始计算
             - search_value: str = "." 💡 搜索文本，仅支持搜索文件名
@@ -20156,7 +20308,7 @@ class P115Client(P115OpenClient):
         POST https://aps.115.com/repeat/repeat.php
 
         :payload:
-            - folder_id: int | str 💡 目录 id
+            - folder_id: int | str 💡 目录 id，对应 parent_id
         """
         api = complete_api("/repeat/repeat.php", "aps", base_url=base_url)
         if isinstance(payload, (int, str)):

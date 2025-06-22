@@ -2,10 +2,10 @@
 # encoding: utf-8
 
 __all__ = [
-    "P115Warning", "P115OSError", "AuthenticationError", "BusyOSError", "DataError", 
-    "LoginError", "MultipartUploadAbort", "OpenAppAuthLimitExceeded", 
-    "NotSupportedError", "OperationalError", "P115FileExistsError", 
-    "P115FileNotFoundError", "P115IsADirectoryError", 
+    "P115Warning", "P115OSError", "AccessTokenError", "AuthenticationError", 
+    "BusyOSError", "DataError", "LoginError", "MultipartUploadAbort", 
+    "OpenAppAuthLimitExceeded", "NotSupportedError", "OperationalError", 
+    "P115FileExistsError", "P115FileNotFoundError", "P115IsADirectoryError", 
     "P115NotADirectoryError", "P115PermissionError", "P115TimeoutError", 
 ]
 
@@ -49,6 +49,11 @@ class P115OSError(OSError):
             if len(args) >= 2 and isinstance(args[0], int):
                 return args[1]
             return args[0]
+
+
+class AccessTokenError(P115OSError, ValueError):
+    """access_token 错误或者无效
+    """
 
 
 class AuthenticationError(P115OSError):
