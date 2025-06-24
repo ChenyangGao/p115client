@@ -5187,6 +5187,7 @@ class P115OpenClient(ClientRequestMixin):
                 async_=async_, # type: ignore
                 **request_kwargs, 
             )
+            check_response(resp)
             data = resp["data"]
             match data["status"]:
                 case 2:

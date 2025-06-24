@@ -28,7 +28,7 @@ from iterutils import (
     with_iter_next, YieldFrom, 
 )
 from orjson import loads
-from p115client import check_response, normalize_attr_simple, P115Client
+from p115client import check_response, normalize_attr_simple, P115Client, P115OpenClient
 from p115client.exception import OperationalError
 from p115client._upload import (
     oss_multipart_part_iter, oss_multipart_upload_init, 
@@ -461,7 +461,7 @@ def iter_115_to_115_resume(
 
 @overload
 def multipart_upload_init(
-    client: str | P115Client, 
+    client: str | P115Client | P115OpenClient, 
     path: str | PathLike | URL | SupportsGeturl, 
     pid: int = 0, 
     filename: str = "", 
@@ -470,6 +470,7 @@ def multipart_upload_init(
     partsize: int = -1, 
     upload_data: None | dict = None, 
     domain: str = ALIYUN_DOMAIN, 
+    use_open_api: bool = False, 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -477,7 +478,7 @@ def multipart_upload_init(
     ...
 @overload
 def multipart_upload_init(
-    client: str | P115Client, 
+    client: str | P115Client | P115OpenClient, 
     path: str | PathLike | URL | SupportsGeturl, 
     pid: int = 0, 
     filename: str = "", 
@@ -486,13 +487,14 @@ def multipart_upload_init(
     partsize: int = -1, 
     upload_data: None | dict = None, 
     domain: str = ALIYUN_DOMAIN, 
+    use_open_api: bool = False, 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
 ) -> Coroutine[Any, Any, dict]:
     ...
 def multipart_upload_init(
-    client: str | P115Client, 
+    client: str | P115Client | P115OpenClient, 
     path: str | PathLike | URL | SupportsGeturl, 
     pid: int = 0, 
     filename: str = "", 
@@ -501,6 +503,7 @@ def multipart_upload_init(
     partsize: int = -1, 
     upload_data: None | dict = None, 
     domain: str = ALIYUN_DOMAIN, 
+    use_open_api: bool = False, 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -516,13 +519,24 @@ def multipart_upload_init(
     :param partsize: 分块大小，若不为正数则自动确定
     :param upload_data: 上传相关信息，可用于以后的断点续传
     :param domain: 上传到指定的阿里云集群的网址（netloc）
+    :param use_open_api: 是否使用 open 接口，如果本身就是 P115OpenClient （而不是其子类）的实例，此值强制为 True
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
 
     :return: 如果秒传成功，则返回响应信息（有 "status" 字段），否则返回上传配置信息（可用于断点续传）
     """
+    if not domain:
+        domain = ALIYUN_DOMAIN
     if isinstance(client, str):
         client = P115Client(client, check_for_relogin=True)
+    if type(client) is P115OpenClient:
+        use_open_api = True
+    if use_open_api:
+        upload_file_init = client.upload_file_init_open
+        upload_resume = client.upload_resume_open
+    else:
+        upload_file_init = client.upload_file_init
+        upload_resume = client.upload_resume
     def gen_step():
         nonlocal upload_data, path, filename, filesha1, filesize, partsize
         if upload_data is None:
@@ -618,7 +632,7 @@ def multipart_upload_init(
                     else:
                         with urlopen(path, headers={"Range": "bytes="+sign_check}) as file:
                             return file.read()
-            resp = yield client.upload_file_init(
+            resp = yield upload_file_init(
                 filename=filename, 
                 filesize=filesize, 
                 filesha1=filesha1, 
@@ -627,14 +641,25 @@ def multipart_upload_init(
                 async_=async_, # type: ignore
                 **request_kwargs, 
             )
-            status = resp["status"]
-            statuscode = resp.get("statuscode", 0)
-            if status == 2 and statuscode == 0:
-                return resp
-            elif status == 1 and statuscode == 0:
-                bucket, object, callback = resp["bucket"], resp["object"], resp["callback"]
+            if use_open_api:
+                check_response(resp)
+                data = resp["data"]
+                match data["status"]:
+                    case 2:
+                        return resp
+                    case 1:
+                        bucket, object, callback = data["bucket"], data["object"], data["callback"]
+                    case _:
+                        raise OperationalError(errno.EINVAL, resp)
             else:
-                raise OperationalError(errno.EINVAL, resp)
+                status = resp["status"]
+                statuscode = resp.get("statuscode", 0)
+                if status == 2 and statuscode == 0:
+                    return resp
+                elif status == 1 and statuscode == 0:
+                    bucket, object, callback = resp["bucket"], resp["object"], resp["callback"]
+                else:
+                    raise OperationalError(errno.EINVAL, resp)
             upload_data["bucket"] = bucket
             upload_data["object"] = object
             upload_data["callback"] = callback
@@ -648,7 +673,7 @@ def multipart_upload_init(
             bucket = upload_data["bucket"]
             object = upload_data["object"]
             callback_var = loads(upload_data["callback"]["callback_var"])
-            resp = yield client.upload_resume(
+            resp = yield upload_resume(
                 {
                     "fileid": object, 
                     "file_size": upload_data["filesize"], 
@@ -676,6 +701,7 @@ def multipart_upload_init(
                 upload_data["part_number_next"] = len(parts) + (int(parts[-1]["Size"]) == upload_data["partsize"])
             else:
                 upload_data["part_number_next"] = 1
+            upload_data["parts"] = parts
         else:
             upload_data["upload_id"] = yield oss_multipart_upload_init(
                 client.request, 
@@ -687,12 +713,14 @@ def multipart_upload_init(
                 **request_kwargs, 
             )
             upload_data["part_number_next"] = 1
+            upload_data["parts"] = []
+        upload_data["_upload_"] = None
         return upload_data
     return run_gen_step(gen_step, async_=async_)
 
 
 def multipart_upload_url(
-    client: str | P115Client | dict, 
+    client: str | P115Client | P115OpenClient | dict, 
     upload_data: dict, 
     part_number: int = 1, 
     domain: str = ALIYUN_DOMAIN, 
@@ -706,6 +734,8 @@ def multipart_upload_url(
 
     :return: 上传链接 和 请求头 的 2 元组
     """
+    if not domain:
+        domain = ALIYUN_DOMAIN
     if isinstance(client, dict):
         token = client
     else:
@@ -724,7 +754,7 @@ def multipart_upload_url(
 
 @overload
 def multipart_upload_complete(
-    client: str | P115Client, 
+    client: str | P115Client | P115OpenClient, 
     upload_data: dict, 
     domain: str = ALIYUN_DOMAIN, 
     *, 
@@ -734,7 +764,7 @@ def multipart_upload_complete(
     ...
 @overload
 def multipart_upload_complete(
-    client: str | P115Client, 
+    client: str | P115Client | P115OpenClient, 
     upload_data: dict, 
     domain: str = ALIYUN_DOMAIN, 
     *, 
@@ -743,7 +773,7 @@ def multipart_upload_complete(
 ) -> Coroutine[Any, Any, dict]:
     ...
 def multipart_upload_complete(
-    client: str | P115Client, 
+    client: str | P115Client | P115OpenClient, 
     upload_data: dict, 
     domain: str = ALIYUN_DOMAIN, 
     *, 
@@ -782,9 +812,7 @@ def multipart_upload_complete(
                 filename = "", 
                 upload_data = None, 
             )
-            if "status" in upload_data:
-                resp = upload_data
-            else:
+            if "_upload_" in upload_data:
                 partsize = upload_data["partsize"]
                 part_number_next = upload_data["part_number_next"]
                 with open(path, "rb") as file:
@@ -799,18 +827,22 @@ def multipart_upload_complete(
                         ## NOTE: 使用 requests
                         # from requests import request
                         # request("PUT", url, data=file.read(partsize), headers=headers)
-                        client.request(url=url, method="PUT", data=file.read(partsize), headers=headers, parse=False
+                        client.request(url=url, method="PUT", data=file.read(partsize), headers=headers, parse=False)
                 resp = multipart_upload_complete(client, upload_data)
+            else:
+                resp = upload_data
             print(resp)
     """
+    if not domain:
+        domain = ALIYUN_DOMAIN
     bucket = upload_data["bucket"]
     object = upload_data["object"]
     upload_id = upload_data["upload_id"]
     url = f"http://{bucket}.{domain}/{object}"
     if isinstance(client, str):
         client = P115Client(client, check_for_relogin=True)
-    token = client.upload_token
     def gen_step():
+        token = client.upload_token
         parts = yield collect(oss_multipart_part_iter(
             client.request, 
             url, 
