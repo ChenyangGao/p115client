@@ -773,6 +773,7 @@ def multipart_upload_complete(
 
             # TODO: 这里填一个文件的路径
             path = "test.txt"
+
             upload_data = multipart_upload_init(
                 client, 
                 path, 
