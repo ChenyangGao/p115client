@@ -3,19 +3,19 @@
 
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
 __all__ = [
-    "make_dataiter", "oss_upload_sign", "oss_upload_request", "oss_multipart_upload_init", 
-    "oss_multipart_upload_complete", "oss_multipart_upload_cancel", "oss_multipart_upload_part", 
-    "oss_multipart_upload_part_iter", "oss_multipart_part_iter", "oss_upload", "oss_multipart_upload", 
+    "make_dataiter", "oss_upload_sign", "oss_multipart_upload_url", "oss_upload_request", 
+    "oss_multipart_upload_init", "oss_multipart_upload_complete", "oss_multipart_upload_cancel", 
+    "oss_multipart_upload_part", "oss_multipart_upload_part_iter", "oss_multipart_part_iter", 
+    "oss_upload", "oss_multipart_upload", 
 ]
 
 from base64 import b64encode
 from collections.abc import (
     AsyncGenerator, AsyncIterable, AsyncIterator, Awaitable, Buffer, Callable, 
-    Coroutine, Generator, ItemsView, Iterable, Iterator, Mapping, Sequence, Sized, 
+    Coroutine, Generator, ItemsView, Iterable, Iterator, Mapping, Sequence, 
 )
 from datetime import datetime
 from email.utils import formatdate
-from functools import partial
 from hmac import digest as hmac_digest
 from inspect import iscoroutinefunction
 from itertools import count
@@ -135,8 +135,17 @@ def oss_upload_sign(
     method: str = "PUT", 
     params: None | str | Mapping | Sequence[tuple[Any, Any]] = None, 
     headers: None | Mapping[str, str] | Iterable[tuple[str, str]] = None, 
-) -> tuple[dict, str]:
+) -> tuple[str, dict]:
     """计算认证信息，返回带认证信息的请求头
+
+    :param bucket: 存储桶
+    :param object: 对象 id
+    :param token:  令牌
+    :param method: HTTP 请求方法
+    :param params: 其它查询参数
+    :param headers: 默认的请求头
+
+    :return: 构造后的 查询参数 和 请求头 的 2 元组
     """
     # subresource_keys = (
     #     "accessPoint", "accessPointPolicy", "acl", "append", "asyncFetch", "bucketArchiveDirectRead", 
@@ -188,7 +197,42 @@ def oss_upload_sign(
 /{bucket}/{object}{params}""".encode("utf-8")
     signature = to_base64(hmac_digest(bytes(token["AccessKeySecret"], "utf-8"), signature_data, "sha1"))
     headers["authorization"] = "OSS {0}:{1}".format(token["AccessKeyId"], signature)
-    return headers, params
+    return params, headers
+
+
+def oss_multipart_upload_url(
+    bucket: str, 
+    object: str, 
+    token: dict, 
+    upload_id: int | str, 
+    part_number: int = 1, 
+    domain: str = "oss-cn-shenzhen.aliyuncs.com", 
+) -> tuple[str, dict]:
+    """构建分块上传的链接和请求头
+
+    :param bucket: 存储桶
+    :param object: 对象 id
+    :param token:  令牌
+    :param upload_id: 上传 id
+    :param domain: 所用的 阿里云网址 或 包含存储桶和对象的完整网址
+
+    :return: 构造后的 上传链接 和 请求头 的 2 元组
+    """
+    params, headers = oss_upload_sign(
+        bucket, 
+        object, 
+        token, 
+        method="PUT", 
+        params={"partNumber": part_number, "uploadId": upload_id}, 
+        headers={"x-oss-security-token": token["SecurityToken"]}, 
+    )
+    if domain.startswith(("http://", "https://")):
+        url = domain.rstrip("/")
+    elif domain:
+        url = f"http://{bucket}.{domain}/{object}"
+    else:
+        url = ""
+    return url+params, headers
 
 
 def oss_upload_request[T](
@@ -206,7 +250,7 @@ def oss_upload_request[T](
 ) -> T:
     """请求阿里云 OSS 的公用函数
     """
-    headers, params = oss_upload_sign(
+    params, headers = oss_upload_sign(
         bucket, 
         object, 
         token, 
@@ -928,23 +972,4 @@ def oss_multipart_upload(
             if close_reporthook is not None:
                 yield close_reporthook()
     return run_gen_step(gen_step, may_call=False, async_=async_)
-
-
-# class MultipartUploader:
-#     def __init__
-#     def __del__
-#     async def __aiter__
-#     def __iter__
-#     async def __aenter__
-#     async def __aexit__
-#     def __enter__
-#     def __exit__
-#     # 0. 应该设计 1 个类，支持同步和异步，实例化不会进行初始化（为了对异步进行适配）
-#     # 1. 可以作为上下文管理器或者迭代器使用
-#     # 2. 上下文管理器也返回迭代器（迭代器迭代时，如果未打开文件或者没有上传信息，则会初始化以获取）
-#     # 3. 中途可以暂停或取消
-#     # 4. seekable: path, url (支持 range request), file reader (seekable)
-#     # 5. 支持进度条
-#     # 6. 设计一个工具函数，放到 p115client.tool.upload 模块中
-#     ...
 

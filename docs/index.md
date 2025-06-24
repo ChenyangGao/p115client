@@ -22,6 +22,7 @@ reference/type
 :hidden:
 
 reference/tool/attr
+reference/tool/auth
 reference/tool/download
 reference/tool/edit
 reference/tool/export_dir

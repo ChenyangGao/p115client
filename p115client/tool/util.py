@@ -4,7 +4,7 @@
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
 __all__ = [
     "get_status_code", "is_timeouterror", "posix_escape_name", "reduce_image_url_layers", 
-    "share_extract_payload", "unescape_115_charref", 
+    "share_extract_payload", "unescape_115_charref", "determine_part_size", 
 ]
 __doc__ = "这个模块提供了一些工具函数"
 
@@ -104,4 +104,26 @@ def unescape_115_charref(s: str, /) -> str:
             unescape_115_charref("[\x02128074]0号：优质资源") == "👊0号：优质资源"
     """
     return CRE_115_CHARREF_sub(lambda a: chr(int(a[1])), s)
+
+
+def determine_part_size(
+    size: int, 
+    min_part_size: int = 1024 * 1024 * 10, 
+    max_part_count: int = 10 ** 4, 
+) -> int:
+    """确定分片上传（multipart upload）时的分片大小
+
+    :param size: 数据大小
+    :param min_part_size:  用户期望的分片大小
+    :param max_part_count: 最大的分片个数
+
+    :return: 分片大小
+    """
+    if size <= min_part_size:
+        return size
+    n = -(-size // max_part_count)
+    part_size = min_part_size
+    while part_size < n:
+        part_size <<= 1
+    return part_size
 

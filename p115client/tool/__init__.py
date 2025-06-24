@@ -4,6 +4,7 @@
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
 
 from .attr import *
+from .auth import *
 from .download import *
 from .edit import *
 from .export_dir import *

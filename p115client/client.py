@@ -220,12 +220,11 @@ def complete_lixian_api(
     return complete_api(path, base, base_url=base_url)
 
 
-def try_parse_int(s: int | str, /):
-    if not isinstance(s, str):
-        return s
-    if s == "0":
-        return 0
-    if s.startswith("0") or s.strip(digits):
+def try_parse_int(
+    s, /, 
+    _match=re_compile("-?[1-9][0-9]*").fullmatch, 
+):
+    if not isinstance(s, str) or not s or not _match(s):
         return s
     return int(s)
 
@@ -1671,7 +1670,7 @@ class ClientRequestMixin:
 
         GET https://qrcodeapi.115.com/api/1.0/web/1.0/qrcode
 
-        :params uid: 二维码的 uid
+        :param uid: 二维码的 uid
 
         :return: 图片的二进制数据（PNG 图片）
         """
@@ -3275,7 +3274,6 @@ class P115OpenClient(ClientRequestMixin):
         api = complete_proapi("/open/ufile/downurl", base_url)
         if isinstance(payload, str):
             payload = {"pick_code": payload}
-        request_headers = request_kwargs.get("headers")
         headers = request_kwargs.get("headers")
         if headers:
             if isinstance(headers, Mapping):
@@ -3463,7 +3461,7 @@ class P115OpenClient(ClientRequestMixin):
             - fields: str = <default>
             - for: str = <default> 💡 文件格式，例如 "doc"
             - format: str = "json" 💡 返回格式，默认即可
-            - hide_data: str = <default>
+            - hide_data: str = <default> 💡 是否返回文件数据
             - is_q: 0 | 1 = <default>
             - is_share: 0 | 1 = <default>
             - min_size: int = 0 💡 最小的文件大小
@@ -3579,7 +3577,7 @@ class P115OpenClient(ClientRequestMixin):
             payload = {"file_id": payload}
         elif isinstance(payload, str):
             if payload.startswith("0") or payload.strip(digits):
-                if not payload.startswith(("/", "<")):
+                if not payload.startswith(("/", ">")):
                     payload = "/" + payload
                 payload = {"path": payload}
             else:
@@ -3772,8 +3770,8 @@ class P115OpenClient(ClientRequestMixin):
             - search_value: str = "." 💡 搜索文本，可以是 sha1
             - show_dir: 0 | 1 = 1 💡 是否显示目录
             - source: str = <default>
-            - star: 0 | 1 = <default>
-            - suffix: str = <default>
+            - star: 0 | 1 = <default> 💡 是否星标文件
+            - suffix: str = <default> 💡 后缀名（优先级高于 `type`）
             - type: int = <default> 💡 文件类型
 
               - 0: 全部（仅当前目录）
@@ -6072,7 +6070,8 @@ class P115Client(P115OpenClient):
             check_response(resp)
             tip_txt = resp["data"]["tip_txt"]
             return {
-                "name": tip_txt[:tip_txt.rfind("已经过")], 
+                "app_id": app_id, 
+                "name": tip_txt[:-10].removeprefix("\ufeff"), 
                 "icon": resp["data"]["icon"], 
             }
         return run_gen_step(gen_step, may_call=False, async_=async_)
@@ -6172,6 +6171,8 @@ class P115Client(P115OpenClient):
             一个设备被新登录者下线，意味着这个 cookies 失效了，不能执行任何需要权限的操作
 
             但一个设备的新登录者，并不总是意味着把较早的登录者下线，一般需要触发某个检查机制后，才会把同一设备下除最近一次登录外的所有 cookies 失效
+
+            所以你可以用一个设备的 cookies 专门用于扫码登录，获取另一个设备的 cookies 执行网盘操作，第 2 个 cookies 失效了，则用第 1 个 cookies 扫码，如此可避免单个 cookies 失效后，不能自动获取新的
 
         :param app: 要登录的 app，如果为 None，则用当前登录设备，如果无当前登录设备，则报错
         :param replace: 替换某个 client 对象的 cookie
@@ -6860,6 +6861,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False] = False, 
@@ -6871,6 +6873,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[True], 
@@ -6881,6 +6884,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False, True] = False, 
@@ -6895,7 +6899,7 @@ class P115Client(P115OpenClient):
             - aid: int | str 💡 助愿的 id
             - to_cid: int = <default> 💡 助愿中的分享链接转存到你的网盘中目录的 id
         """
-        api = complete_api("/api/1.0/web/1.0/act2024xys/adopt", "act", base_url=base_url)
+        api = complete_api(f"/api/1.0/{app}/1.0/act2024xys/adopt", "act", base_url=base_url)
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -6903,6 +6907,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False] = False, 
@@ -6914,6 +6919,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[True], 
@@ -6924,6 +6930,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False, True] = False, 
@@ -6939,7 +6946,7 @@ class P115Client(P115OpenClient):
             - images: int | str = <default> 💡 图片文件在你的网盘的 id，多个用逗号 "," 隔开
             - file_ids: int | str = <default> 💡 文件在你的网盘的 id，多个用逗号 "," 隔开
         """
-        api = complete_api("/api/1.0/web/1.0/act2024xys/aid_desire", "act", base_url=base_url)
+        api = complete_api(f"/api/1.0/{app}/1.0/act2024xys/aid_desire", "act", base_url=base_url)
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -6947,6 +6954,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False] = False, 
@@ -6958,6 +6966,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[True], 
@@ -6968,6 +6977,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False, True] = False, 
@@ -6980,7 +6990,7 @@ class P115Client(P115OpenClient):
         :payload:
             - ids: int | str 💡 助愿的 id，多个用逗号 "," 隔开
         """
-        api = complete_api("/api/1.0/web/1.0/act2024xys/del_aid_desire", "act", base_url=base_url)
+        api = complete_api(f"/api/1.0/{app}/1.0/act2024xys/del_aid_desire", "act", base_url=base_url)
         if isinstance(payload, (int, str)):
             payload = {"ids": payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
@@ -6990,6 +7000,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False] = False, 
@@ -7001,6 +7012,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[True], 
@@ -7011,6 +7023,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False, True] = False, 
@@ -7027,7 +7040,7 @@ class P115Client(P115OpenClient):
             - limit: int = 10 💡 分页大小
             - sort: int | str = <default> 💡 排序
         """
-        api = complete_api("/api/1.0/web/1.0/act2024xys/desire_aid_list", "act", base_url=base_url)
+        api = complete_api(f"/api/1.0/{app}/1.0/act2024xys/desire_aid_list", "act", base_url=base_url)
         if isinstance(payload, str):
             payload = {"start": 0, "page": 1, "limit": 10, "id": payload}
         else:
@@ -7038,6 +7051,7 @@ class P115Client(P115OpenClient):
     def act_xys_get_act_info(
         self, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False] = False, 
@@ -7048,6 +7062,7 @@ class P115Client(P115OpenClient):
     def act_xys_get_act_info(
         self, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[True], 
@@ -7057,6 +7072,7 @@ class P115Client(P115OpenClient):
     def act_xys_get_act_info(
         self, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False, True] = False, 
@@ -7066,7 +7082,7 @@ class P115Client(P115OpenClient):
 
         GET https://act.115.com/api/1.0/web/1.0/act2024xys/get_act_info
         """
-        api = complete_api("/api/1.0/web/1.0/act2024xys/get_act_info", "act", base_url=base_url)
+        api = complete_api(f"/api/1.0/{app}/1.0/act2024xys/get_act_info", "act", base_url=base_url)
         return self.request(url=api, async_=async_, **request_kwargs)
 
     @overload
@@ -7074,6 +7090,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False] = False, 
@@ -7085,6 +7102,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[True], 
@@ -7095,6 +7113,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False, True] = False, 
@@ -7107,7 +7126,7 @@ class P115Client(P115OpenClient):
         :payload:
             - id: str 💡 许愿的 id
         """
-        api = complete_api("/api/1.0/web/1.0/act2024xys/get_desire_info", "act", base_url=base_url)
+        api = complete_api(f"/api/1.0/{app}/1.0/act2024xys/get_desire_info", "act", base_url=base_url)
         if isinstance(payload, str):
             payload = {"id": payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
@@ -7116,6 +7135,7 @@ class P115Client(P115OpenClient):
     def act_xys_home_list(
         self, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False] = False, 
@@ -7126,6 +7146,7 @@ class P115Client(P115OpenClient):
     def act_xys_home_list(
         self, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[True], 
@@ -7135,6 +7156,7 @@ class P115Client(P115OpenClient):
     def act_xys_home_list(
         self, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False, True] = False, 
@@ -7144,7 +7166,7 @@ class P115Client(P115OpenClient):
 
         GET https://act.115.com/api/1.0/web/1.0/act2024xys/home_list
         """
-        api = complete_api("/api/1.0/web/1.0/act2024xys/home_list", "act", base_url=base_url)
+        api = complete_api(f"/api/1.0/{app}/1.0/act2024xys/home_list", "act", base_url=base_url)
         return self.request(url=api, async_=async_, **request_kwargs)
 
     @overload
@@ -7152,6 +7174,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict = 0, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False] = False, 
@@ -7163,6 +7186,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict = 0, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[True], 
@@ -7173,6 +7197,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict = 0, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False, True] = False, 
@@ -7193,7 +7218,7 @@ class P115Client(P115OpenClient):
             - page: int = 1   💡 第几页
             - limit: int = 10 💡 分页大小
         """
-        api = complete_api("/api/1.0/web/1.0/act2024xys/my_aid_desire", "act", base_url=base_url)
+        api = complete_api(f"/api/1.0/{app}/1.0/act2024xys/my_aid_desire", "act", base_url=base_url)
         if isinstance(payload, (int, str)):
             payload = {"start": 0, "page": 1, "limit": 10, "type": payload}
         else:
@@ -7205,6 +7230,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict = 0, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False] = False, 
@@ -7216,6 +7242,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict = 0, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[True], 
@@ -7226,6 +7253,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict = 0, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False, True] = False, 
@@ -7246,7 +7274,7 @@ class P115Client(P115OpenClient):
             - page: int = 1   💡 第几页
             - limit: int = 10 💡 分页大小
         """
-        api = complete_api("/api/1.0/web/1.0/act2024xys/my_desire", "act", base_url=base_url)
+        api = complete_api(f"/api/1.0/{app}/1.0/act2024xys/my_desire", "act", base_url=base_url)
         if isinstance(payload, (int, str)):
             payload = {"start": 0, "page": 1, "limit": 10, "type": payload}
         else:
@@ -7258,6 +7286,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False] = False, 
@@ -7269,6 +7298,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[True], 
@@ -7279,6 +7309,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False, True] = False, 
@@ -7293,7 +7324,7 @@ class P115Client(P115OpenClient):
             - rewardSpace: int = 5 💡 奖励容量，单位是 GB
             - images: int | str = <default> 💡 图片文件在你的网盘的 id，多个用逗号 "," 隔开
         """
-        api = complete_api("/api/1.0/web/1.0/act2024xys/wish", "act", base_url=base_url)
+        api = complete_api(f"/api/1.0/{app}/1.0/act2024xys/wish", "act", base_url=base_url)
         if isinstance(payload, str):
             payload = {"rewardSpace": 5, "content": payload}
         else:
@@ -7305,6 +7336,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False] = False, 
@@ -7316,6 +7348,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[True], 
@@ -7326,6 +7359,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
+        app: str = "web", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False, True] = False, 
@@ -7338,7 +7372,7 @@ class P115Client(P115OpenClient):
         :payload:
             - ids: str 💡 许愿的 id，多个用逗号 "," 隔开
         """
-        api = complete_api("/api/1.0/web/1.0/act2024xys/del_wish", "act", base_url=base_url)
+        api = complete_api(f"/api/1.0/{app}/1.0/act2024xys/del_wish", "act", base_url=base_url)
         if isinstance(payload, str):
             payload = {"ids": payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
@@ -7954,7 +7988,6 @@ class P115Client(P115OpenClient):
                 payload = {"pick_code": payload}
             else:
                 payload = {"pick_code": payload["pickcode"]}
-        request_headers = request_kwargs.get("headers")
         headers = request_kwargs.get("headers")
         if headers:
             if isinstance(headers, Mapping):
@@ -8215,7 +8248,6 @@ class P115Client(P115OpenClient):
             - full_name: str
         """
         api = complete_proapi("/2.0/ufile/extract_down_file", base_url, app)
-        request_headers = request_kwargs.get("headers")
         headers = request_kwargs.get("headers")
         if headers:
             if isinstance(headers, Mapping):
@@ -8271,7 +8303,6 @@ class P115Client(P115OpenClient):
             - full_name: str
         """
         api = complete_webapi("/files/extract_down_file", base_url=base_url)
-        request_headers = request_kwargs.get("headers")
         headers = request_kwargs.get("headers")
         if headers:
             if isinstance(headers, Mapping):
@@ -10515,7 +10546,7 @@ class P115Client(P115OpenClient):
             - fields: str = <default>
             - for: str = <default> 💡 文件格式，例如 "doc"
             - format: str = "json" 💡 返回格式，默认即可
-            - hide_data: str = <default>
+            - hide_data: str = <default> 💡 是否返回文件数据
             - is_q: 0 | 1 = <default>
             - is_share: 0 | 1 = <default>
             - min_size: int = 0 💡 最小的文件大小
@@ -10645,7 +10676,7 @@ class P115Client(P115OpenClient):
             - fields: str = <default>
             - for: str = <default> 💡 文件格式，例如 "doc"
             - format: str = "json" 💡 返回格式，默认即可
-            - hide_data: str = <default>
+            - hide_data: str = <default> 💡 是否返回文件数据
             - is_q: 0 | 1 = <default>
             - is_share: 0 | 1 = <default>
             - min_size: int = 0 💡 最小的文件大小
@@ -10774,7 +10805,7 @@ class P115Client(P115OpenClient):
             - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
             - fields: str = <default>
             - format: str = "json" 💡 返回格式，默认即可
-            - hide_data: str = <default>
+            - hide_data: str = <default> 💡 是否返回文件数据
             - is_asc: 0 | 1 = <default>
             - is_q: 0 | 1 = <default>
             - is_share: 0 | 1 = <default>
@@ -11729,7 +11760,7 @@ class P115Client(P115OpenClient):
         :payload:
             - offset: int = 0
             - limit: int = 1150
-            - played_end: 0 | 1 = <default>
+            - played_end: 0 | 1 = <default> 💡 是否已经播放完
             - type: int = <default> 💡 类型（？？表示还未搞清楚），多个用逗号 "," 隔开
 
               - 全部: 0
@@ -14604,8 +14635,8 @@ class P115Client(P115OpenClient):
             - search_value: str = "." 💡 搜索文本，可以是 sha1
             - show_dir: 0 | 1 = 1 💡 是否显示目录
             - source: str = <default>
-            - star: 0 | 1 = <default>
-            - suffix: str = <default>
+            - star: 0 | 1 = <default> 💡 是否星标文件
+            - suffix: str = <default> 💡 后缀名（优先级高于 `type`）
             - type: int = <default> 💡 文件类型
 
               - 0: 全部（仅当前目录）
@@ -14701,8 +14732,8 @@ class P115Client(P115OpenClient):
             - search_value: str = "." 💡 搜索文本，可以是 sha1
             - show_dir: 0 | 1 = 1 💡 是否显示目录
             - source: str = <default>
-            - star: 0 | 1 = <default>
-            - suffix: str = <default>
+            - star: 0 | 1 = <default> 💡 是否星标文件
+            - suffix: str = <default> 💡 后缀名（优先级高于 `type`）
             - type: int = <default> 💡 文件类型
 
               - 0: 全部（仅当前目录）
@@ -15467,7 +15498,7 @@ class P115Client(P115OpenClient):
             这个接口只支持 web 的 cookies，其它设备会返回空数据，而且获取得到的 m3u8 里的链接，也是 m3u8，会绑定前一次请求时的 user-agent
 
         :param pickcode: 视频文件的 pickcode
-        :params definition: 画质，默认列出所有画质。但可进行筛选，常用的为：
+        :param definition: 画质，默认列出所有画质。但可进行筛选，常用的为：
             - 0: 各种分辨率（默认）
             - 1: SD 标清（约为 480p）
             - 3: HD 超清（约为 720p）
@@ -21144,6 +21175,9 @@ class P115Client(P115OpenClient):
             )
         return run_gen_step(gen_step, may_call=False, async_=async_)
 
+    # TODO: 分块上传时，允许一定次数的重试
+    # TODO: 不妨单独为分块上传做一个封装
+    # TODO: 减少参数，简化使用方法
     @overload # type: ignore
     def upload_file(
         self, 
