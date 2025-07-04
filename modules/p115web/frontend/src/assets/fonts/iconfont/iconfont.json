@@ -1,0 +1,44 @@
+{
+  "id": "4481671",
+  "name": "115FileLister",
+  "font_family": "iconfont",
+  "css_prefix_text": "icon-",
+  "description": "",
+  "glyphs": [
+    {
+      "icon_id": "39690943",
+      "name": "podcast",
+      "font_class": "podcast",
+      "unicode": "e61d",
+      "unicode_decimal": 58909
+    },
+    {
+      "icon_id": "39690905",
+      "name": "logs",
+      "font_class": "logs",
+      "unicode": "e619",
+      "unicode_decimal": 58905
+    },
+    {
+      "icon_id": "39690906",
+      "name": "arrange",
+      "font_class": "arrange",
+      "unicode": "e61a",
+      "unicode_decimal": 58906
+    },
+    {
+      "icon_id": "39690907",
+      "name": "subscribe",
+      "font_class": "subscribe",
+      "unicode": "e61b",
+      "unicode_decimal": 58907
+    },
+    {
+      "icon_id": "39690909",
+      "name": "settings",
+      "font_class": "settings",
+      "unicode": "e61c",
+      "unicode_decimal": 58908
+    }
+  ]
+}
