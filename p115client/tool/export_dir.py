@@ -363,8 +363,8 @@ def export_dir(
     """导出目录树
 
     :param client: 115 客户端或 cookies
-    :param export_file_ids: 待导出的目录 id、pickcode 或 路径（如果有多个，需传入可迭代对象）
-    :param target_pid: 导出到的目标目录 id、pickcode 或 路径
+    :param export_file_ids: 待导出的目录 id 或 pickcode
+    :param target_pid: 导出到的目标目录 id 或 pickcode
     :param layer_limit: 层级深度，小于等于 0 时不限
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
@@ -373,45 +373,16 @@ def export_dir(
     """
     if not isinstance(client, P115Client):
         client = P115Client(client, check_for_relogin=True)
-    from .iterdir import get_id_to_path
-    @as_gen_step
-    def get_id(s: str, /):
-        if len(s) >= 17 and is_valid_pickcode(s):
-            try:
-                return to_id(s)
-            except Exception:
-                pass
-        return (yield get_id_to_path(
-            client, 
-            s, 
-            ensure_file=False, 
-            async_=async_, 
-            **request_kwargs, 
-        ))
     def gen_step():
         nonlocal export_file_ids, target_pid
         if isinstance(export_file_ids, int):
             pass
         elif isinstance(export_file_ids, str):
-            export_file_ids = yield get_id(export_file_ids)
+            if "," not in export_file_ids:
+                export_file_ids = to_id(export_file_ids)
         else:
-            cids: set[int] = set()
-            add_cid = cids.add
-            for cid in export_file_ids:
-                if isinstance(cid, str):
-                    cid = yield get_id(cid)
-                add_cid(cid)
-            if not cids:
-                raise ValueError("`export_file_ids` is empty")
-            export_file_ids = ",".join(map(str, cids))
-        if isinstance(target_pid, str):
-            target_pid = yield get_id_to_path(
-                client, 
-                target_pid, 
-                ensure_file=False, 
-                async_=async_, 
-                **request_kwargs, 
-            )
+            export_file_ids = ",".join(str(to_id(eid)) for eid in export_file_ids)
+        target_pid = to_id(target_pid)
         payload = {"file_ids": export_file_ids, "target": f"U_0_{target_pid}"}
         if layer_limit > 0:
             payload["layer_limit"] = layer_limit
@@ -557,7 +528,7 @@ def export_dir_parse_iter(
     :param client: 115 客户端或 cookies
     :param export_file_ids: 待导出的目录 id、pickcode 或 路径（如果有多个，需传入可迭代对象）
     :param export_id: 优先级高于 `export_file_ids`，之前提交的 `export_dir` 任务的 id，如果是 str，则视为导出的目录树文件的提取码（因此无需导出）
-    :param target_pid: 导出到的目标目录 id 或 路径
+    :param target_pid: 导出到的目标目录 id 或 pickcode
     :param layer_limit: 层级深度，小于等于 0 时不限
     :param parse_iter: 解析打开的二进制文件，返回可迭代对象
     :param delete: 最终删除目录树文件（如果 export_id 为 str（即提取码），则这个值不生效，必不删除）

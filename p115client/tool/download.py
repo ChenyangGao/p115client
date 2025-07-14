@@ -872,6 +872,7 @@ def iter_subtitle_batches(
 
 
 # TODO: 要支持 open 接口
+# TODO: 后续还可用 iter_download_nodes 接口，来更快地拉取数据
 @overload
 def make_strm(
     client: str | P115Client, 
@@ -1220,7 +1221,6 @@ def iter_download_nodes(
         if id_to_dirnode is None:
             id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
     file_skim = client.fs_file_skim
-    @as_gen_step
     def normalize_attrs(attrs: list[dict], /):
         if files:
             for i, info in enumerate(attrs):
@@ -1231,20 +1231,6 @@ def iter_download_nodes(
                     "parent_id": int(info["pid"]), 
                     "size": info["fs"], 
                 }
-            if ensure_name:
-                resp = yield file_skim(
-                    (a["id"] for a in attrs), 
-                    method="POST", 
-                    async_=async_, 
-                    **request_kwargs, 
-                )
-                if resp.get("error") != "文件不存在":
-                    check_response(resp)
-                    nodes = {int(a["file_id"]): a for a in resp["data"]}
-                    for attr in attrs:
-                        if node := nodes.get(attr["id"]):
-                            attr["sha1"] = node["sha1"]
-                            attr["name"] = unescape_115_charref(node["file_name"])
         else:
             for i, info in enumerate(attrs):
                 attrs[i] = {
@@ -1257,6 +1243,24 @@ def iter_download_nodes(
                 for attr in attrs:
                     id_to_dirnode[attr["id"]] = DirNode(attr["name"], attr["parent_id"])
         return attrs
+    if files and ensure_name:
+        prepare = normalize_attrs
+        @as_gen_step
+        def normalize_attrs(attrs: list[dict], /):
+            prepare(attrs)
+            resp = yield file_skim(
+                (a["id"] for a in attrs), 
+                method="POST", 
+                async_=async_, 
+                **request_kwargs, 
+            )
+            if resp.get("error") != "文件不存在":
+                check_response(resp)
+                nodes = {int(a["file_id"]): a for a in resp["data"]}
+                for attr in attrs:
+                    if node := nodes.get(attr["id"]):
+                        attr["sha1"] = node["sha1"]
+                        attr["name"] = unescape_115_charref(node["file_name"])
     get_nodes = partial(
         method, 
         async_=async_, 

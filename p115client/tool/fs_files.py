@@ -115,20 +115,20 @@ def iter_fs_files(
         "limit": first_page_size, "show_dir": 1, **payload, 
     }
     cid = int(payload["cid"])
-    @as_gen_step
-    def get_files(payload: dict, /):
+    def gen_step():
         nonlocal count
         while True:
-            try:
-                resp = yield fs_files(payload, async_=async_)
-                check_response(resp)
-            except DataError:
-                if payload["limit"] <= 1150:
-                    raise
-                payload["limit"] -= 1_000
-                if payload["limit"] < 1150:
-                    payload["limit"] = 1150
-            else:
+            while True:
+                try:
+                    resp = yield fs_files(payload, async_=async_)
+                    check_response(resp)
+                except DataError:
+                    if payload["limit"] <= 1150:
+                        raise
+                    payload["limit"] -= 1_000
+                    if payload["limit"] < 1150:
+                        payload["limit"] = 1150
+                    continue
                 if cid and int(resp["path"][-1]["cid"]) != cid:
                     if count < 0:
                         raise NotADirectoryError(ENOTDIR, cid)
@@ -146,10 +146,7 @@ def iter_fs_files(
                     count = count_new
                 if callback is not None:
                     resp["callback"] = yield callback(resp)
-                return resp
-    def gen_step():
-        while True:
-            resp = yield get_files(payload)
+                break
             payload["limit"] = page_size
             yield Yield(resp)
             payload["offset"] += len(resp["data"])

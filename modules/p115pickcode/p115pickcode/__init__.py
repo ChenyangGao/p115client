@@ -2,7 +2,7 @@
 # encoding: utf-8
 
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
-__version__ = (0, 0, 1)
+__version__ = (0, 0, 2)
 __all__ = [
     "pickcode_to_id", "id_to_pickcode", "is_valid_pickcode", 
     "to_pickcode", "to_id", 
@@ -139,38 +139,44 @@ def is_valid_pickcode(pickcode: str, /) -> bool:
         return FILE_GROUP_TO_KEY.get(pickcode[0]) == pickcode[-4:]
 
 
-def to_pickcode(pickcode: int | str = 0, /) -> str:
+def to_pickcode(id: int | str = 0, /) -> str:
     """把可能是 id 或 pickcode 的一律转换成 pickcode
 
     .. note::
         规定：空提取码 "" 对应的 id 是 0
 
-    :param pickcode: 可能是 id 或 pickcode
+    :param id: 可能是 id 或 pickcode
 
     :return: pickcode
     """
-    if isinstance(pickcode, int):
-        return id_to_pickcode(pickcode)
-    return pickcode
+    if not id:
+        return ""
+    elif isinstance(id, str):
+        if id.startswith(("a", "b", "c", "d", "e", "f")):
+            return id
+        id = int(id)
+    return id_to_pickcode(id)
 
 
-def to_id(id: int | str = "", /) -> int:
+def to_id(pickcode: int | str = "", /) -> int:
     """把可能是 id 或 pickcode 的一律转换成 id
 
     .. note::
         规定：根目录 id 为 0 对应的提取码是 ""
 
-    :param id: 可能是 id 或 pickcode
+    :param pickcode: 可能是 pickcode 或 id
 
     :return: id
     """
-    if isinstance(id, int):
+    if isinstance(pickcode, int):
+        id = pickcode
         if id < 0:
             raise ValueError(f"negtive id is not allowed, got {id!r}")
         return id
-    if not id:
+    if not pickcode:
         return 0
-    elif id.startswith(("a", "b", "c", "d", "e", "f")):
-        return pickcode_to_id(id)
-    return int(id)
+    elif pickcode.startswith(("a", "b", "c", "d", "e", "f")):
+        return pickcode_to_id(pickcode)
+    else:
+        return int(pickcode)
 

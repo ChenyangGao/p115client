@@ -19,6 +19,7 @@ __all__ = [
 ]
 __doc__ = "这个模块提供了一些和目录信息罗列有关的函数"
 
+# TODO: 路径表示法，应该支持 / 和 > 开头，而不仅仅是 / 开头
 # TODO: 对于路径，增加 top_id 和 relpath 字段，表示搜素目录的 id 和相对于搜索路径的相对路径
 # TODO: get_id* 这类方法，应该放在 attr.py，用来获取某个 id 对应的值（根本还是 get_attr）
 # TODO: 创造函数 get_id, get_parent_id, get_ancestors, get_sha1, get_pickcode, get_path 等，支持多种类型的参数，目前已有的名字太长，需要改造，甚至转为私有，另外这些函数或许可以放到另一个包中，attr.py
@@ -46,9 +47,9 @@ from warnings import warn
 from asynctools import to_list
 from concurrenttools import run_as_thread, taskgroup_map, threadpool_map, conmap
 from iterutils import (
-    as_gen_step, bfs_gen, chunked, chain, chain_from_iterable, collect, run_gen_step, 
-    run_gen_step_iter, through, with_iter_next, map as do_map, filter as do_filter, 
-    Yield, YieldFrom, 
+    as_gen_step, bfs_gen, chunked, chain, chain_from_iterable, collect, foreach, 
+    run_gen_step, run_gen_step_iter, through, with_iter_next, map as do_map, 
+    filter as do_filter, Yield, YieldFrom, 
 )
 from iter_collect import iter_keyed_dups, SupportsLT
 from orjson import loads
@@ -135,6 +136,46 @@ def _overview_attr(info: Mapping, /) -> OverviewAttr:
     return OverviewAttr(is_dir, id, pid, name, ctime, mtime)
 
 
+def _update_resp_2_id_to_dirnode(
+    resp: dict, 
+    id_to_dirnode: EllipsisType | MutableMapping[int, tuple[str, int] | DirNode], 
+    /, 
+    error: None | OSError = FileNotFoundError(ENOENT, "not found"), 
+) -> dict:
+    if "path" in resp:
+        if id_to_dirnode is not ...:
+            for info in resp["path"][1:]:
+                id_to_dirnode[int(info["cid"])] = DirNode(info["name"], int(info["pid"]))
+    else:
+        if not resp:
+            if error is None:
+                return resp
+            raise error
+        if "paths" not in resp:
+            check_response(resp)
+            resp = resp["data"]
+            if not resp:
+                if error is None:
+                    return resp
+                raise error
+        if id_to_dirnode is not ...:
+            paths = resp["paths"]
+            info = paths[0]
+            pid = int(info["file_id"])
+            for info in paths[1:]:
+                fid = int(info["file_id"])
+                id_to_dirnode[fid] = DirNode(info["file_name"], pid)
+                pid = fid
+            if not resp["sha1"]:
+                if "file_id" in resp:
+                    fid = int(resp["file_id"])
+                else:
+                    fid = to_id(resp["pick_code"])
+                id_to_dirnode[fid] = DirNode(resp["file_name"], pid)
+    return resp
+
+
+# TODO: 支持 open
 @overload
 def get_path_to_cid(
     client: str | P115Client, 
@@ -368,25 +409,15 @@ def get_file_count(
             return int(resp["count"])
         else:
             resp = yield get_resp_of_category_get(cid)
-            if not resp:
-                raise FileNotFoundError(ENOENT, cid)
-            if "paths" not in resp:
-                check_response(resp)
-                resp = resp["data"]
-                if not resp:
-                    raise FileNotFoundError(ENOENT, cid)
-            if int(resp["file_category"]):
+            resp = _update_resp_2_id_to_dirnode(resp, id_to_dirnode, FileNotFoundError(ENOENT, cid))
+            if resp["sha1"]:
                 resp["cid"] = cid
                 raise NotADirectoryError(ENOTDIR, resp)
-            if id_to_dirnode is not ...:
-                pid = int(resp["paths"][0]["file_id"])
-                for info in resp["paths"][1:]:
-                    node = DirNode(info["file_name"], pid)
-                    id_to_dirnode[(pid := int(info["file_id"]))] = node
             return int(resp["count"]) - int(resp.get("folder_count") or 0)
     return run_gen_step(gen_step, async_)
 
 
+# TODO: 支持 open
 @overload
 def get_ancestors(
     client: str | P115Client, 
@@ -544,22 +575,13 @@ def get_ancestors(
                 return ancestors
             else:
                 resp = yield get_resp_of_category_get(fid)
-                if not resp:
-                    raise FileNotFoundError(ENOENT, attr)
-                if "paths" not in resp:
-                    check_response(resp)
-                    resp = resp["data"]
-                    if not resp:
-                        raise FileNotFoundError(ENOENT, attr)
+                resp = _update_resp_2_id_to_dirnode(resp, id_to_dirnode)
                 for info in resp["paths"]:
                     add_ancestor({
                         "parent_id": pid, 
                         "id": (pid := int(info["file_id"])), 
                         "name": info["file_name"], 
                     })
-                if id_to_dirnode is not ...:
-                    for ans in ancestors[1:]:
-                        id_to_dirnode[ans["id"]] = DirNode(ans["name"], ans["parent_id"])
                 ans = {"id": fid, "parent_id": pid, "name": resp["file_name"]}
                 add_ancestor(ans)
                 if not resp.get("sha1") and id_to_dirnode is not ...:
@@ -583,22 +605,13 @@ def get_ancestors(
                     id_to_dirnode[ans["id"]] = DirNode(ans["name"], ans["parent_id"])
         else:
             resp = yield get_resp_of_category_get(fid)
-            if not resp:
-                raise FileNotFoundError(ENOENT, fid)
-            if "paths" not in resp:
-                check_response(resp)
-                resp = resp["data"]
-                if not resp:
-                    raise FileNotFoundError(ENOENT, fid)
+            resp = _update_resp_2_id_to_dirnode(resp, id_to_dirnode)
             for info in resp["paths"]:
                 add_ancestor({
                     "parent_id": pid, 
                     "id": (pid := int(info["file_id"])), 
                     "name": info["file_name"], 
                 })
-            if id_to_dirnode is not ...:
-                for ans in ancestors[1:]:
-                    id_to_dirnode[ans["id"]] = DirNode(ans["name"], ans["parent_id"])
             ans = {"id": fid, "parent_id": pid, "name": resp["file_name"]}
             add_ancestor(ans)
             if not resp.get("sha1") and id_to_dirnode is not ...:
@@ -607,6 +620,7 @@ def get_ancestors(
     return run_gen_step(gen_step, async_)
 
 
+# TODO: 支持 open
 @overload
 def get_ancestors_to_cid(
     client: str | P115Client, 
@@ -714,7 +728,7 @@ def get_ancestors_to_cid(
 # TODO: 立即支持几种形式，分隔符可以是 / 和 > 或 " > "
 @overload
 def get_id_to_path(
-    client: str | P115Client, 
+    client: str | P115Client | P115OpenClient, 
     path: str | Sequence[str], 
     parent_id: int = 0, 
     ensure_file: None | bool = None, 
@@ -730,7 +744,7 @@ def get_id_to_path(
     ...
 @overload
 def get_id_to_path(
-    client: str | P115Client, 
+    client: str | P115Client | P115OpenClient, 
     path: str | Sequence[str], 
     parent_id: int = 0, 
     ensure_file: None | bool = None, 
@@ -745,7 +759,7 @@ def get_id_to_path(
 ) -> Coroutine[Any, Any, int]:
     ...
 def get_id_to_path(
-    client: str | P115Client, 
+    client: str | P115Client | P115OpenClient, 
     path: str | Sequence[str], 
     parent_id: int = 0, 
     ensure_file: None | bool = None, 
@@ -785,7 +799,7 @@ def get_id_to_path(
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
     error = FileNotFoundError(ENOENT, f"no such path: {path!r}")
     def gen_step():
-        nonlocal ensure_file, parent_id
+        nonlocal ensure_file, parent_id, path
         if isinstance(path, str):
             if path.startswith("/"):
                 parent_id = 0
@@ -816,6 +830,11 @@ def get_id_to_path(
             if ensure_file:
                 raise error
             return parent_id
+        if not isinstance(client, P115Client) or app == "open":
+            path = ">" + ">".join(patht)
+            resp = yield client.fs_info_open(path, async_=async_, **request_kwargs)
+            data = _update_resp_2_id_to_dirnode(resp, id_to_dirnode)
+            return P115ID(data["file_id"], data, about="path", path=path)
         i = 0
         start_parent_id = parent_id
         if not refresh and id_to_dirnode and id_to_dirnode is not ...:
@@ -906,12 +925,11 @@ def get_id_to_path(
     return run_gen_step(gen_step, async_)
 
 
-# TODO: 支持 open 接口
 @overload
 def get_id_to_sha1(
-    client: str | P115Client, 
+    client: str | P115Client | P115OpenClient, 
     sha1: str, 
-    app: str = "web", 
+    app: str = "", 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -919,18 +937,18 @@ def get_id_to_sha1(
     ...
 @overload
 def get_id_to_sha1(
-    client: str | P115Client, 
+    client: str | P115Client | P115OpenClient, 
     sha1: str, 
-    app: str = "web", 
+    app: str = "", 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
 ) -> Coroutine[Any, Any, P115ID]:
     ...
 def get_id_to_sha1(
-    client: str | P115Client, 
+    client: str | P115Client | P115OpenClient, 
     sha1: str, 
-    app: str = "web", 
+    app: str = "", 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -951,12 +969,18 @@ def get_id_to_sha1(
         client = P115Client(client, check_for_relogin=True)
     def gen_step():
         file_sha1 = sha1.upper()
-        if app in ("", "web", "desktop", "harmony"):
+        if app == "" and isinstance(client, P115Client):
             resp = yield client.fs_shasearch(sha1, async_=async_, **request_kwargs)
             check_response(resp)
             data = resp["data"]
         else:
-            resp = yield client.fs_search_app(sha1, async_=async_, **request_kwargs)
+            if not isinstance(client, P115Client) or app == "open":
+                search: Callable = client.fs_search_open
+            elif app in ("", "web", "desktop", "harmony"):
+                search = client.fs_search
+            else:
+                search = partial(client.fs_search_app, app=app)
+            resp = yield search(sha1, async_=async_, **request_kwargs)
             check_response(resp)
             for data in resp["data"]:
                 if data["sha1"] == file_sha1:
@@ -965,7 +989,6 @@ def get_id_to_sha1(
                 raise FileNotFoundError(ENOENT, file_sha1)
         return P115ID(data["file_id"], data, about="sha1", file_sha1=file_sha1)
     return run_gen_step(gen_step, async_)
-
 
 
 @overload
@@ -1277,37 +1300,29 @@ def ensure_attr_path[D: dict](
                 ancestors = get_ancestors(pid, id_to_dirnode[pid])
             ancestors.append(me)
             return ancestors
-    @as_gen_step
-    def ensure_path(attr: dict, /):
-        id  = attr["id"]
-        pid = attr["parent_id"]
-        while pid and pid in id_to_dirnode:
-            pid = id_to_dirnode[pid][1]
-        if pid and pid not in dangling_id_to_name:
-            cur_id = pid
-            resp = yield get_info(pid, async_=async_, **request_kwargs)
-            if app == "open":
-                check_response(resp)
-                resp = resp["data"] 
-            if not resp:
-                dangling_id_to_name[pid] = ""
-                return attr
-            paths = resp["paths"]
-            info: dict = paths[0]
-            if pid := int(info["file_id"]):
-                dangling_id_to_name[pid] = info["file_name"]
-            for info in paths[1:]:
-                fid = int(info["file_id"])
-                id_to_dirnode[fid] = DirNode(info["file_name"], pid)
-                pid = fid
-            id_to_dirnode[pid] = DirNode(resp["file_name"], pid)
-            if not resp["sha1"]:
-                id_to_dirnode[cur_id] = DirNode(resp["file_name"], pid)
-        attr["path"] = get_path(attr)
-        if with_ancestors:
-            attr["ancestors"] = get_ancestors(id, attr)
-        return attr
-    return do_map(ensure_path, attrs)
+    def gen_step():
+        with with_iter_next(attrs) as get_next:
+            while True:
+                attr = yield get_next()
+                id   = attr["id"]
+                pid  = attr["parent_id"]
+                while pid and pid in id_to_dirnode:
+                    pid = id_to_dirnode[pid][1]
+                if pid and pid not in dangling_id_to_name:
+                    resp = yield get_info(pid, async_=async_, **request_kwargs)
+                    resp = _update_resp_2_id_to_dirnode(resp, id_to_dirnode, None)
+                    if not resp:
+                        dangling_id_to_name[pid] = ""
+                        yield Yield(attr)
+                        return
+                    info = resp["paths"][0]
+                    if pid := int(info["file_id"]):
+                        dangling_id_to_name[pid] = info["file_name"]
+                attr["path"] = get_path(attr)
+                if with_ancestors:
+                    attr["ancestors"] = get_ancestors(id, attr)
+                yield Yield(attr)
+    return run_gen_step_iter(gen_step, async_)
 
 
 @overload
@@ -1423,7 +1438,6 @@ def ensure_attr_path_using_star_event[D: dict](
                 ancestors = get_ancestors(pid, id_to_dirnode[pid])
             ancestors.append(me)
             return ancestors
-
     def gen_step():
         cache: Sequence[dict]
         if id_to_dirnode:
@@ -1586,26 +1600,25 @@ def _iter_fs_files(
         with_dirname = False
     if with_dirname:
         pid_to_name = {0: ""}
-        def get_pid(info: dict, /):
+        def get_pid(info: dict, /) -> int:
             for key in ("parent_id", "pid", "cid"):
                 if key in info:
                     return int(info[key])
             raise KeyError("parent_id", "pid", "cid")
-        @as_gen_step
+        setitem = pid_to_name.__setitem__
         def callback(resp: dict, /):
-            pids = (
-                pid for info in resp["data"] 
-                if (pid := get_pid(info)) and pid not in pid_to_name
+            return foreach(
+                lambda info: setitem(info["file_id"], info["file_name"]), 
+                iter_nodes_skim(
+                    cast(P115Client, client), 
+                    (
+                        pid for info in resp["data"] 
+                        if (pid := get_pid(info)) and pid not in pid_to_name
+                    ), 
+                    async_=async_, 
+                    **request_kwargs, 
+                )
             )
-            with with_iter_next(iter_nodes_skim(
-                cast(P115Client, client), 
-                pids, 
-                async_=async_, 
-                **request_kwargs, 
-            )) as get_next:
-                while True:
-                    info = yield get_next()
-                    pid_to_name[info["file_id"]] = info["file_name"]
         request_kwargs["callback"] = callback
     def gen_step():
         if cooldown <= 0 or max_workers == 1:
@@ -1937,7 +1950,7 @@ def iter_dirs(
 def iter_dirs_with_path(
     client: str | P115Client, 
     cid: int | str = 0, 
-    with_ancestors: bool = True, 
+    with_ancestors: bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "android", 
@@ -1951,7 +1964,7 @@ def iter_dirs_with_path(
 def iter_dirs_with_path(
     client: str | P115Client, 
     cid: int | str = 0, 
-    with_ancestors: bool = True, 
+    with_ancestors: bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "android", 
@@ -1964,7 +1977,7 @@ def iter_dirs_with_path(
 def iter_dirs_with_path(
     client: str | P115Client, 
     cid: int | str = 0, 
-    with_ancestors: bool = True, 
+    with_ancestors: bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "android", 
@@ -2168,7 +2181,7 @@ def iter_files_with_path(
     cur: Literal[0, 1] = 0, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
     escape: None | bool | Callable[[str], str] = True, 
-    with_ancestors: bool = True, 
+    with_ancestors: bool = False, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     path_already: bool = False, 
     raise_for_changed_count: bool = False, 
@@ -2192,7 +2205,7 @@ def iter_files_with_path(
     cur: Literal[0, 1] = 0, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
     escape: None | bool | Callable[[str], str] = True, 
-    with_ancestors: bool = True, 
+    with_ancestors: bool = False, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     path_already: bool = False, 
     raise_for_changed_count: bool = False, 
@@ -2215,7 +2228,7 @@ def iter_files_with_path(
     cur: Literal[0, 1] = 0, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
     escape: None | bool | Callable[[str], str] = True, 
-    with_ancestors: bool = True, 
+    with_ancestors: bool = False, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     path_already: bool = False, 
     raise_for_changed_count: bool = False, 
@@ -2296,6 +2309,7 @@ def iter_files_with_path(
         def set_path_already(*_):
             nonlocal _path_already
             _path_already = True
+        @as_gen_step
         def fetch_dirs(id: int | str, /):
             if id:
                 yield through(iter_download_nodes(
@@ -2318,7 +2332,7 @@ def iter_files_with_path(
                 )) as get_next:
                     while True:
                         attr = yield get_next()
-                        yield run_gen_step(fetch_dirs(attr["pickcode"]), async_)
+                        yield fetch_dirs(attr["pickcode"])
     if with_ancestors:
         id_to_ancestors: dict[int, list[dict]] = {}
         def get_ancestors(id: int, attr: dict | tuple[str, int] | DirNode, /) -> list[dict]:
@@ -2366,9 +2380,9 @@ def iter_files_with_path(
         add_to_cache = cache.append
         if not path_already:
             if async_:
-                task: Any = create_task(run_gen_step(fetch_dirs(cid), True))
+                task: Any = create_task(fetch_dirs(cid))
             else:
-                task = run_as_thread(run_gen_step, fetch_dirs(cid))
+                task = run_as_thread(fetch_dirs, cid)
             task.add_done_callback(set_path_already)
         with with_iter_next(iter_files(
             client, 
@@ -2417,7 +2431,7 @@ def iter_files_with_path(
 def iter_files_with_path_skim(
     client: str | P115Client, 
     cid: int | str = 0, 
-    with_ancestors: bool = True, 
+    with_ancestors: bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     path_already: bool = False, 
@@ -2432,7 +2446,7 @@ def iter_files_with_path_skim(
 def iter_files_with_path_skim(
     client: str | P115Client, 
     cid: int | str = 0, 
-    with_ancestors: bool = True, 
+    with_ancestors: bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     path_already: bool = False, 
@@ -2446,7 +2460,7 @@ def iter_files_with_path_skim(
 def iter_files_with_path_skim(
     client: str | P115Client, 
     cid: int | str = 0, 
-    with_ancestors: bool = True, 
+    with_ancestors: bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     path_already: bool = False, 
@@ -3047,13 +3061,7 @@ def iter_nodes_using_info(
             return None
         check_response(resp)
         if id_to_dirnode is not ...:
-            pid = int(resp["paths"][0]["file_id"])
-            for info in resp["paths"][1:]:
-                fid = int(info["file_id"])
-                id_to_dirnode[fid] = DirNode(info["file_name"], pid)
-                pid = fid
-            if resp["is_dir"]:
-                id_to_dirnode[resp["id"]] = DirNode(resp["name"], pid)
+            _update_resp_2_id_to_dirnode(resp, id_to_dirnode)
         return resp
     return do_filter(None, do_map(
         project, 
