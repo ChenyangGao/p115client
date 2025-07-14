@@ -1,0 +1,64 @@
+[tool.poetry]
+name = "p115client"
+version = "0.0.5.13"
+description = "Python 115 webdisk client."
+authors = ["ChenyangGao <wosiwujm@gmail.com>"]
+license = "MIT"
+readme = "readme.md"
+homepage = "https://github.com/ChenyangGao/p115client"
+repository = "https://github.com/ChenyangGao/p115client"
+documentation = "https://p115client.readthedocs.io"
+keywords = ["115", "webdisk", "client"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3 :: Only",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+include = [
+    "LICENSE",
+]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+aiofile = "*"
+ed2k = ">=0.0.2.1"
+http_response = ">=0.0.2.2"
+httpx = ">=0.28"
+httpx_request = ">=0.1.4"
+iter_collect = ">=0.0.5.1"
+multidict = "*"
+orjson = "*"
+p115cipher = ">=0.0.3"
+p115pickcode = ">=0.0.1"
+posixpatht = ">=0.0.3"
+python-argtools = ">=0.0.1"
+python-asynctools = ">=0.1.3"
+python-concurrenttools = ">=0.1.0"
+python-cookietools = ">=0.0.2.2"
+python-dictattr = ">=0.0.4"
+python-encode_uri = ">=0.0.1"
+python-filewrap = ">=0.2.8"
+python-hashtools = ">=0.0.3.3"
+python-httpfile = ">=0.0.5.2"
+python-http_request = ">=0.0.6"
+python-iterutils = ">=0.2.5"
+python-property = ">=0.0.3"
+python-startfile = ">=0.0.2"
+python-undefined = ">=0.0.3"
+qrcode = "*"
+yarl = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[[tool.poetry.packages]]
+include = "p115client"

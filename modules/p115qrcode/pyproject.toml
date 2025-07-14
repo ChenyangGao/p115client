@@ -1,0 +1,46 @@
+[tool.poetry]
+name = "p115qrcode"
+version = "0.0.5.1"
+description = "115 网盘二维码扫码登录"
+authors = ["ChenyangGao <wosiwujm@gmail.com>"]
+license = "MIT"
+readme = "readme.md"
+homepage = "https://github.com/ChenyangGao/p115client/tree/main/modules/p115qrcode"
+repository = "https://github.com/ChenyangGao/p115client/tree/main/modules/p115qrcode"
+keywords = ["python-115", "115", "qrcode"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Development Status :: 5 - Production/Stable",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3 :: Only",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+include = [
+    "LICENSE",
+]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+flask = "*"
+orjson = "*"
+httpx = "*"
+httpx_request = ">=0.1"
+python-iterutils = ">=0.2.1"
+python-startfile = ">=0.0.2"
+qrcode = "*"
+
+[tool.poetry.scripts]
+p115qrcode = "p115qrcode.__main__:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[[tool.poetry.packages]]
+include = "p115qrcode"
