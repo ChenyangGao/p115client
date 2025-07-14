@@ -1261,6 +1261,7 @@ def iter_download_nodes(
                     if node := nodes.get(attr["id"]):
                         attr["sha1"] = node["sha1"]
                         attr["name"] = unescape_115_charref(node["file_name"])
+            return attrs
     get_nodes = partial(
         method, 
         async_=async_, 

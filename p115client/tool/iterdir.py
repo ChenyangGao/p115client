@@ -2303,36 +2303,6 @@ def iter_files_with_path(
     elif id_to_dirnode is ...:
         id_to_dirnode = {}
         path_already = False
-    _path_already: None | bool = None if path_already else False
-    if not path_already:
-        from .download import iter_download_nodes
-        def set_path_already(*_):
-            nonlocal _path_already
-            _path_already = True
-        @as_gen_step
-        def fetch_dirs(id: int | str, /):
-            if id:
-                yield through(iter_download_nodes(
-                    client, 
-                    to_pickcode(id), 
-                    files=False, 
-                    id_to_dirnode=id_to_dirnode, 
-                    max_workers=None, 
-                    async_=async_, 
-                    **request_kwargs, 
-                ))
-            else:
-                with with_iter_next(iterdir(
-                    client, 
-                    ensure_file=False, 
-                    id_to_dirnode=id_to_dirnode, 
-                    app=app, 
-                    async_=async_, 
-                    **request_kwargs, 
-                )) as get_next:
-                    while True:
-                        attr = yield get_next()
-                        yield fetch_dirs(attr["pickcode"])
     if with_ancestors:
         id_to_ancestors: dict[int, list[dict]] = {}
         def get_ancestors(id: int, attr: dict | tuple[str, int] | DirNode, /) -> list[dict]:
@@ -2374,17 +2344,8 @@ def iter_files_with_path(
             pass
         return attr
     cid = to_id(cid)
-    def gen_step():
-        nonlocal _path_already
-        cache: list[dict] = []
-        add_to_cache = cache.append
-        if not path_already:
-            if async_:
-                task: Any = create_task(fetch_dirs(cid))
-            else:
-                task = run_as_thread(fetch_dirs, cid)
-            task.add_done_callback(set_path_already)
-        with with_iter_next(iter_files(
+    if path_already:
+        return do_map(update_path, iter_files(
             client, 
             cid, 
             page_size=page_size, 
@@ -2401,30 +2362,88 @@ def iter_files_with_path(
             cooldown=cooldown, 
             async_=async_, # type: ignore
             **request_kwargs, 
-        )) as get_next:
-            while True:
-                attr = yield get_next()
-                if _path_already is None:
-                    yield Yield(update_path(attr))
-                elif _path_already:
-                    if async_:
-                        yield task
-                    else:
-                        task.result()
-                    if cache:
-                        yield YieldFrom(map(update_path, cache))
-                        cache.clear()
-                    yield Yield(update_path(attr))
-                    _path_already = None
-                else:
-                    add_to_cache(attr)
-        if cache:
-            if async_:
-                yield task
+        ))
+    else:
+        _path_already: None | bool = None if path_already else False
+        from .download import iter_download_nodes
+        def set_path_already(*_):
+            nonlocal _path_already
+            _path_already = True
+        @as_gen_step
+        def fetch_dirs(id: int | str, /):
+            if id:
+                yield through(iter_download_nodes(
+                    client, 
+                    to_pickcode(id), 
+                    files=False, 
+                    id_to_dirnode=id_to_dirnode, 
+                    max_workers=None, 
+                    async_=async_, 
+                    **request_kwargs, 
+                ))
             else:
-                task.result()
-            yield YieldFrom(map(update_path, cache))
-    return run_gen_step_iter(gen_step, async_)
+                with with_iter_next(iterdir(
+                    client, 
+                    ensure_file=False, 
+                    id_to_dirnode=id_to_dirnode, 
+                    app=app, 
+                    async_=async_, 
+                    **request_kwargs, 
+                )) as get_next:
+                    while True:
+                        attr = yield get_next()
+                        yield fetch_dirs(attr["pickcode"])
+        def gen_step():
+            nonlocal _path_already
+            cache: list[dict] = []
+            add_to_cache = cache.append
+            if not path_already:
+                if async_:
+                    task: Any = create_task(fetch_dirs(cid))
+                else:
+                    task = run_as_thread(fetch_dirs, cid)
+                task.add_done_callback(set_path_already)
+            with with_iter_next(iter_files(
+                client, 
+                cid, 
+                page_size=page_size, 
+                suffix=suffix, 
+                type=type, 
+                order=order, 
+                asc=asc, 
+                cur=cur, 
+                normalize_attr=normalize_attr, 
+                id_to_dirnode=id_to_dirnode, 
+                raise_for_changed_count=raise_for_changed_count, 
+                max_workers=max_workers, 
+                app=app, 
+                cooldown=cooldown, 
+                async_=async_, # type: ignore
+                **request_kwargs, 
+            )) as get_next:
+                while True:
+                    attr = yield get_next()
+                    if _path_already is None:
+                        yield Yield(update_path(attr))
+                    elif _path_already:
+                        if async_:
+                            yield task
+                        else:
+                            task.result()
+                        if cache:
+                            yield YieldFrom(map(update_path, cache))
+                            cache.clear()
+                        yield Yield(update_path(attr))
+                        _path_already = None
+                    else:
+                        add_to_cache(attr)
+            if cache:
+                if async_:
+                    yield task
+                else:
+                    task.result()
+                yield YieldFrom(map(update_path, cache))
+        return run_gen_step_iter(gen_step, async_)
 
 
 @overload
@@ -2505,45 +2524,6 @@ def iter_files_with_path_skim(
     elif id_to_dirnode is ...:
         id_to_dirnode = {}
         path_already = False
-    _path_already: None | bool = None if path_already else False
-    if not path_already:
-        def set_path_already(*_):
-            nonlocal _path_already
-            _path_already = True
-        @as_gen_step
-        def fetch_dirs(id: int | str, /):
-            if id:
-                if cid:
-                    do_next: Callable = anext if async_ else next
-                    yield do_next(_iter_fs_files(
-                        client, 
-                        to_id(id), 
-                        page_size=1, 
-                        id_to_dirnode=id_to_dirnode, 
-                        async_=async_, 
-                        **request_kwargs, 
-                    ))
-                yield through(iter_download_nodes(
-                    client, 
-                    to_pickcode(id), 
-                    files=False, 
-                    id_to_dirnode=id_to_dirnode, 
-                    max_workers=max_workers, 
-                    async_=async_, 
-                    **request_kwargs, 
-                ))
-            else:
-                with with_iter_next(iterdir(
-                    client, 
-                    ensure_file=False, 
-                    id_to_dirnode=id_to_dirnode, 
-                    app=app, 
-                    async_=async_, 
-                    **request_kwargs, 
-                )) as get_next:
-                    while True:
-                        attr = yield get_next()
-                        yield fetch_dirs(attr["pickcode"])
     if with_ancestors:
         id_to_ancestors: dict[int, list[dict]] = {}
         def get_ancestors(id: int, attr: dict | tuple[str, int] | DirNode, /) -> list[dict]:
@@ -2585,17 +2565,8 @@ def iter_files_with_path_skim(
             pass
         return attr
     cid = to_id(cid)
-    def gen_step():
-        nonlocal _path_already
-        cache: list[dict] = []
-        add_to_cache = cache.append
-        if not path_already:
-            if async_:
-                task: Any = create_task(fetch_dirs(cid))
-            else:
-                task = run_as_thread(fetch_dirs, cid)
-            task.add_done_callback(set_path_already)
-        with with_iter_next(iter_download_nodes(
+    if path_already:
+        return do_map(update_path, iter_download_nodes(
             client, 
             cid, 
             files=True, 
@@ -2604,30 +2575,89 @@ def iter_files_with_path_skim(
             app=app, 
             async_=async_, 
             **request_kwargs, 
-        )) as get_next:
-            while True:
-                attr = yield get_next()
-                if _path_already is None:
-                    yield Yield(update_path(attr))
-                elif _path_already:
-                    if async_:
-                        yield task
-                    else:
-                        task.result()
-                    if cache:
-                        yield YieldFrom(map(update_path, cache))
-                        cache.clear()
-                    yield Yield(update_path(attr))
-                    _path_already = None
-                else:
-                    add_to_cache(attr)
-        if cache:
-            if async_:
-                yield task
+        ))
+    else:
+        _path_already: None | bool = None if path_already else False
+        def set_path_already(*_):
+            nonlocal _path_already
+            _path_already = True
+        @as_gen_step
+        def fetch_dirs(id: int | str, /):
+            if id:
+                if cid:
+                    do_next: Callable = anext if async_ else next
+                    yield do_next(_iter_fs_files(
+                        client, 
+                        to_id(id), 
+                        page_size=1, 
+                        id_to_dirnode=id_to_dirnode, 
+                        async_=async_, 
+                        **request_kwargs, 
+                    ))
+                yield through(iter_download_nodes(
+                    client, 
+                    to_pickcode(id), 
+                    files=False, 
+                    id_to_dirnode=id_to_dirnode, 
+                    max_workers=max_workers, 
+                    async_=async_, 
+                    **request_kwargs, 
+                ))
             else:
-                task.result()
-            yield YieldFrom(map(update_path, cache))
-    return run_gen_step_iter(gen_step, async_)
+                with with_iter_next(iterdir(
+                    client, 
+                    ensure_file=False, 
+                    id_to_dirnode=id_to_dirnode, 
+                    app=app, 
+                    async_=async_, 
+                    **request_kwargs, 
+                )) as get_next:
+                    while True:
+                        attr = yield get_next()
+                        yield fetch_dirs(attr["pickcode"])
+        def gen_step():
+            nonlocal _path_already
+            cache: list[dict] = []
+            add_to_cache = cache.append
+            if not path_already:
+                if async_:
+                    task: Any = create_task(fetch_dirs(cid))
+                else:
+                    task = run_as_thread(fetch_dirs, cid)
+                task.add_done_callback(set_path_already)
+            with with_iter_next(iter_download_nodes(
+                client, 
+                cid, 
+                files=True, 
+                ensure_name=True, 
+                max_workers=max_workers, 
+                app=app, 
+                async_=async_, 
+                **request_kwargs, 
+            )) as get_next:
+                while True:
+                    attr = yield get_next()
+                    if _path_already is None:
+                        yield Yield(update_path(attr))
+                    elif _path_already:
+                        if async_:
+                            yield task
+                        else:
+                            task.result()
+                        if cache:
+                            yield YieldFrom(map(update_path, cache))
+                            cache.clear()
+                        yield Yield(update_path(attr))
+                        _path_already = None
+                    else:
+                        add_to_cache(attr)
+            if cache:
+                if async_:
+                    yield task
+                else:
+                    task.result()
+                yield YieldFrom(map(update_path, cache))
+        return run_gen_step_iter(gen_step, async_)
 
 
 @overload
