@@ -94,14 +94,15 @@ def batch_get_url(
     """
     if isinstance(client, str):
         client = P115Client(client, check_for_relogin=True)
+    stable_point = client.pickcode_stable_point
     if headers := request_kwargs.get("headers"):
         request_kwargs["headers"] = dict(headers, **{"user-agent": user_agent})
     else:
         request_kwargs["headers"] = {"user-agent": user_agent}
     if isinstance(pickcode, (int, str)):
-        pickcode = to_pickcode(pickcode)
+        pickcode = to_pickcode(pickcode, stable_point)
     elif not isinstance(pickcode, str):
-        pickcode = ",".join(map(to_pickcode, pickcode))
+        pickcode = ",".join(to_pickcode(pc, stable_point) for pc in pickcode)
     if not isinstance(client, P115Client) or app == "open":
         get_download_url: Callable = client.download_url_info_open
     else:
@@ -183,6 +184,7 @@ def iter_url_batches(
     """
     if isinstance(client, str):
         client = P115Client(client, check_for_relogin=True)
+    stable_point = client.pickcode_stable_point
     if headers := request_kwargs.get("headers"):
         request_kwargs["headers"] = dict(headers, **{"user-agent": user_agent})
     else:
@@ -194,7 +196,7 @@ def iter_url_batches(
     if batch_size <= 0:
         batch_size = 1
     def gen_step():
-        for pcs in batched(map(to_pickcode, pickcodes), batch_size):
+        for pcs in batched((to_pickcode(pc, stable_point) for pc in pickcodes), batch_size):
             resp = yield get_download_url(
                 ",".join(pcs), 
                 async_=async_, 
@@ -1208,6 +1210,7 @@ def iter_download_nodes(
     """
     if isinstance(client, str):
         client = P115Client(client, check_for_relogin=True)
+    stable_point = client.pickcode_stable_point
     get_base_url = cycle(("http://proapi.115.com", "https://proapi.115.com")).__next__
     if async_:
         if max_workers is None or max_workers <= 0:
@@ -1221,6 +1224,7 @@ def iter_download_nodes(
         if id_to_dirnode is None:
             id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
     file_skim = client.fs_file_skim
+    need_yield = files and ensure_name
     def normalize_attrs(attrs: list[dict], /):
         if files:
             for i, info in enumerate(attrs):
@@ -1243,7 +1247,7 @@ def iter_download_nodes(
                 for attr in attrs:
                     id_to_dirnode[attr["id"]] = DirNode(attr["name"], attr["parent_id"])
         return attrs
-    if files and ensure_name:
+    if need_yield:
         prepare = normalize_attrs
         @as_gen_step
         def normalize_attrs(attrs: list[dict], /):
@@ -1262,6 +1266,7 @@ def iter_download_nodes(
                         attr["sha1"] = node["sha1"]
                         attr["name"] = unescape_115_charref(node["file_name"])
             return attrs
+    need_yield = need_yield and async_
     get_nodes = partial(
         method, 
         async_=async_, 
@@ -1269,7 +1274,7 @@ def iter_download_nodes(
     )
     if max_workers == 1:
         def gen_step(pickcode: int | str, /):
-            pickcode = to_pickcode(pickcode)
+            pickcode = to_pickcode(pickcode, stable_point)
             for i in count(1):
                 payload = {"pickcode": pickcode, "page": i}
                 resp = yield get_nodes(payload)
@@ -1300,7 +1305,10 @@ def iter_download_nodes(
                     put(e)
                     return
                 data = resp["data"]
-                put((yield normalize_attrs(data["list"])))
+                attrs = normalize_attrs(data["list"])
+                if need_yield:
+                    attrs = yield attrs
+                put(attrs)
                 if not data["has_next_page"]:
                     max_page = page
         def gen_step(pickcode: int | str, /):
@@ -1316,7 +1324,7 @@ def iter_download_nodes(
                 n = executor._max_workers
                 submit = executor.submit
                 shutdown = lambda: executor.shutdown(False, cancel_futures=True)
-            pickcode = to_pickcode(pickcode)
+            pickcode = to_pickcode(pickcode, stable_point)
             try:
                 sentinel = object()
                 countdown: Callable
@@ -1441,6 +1449,7 @@ def iter_download_files(
     """
     if isinstance(client, str):
         client = P115Client(client, check_for_relogin=True)
+    stable_point = client.pickcode_stable_point
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
     elif id_to_dirnode is ...:
@@ -1507,7 +1516,7 @@ def iter_download_files(
             ))
         finally:
             ancestors_loaded = True
-    def gen_step(pickcode: str = to_pickcode(cid), /):
+    def gen_step(pickcode: str, /):
         nonlocal ancestors_loaded
         if pickcode:
             if cid:
@@ -1585,7 +1594,7 @@ def iter_download_files(
             for pickcode in pickcodes:
                 yield YieldFrom(run_gen_step_iter(gen_step(pickcode), async_))
                 ancestors_loaded = False
-    return run_gen_step_iter(gen_step, async_)
+    return run_gen_step_iter(gen_step(to_pickcode(cid, stable_point)), async_)
 
 
 @overload

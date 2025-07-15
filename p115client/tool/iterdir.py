@@ -14,10 +14,12 @@ __all__ = [
     "iter_nodes", "iter_nodes_skim", "iter_nodes_by_pickcode", 
     "iter_nodes_using_update", "iter_nodes_using_info", 
     "iter_nodes_using_star_event",  "iter_dir_nodes_using_star", 
-    "iter_parents", "iter_dupfiles", "iter_image_files", "search_iter", 
-    "share_iterdir", "share_iter_files", "share_search_iter", 
+    "iter_parents", "iter_files_shortcut", "iter_dupfiles", "iter_image_files", 
+    "search_iter", "share_iterdir", "share_iter_files", "share_search_iter", 
 ]
 __doc__ = "这个模块提供了一些和目录信息罗列有关的函数"
+
+# TODO: 再实现 2 个方法，利用 iter_download_nodes，一个有 path，一个没有，可以把某个目录下的所有节点都搞出来，导出时，先导出目录节点，再导出文件节点，但它们是并发执行的，然后必有字段：id, parent_id, pickcode, name, is_dir, sha1 等
 
 # TODO: 路径表示法，应该支持 / 和 > 开头，而不仅仅是 / 开头
 # TODO: 对于路径，增加 top_id 和 relpath 字段，表示搜素目录的 id 和相对于搜索路径的相对路径
@@ -2292,6 +2294,7 @@ def iter_files_with_path(
         raise ValueError("please set the non-zero value of suffix or type")
     if isinstance(client, str):
         client = P115Client(client, check_for_relogin=True)
+    stable_point = client.pickcode_stable_point
     if isinstance(escape, bool):
         if escape:
             from posixpatht import escape
@@ -2374,7 +2377,7 @@ def iter_files_with_path(
             if id:
                 yield through(iter_download_nodes(
                     client, 
-                    to_pickcode(id), 
+                    to_pickcode(id, stable_point), 
                     files=False, 
                     id_to_dirnode=id_to_dirnode, 
                     max_workers=None, 
@@ -2513,6 +2516,7 @@ def iter_files_with_path_skim(
     from .download import iter_download_nodes
     if isinstance(client, str):
         client = P115Client(client, check_for_relogin=True)
+    stable_point = client.pickcode_stable_point
     if isinstance(escape, bool):
         if escape:
             from posixpatht import escape
@@ -2596,7 +2600,7 @@ def iter_files_with_path_skim(
                     ))
                 yield through(iter_download_nodes(
                     client, 
-                    to_pickcode(id), 
+                    to_pickcode(id, stable_point), 
                     files=False, 
                     id_to_dirnode=id_to_dirnode, 
                     max_workers=max_workers, 
@@ -2868,6 +2872,7 @@ def iter_nodes_by_pickcode(
     """
     if isinstance(client, str):
         client = P115Client(client, check_for_relogin=True)
+    stable_point = client.pickcode_stable_point
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
     methods: list[Callable] = []
@@ -2905,7 +2910,7 @@ def iter_nodes_by_pickcode(
         project, 
         conmap(
             get_response, 
-            map(to_pickcode, pickcodes), 
+            (to_pickcode(pc, stable_point) for pc in pickcodes), 
             max_workers=max_workers, 
             kwargs=request_kwargs, 
             async_=async_, 
@@ -3457,6 +3462,91 @@ def iter_parents(
 
 
 @overload
+def iter_files_shortcut(
+    client: str | P115Client, 
+    cid: int | str = 0, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    max_workers: None | int = None, 
+    is_skim: bool = True, 
+    with_path: bool = False, 
+    app: str = "android", 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> Iterator[dict]:
+    ...
+@overload
+def iter_files_shortcut(
+    client: str | P115Client, 
+    cid: int | str = 0, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    max_workers: None | int = None, 
+    is_skim: bool = True, 
+    with_path: bool = False, 
+    app: str = "android", 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> AsyncIterator[dict]:
+    ...
+def iter_files_shortcut(
+    client: str | P115Client, 
+    cid: int | str = 0, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    max_workers: None | int = None, 
+    is_skim: bool = True, 
+    with_path: bool = False, 
+    app: str = "android", 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+) -> Iterator[dict] | AsyncIterator[dict]:
+    """遍历目录树，获取（仅文件而非目录）文件信息（整合了多个函数的入口）
+
+    .. node::
+        `is_skim` 和 `with_path` 的不同取值组合，会决定采用不同的函数:
+
+        1. `iter_download_nodes`: is_skim=True and with_path=False
+        2. `iter_files_with_path_skim`: is_skim=True and with_path=True
+        3. `iter_files`: is_skim=False and with_path=False
+        4. `iter_files_with_path`: is_skim=False and with_path=True
+
+    :param client: 115 客户端或 cookies
+    :param cid: 待被遍历的目录 id 或 pickcode
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
+    :param max_workers: 最大并发数，如果为 None 或 <= 0，则自动确定
+    :param is_skim: 是否拉取简要信息
+    :param with_path: 是否需要 "path" 和 "ancestors" 字段
+    :param app: 使用指定 app（设备）的接口
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+
+    :return: 迭代器，产生文件信息
+    """
+    if with_path:
+        request_kwargs.setdefault("with_ancestors", True)
+        if is_skim:
+            method: Callable = iter_files_with_path_skim
+        else:
+            method = iter_files_with_path
+    elif is_skim:
+        request_kwargs.update(files=True, ensure_name=True)
+        from .download import iter_download_nodes as method
+    else:
+        request_kwargs.setdefault("cooldown", 0.5)
+        method = iter_files
+    return method(
+        client, 
+        cid, 
+        id_to_dirnode=id_to_dirnode, 
+        max_workers=max_workers, 
+        app=app, 
+        async_=async_, 
+        **request_kwargs, 
+    )
+
+
+@overload
 def iter_dupfiles[K](
     client: str | P115Client, 
     cid: int | str = 0, 
@@ -3464,6 +3554,8 @@ def iter_dupfiles[K](
     keep_first: None | bool | Callable[[dict], SupportsLT] = None, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     max_workers: None | int = None, 
+    is_skim: bool = True, 
+    with_path: bool = False, 
     app: str = "android", 
     *, 
     async_: Literal[False] = False, 
@@ -3478,6 +3570,8 @@ def iter_dupfiles[K](
     keep_first: None | bool | Callable[[dict], SupportsLT] = None, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     max_workers: None | int = None, 
+    is_skim: bool = True, 
+    with_path: bool = False, 
     app: str = "android", 
     *, 
     async_: Literal[True], 
@@ -3491,6 +3585,8 @@ def iter_dupfiles[K](
     keep_first: None | bool | Callable[[dict], SupportsLT] = None, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     max_workers: None | int = None, 
+    is_skim: bool = True, 
+    with_path: bool = False, 
     app: str = "android", 
     *, 
     async_: Literal[False, True] = False, 
@@ -3510,22 +3606,22 @@ def iter_dupfiles[K](
 
     :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
     :param max_workers: 最大并发数，如果为 None 或 <= 0，则自动确定
+    :param is_skim: 是否拉取简要信息
+    :param with_path: 是否需要 "path" 和 "ancestors" 字段
     :param app: 使用指定 app（设备）的接口
-    :param cooldown: 冷却时间，大于 0，则使用此时间间隔执行并发
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
 
     :return: 迭代器，返回 key 和 重复文件信息 的元组
     """
-    from .download import iter_download_nodes
     return iter_keyed_dups(
-        iter_download_nodes(
+        iter_files_shortcut(
             client, 
             cid, 
-            files=True, 
-            ensure_name=True, 
             id_to_dirnode=id_to_dirnode, 
             max_workers=max_workers, 
+            is_skim=is_skim, 
+            with_path=with_path, 
             app=app, 
             async_=async_, # type: ignore
             **request_kwargs, 

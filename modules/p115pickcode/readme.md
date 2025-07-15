@@ -11,5 +11,5 @@ pip install -U p115pickcode
 ## 用法
 
 ```python
-from p115pickcode import id_to_pickcode, pickcode_to_id, is_valid_pickcode, to_id, to_pickcode
+import p115pickcode
 ```

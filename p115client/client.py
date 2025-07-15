@@ -59,7 +59,7 @@ from orjson import dumps, loads
 from p115cipher.fast import (
     rsa_encode, rsa_decode, ecdh_encode_token, ecdh_aes_encode, ecdh_aes_decode, make_upload_payload, 
 )
-from p115pickcode import id_to_pickcode
+from p115pickcode import get_stable_point
 from property import locked_cacheproperty
 from re import compile as re_compile
 from startfile import startfile, startfile_async # type: ignore
@@ -679,8 +679,6 @@ def normalize_attr_web[D: dict[str, Any]](
     attr["size"] = int(info.get("s") or 0)
     if "pc" in info:
         attr["pickcode"] = info["pc"]
-    else:
-        attr["pickcode"] = id_to_pickcode(attr["id"], is_dir=is_dir)
     if simple:
         if "c" in info:
             attr["is_collect"] = int(info["c"])
@@ -818,8 +816,6 @@ def normalize_attr_app[D: dict[str, Any]](
     attr["size"] = int(info.get("fs") or 0)
     if "pc" in info:
         attr["pickcode"] = info["pc"]
-    else:
-        attr["pickcode"] = id_to_pickcode(attr["id"], is_dir=is_dir)
     if simple:
         if "ic" in info:
             attr["is_collect"] = int(info["ic"])
@@ -956,8 +952,6 @@ def normalize_attr_app2[D: dict[str, Any]](
     attr["size"] = int(info.get("file_size") or 0)
     if "pick_code" in info:
         attr["pickcode"] = info["pick_code"]
-    else:
-        attr["pickcode"] = id_to_pickcode(attr["id"], is_dir=is_dir)
     if simple:
         if "is_collect" in info:
             attr["is_collect"] = int(info["is_collect"])
@@ -3126,6 +3120,18 @@ class P115OpenClient(ClientRequestMixin):
     def user_id(self, /) -> int:
         resp = check_response(self.user_info_open())
         return int(resp["data"]["user_id"])
+
+    @locked_cacheproperty
+    def pickcode_stable_point(self, /) -> str:
+        """获取 pickcode 的不动点
+
+        .. todo::
+            不动点可能和用户 id 有某种联系，但目前样本不足，难以推断，以后再尝试分析
+        """
+        resp = self.fs_files({"show_dir": 1, "limit": 1, "cid": 0})
+        check_response(resp)
+        info = resp["data"][0]
+        return get_stable_point(normalize_attr(info)["pickcode"])
 
     @overload
     def refresh_access_token(

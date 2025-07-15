@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "p115pickcode"
-version = "0.0.2"
+version = "0.0.4"
 description = "115 transcoding between pickcode and id."
 authors = ["ChenyangGao <wosiwujm@gmail.com>"]
 license = "MIT"
