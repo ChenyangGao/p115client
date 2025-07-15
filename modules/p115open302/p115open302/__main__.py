@@ -11,13 +11,13 @@ __doc__ = """\
     │                                                                              │
     │                      \x1b[32mlicense     \x1b[4;34mhttps://www.gnu.org/licenses/gpl-3.0.txt\x1b[0m    │
     │                                                                              │
-    │                      \x1b[32mversion     \x1b[1;36m0.0.3\x1b[0m                                       │
+    │                      \x1b[32mversion     \x1b[1;36m0.0.4\x1b[0m                                       │
     │                                                                              │
     ╰──────────────────────────────────────────────────────────────────────────────╯
 
-> 网盘文件支持用 \x1b[3;36mpickcode\x1b[0m、\x1b[3;36mid\x1b[0m、\x1b[3;36msha1\x1b[0m、\x1b[3;36mname\x1b[0m 或 \x1b[3;36mpath\x1b[0m 查询（\x1b[1;3;31m此顺序即优先级从高到低\x1b[0m）
+> 网盘文件支持用 \x1b[3;36mid\x1b[0m、\x1b[3;36mpickcode\x1b[0m、\x1b[3;36msha1\x1b[0m、\x1b[3;36mname\x1b[0m 或 \x1b[3;36mpath\x1b[0m 查询（\x1b[1;3;31m此顺序即优先级从高到低\x1b[0m）
 > 支持参数 \x1b[3;36mrefresh\x1b[0m，用于搜索 \x1b[3;36msha1\x1b[0m、\x1b[3;36mname\x1b[0m 或 \x1b[3;36mpath\x1b[0m 时忽略缓存（\x1b[1;3;31m强制刷新\x1b[0m）
-> 用 \x1b[3;36msha1\x1b[0m、\x1b[3;36mname\x1b[0m 或 \x1b[3;36mpath\x1b[0m 查询时，可指定 \x1b[3;36msize\x1b[0m，要求文件大小等于此值
+> 支持参数 \x1b[3;36msize\x1b[0m，用于搜索 \x1b[3;36msha1\x1b[0m 或 \x1b[3;36mname\x1b[0m 时，要求文件大小等于此值
 
 🌰 携带 \x1b[3;36msign\x1b[0m
 
@@ -31,26 +31,26 @@ __doc__ = """\
 - \x1b[3;36mt\x1b[0m 为过期时间点（\x1b[1;3;31m默认值为 0，即永不过期\x1b[0m）
 - \x1b[3;36mvalue\x1b[0m 就是值，像这样的链接，优先级顺序为 \x1b[3;36mpickcode\x1b[0m > \x1b[3;36mid\x1b[0m > \x1b[3;36msha1\x1b[0m > \x1b[3;36mname\x1b[0m > \x1b[3;36mpath\x1b[0m > \x1b[3;36mname2\x1b[0m
 
-    \x1b[4;34mhttp://localhost:8000/{\x1b[1;3;36mname2\x1b[0m\x1b[4;34m}?id={\x1b[1;3;36mid\x1b[0m\x1b[4;34m}&name={\x1b[1;3;36mname\x1b[0m\x1b[4;34m}&path={\x1b[1;3;36mpath\x1b[0m\x1b[4;34m}&sha1={\x1b[1;3;36msha1\x1b[0m\x1b[4;34m}&pickcode={\x1b[1;3;36mpickcode\x1b[0m\x1b[4;34m}\x1b[0m
+    \x1b[4;34mhttp://localhost:8000/{\x1b[1;3;36mname2\x1b[0m\x1b[4;34m}?id={\x1b[1;3;36mid\x1b[0m\x1b[4;34m}&pickcode={\x1b[1;3;36mpickcode\x1b[0m\x1b[4;34m}&sha1={\x1b[1;3;36msha1\x1b[0m\x1b[4;34m}&name={\x1b[1;3;36mname\x1b[0m\x1b[4;34m}&path={\x1b[1;3;36mpath\x1b[0m\x1b[4;34m}\x1b[0m
 
 🌰 查询示例：
 
-    0. 查询 \x1b[3;36mpickcode\x1b[0m
-        \x1b[4;34mhttp://localhost:8000?ecjq9ichcb40lzlvx\x1b[0m
-        \x1b[4;34mhttp://localhost:8000/ecjq9ichcb40lzlvx\x1b[0m
-        \x1b[4;34mhttp://localhost:8000?pickcode=ecjq9ichcb40lzlvx\x1b[0m
-    1. 带（任意）名字查询 \x1b[3;36mpickcode\x1b[0m
-        \x1b[4;34mhttp://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?ecjq9ichcb40lzlvx\x1b[0m
-        \x1b[4;34mhttp://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?pickcode=ecjq9ichcb40lzlvx\x1b[0m
-        \x1b[4;34mhttp://localhost:8000/ecjq9ichcb40lzlvx/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv\x1b[0m
-    2. 查询 \x1b[3;36mid\x1b[0m
+    1. 查询 \x1b[3;36mid\x1b[0m
         \x1b[4;34mhttp://localhost:8000?2691590992858971545\x1b[0m
         \x1b[4;34mhttp://localhost:8000/2691590992858971545\x1b[0m
         \x1b[4;34mhttp://localhost:8000?id=2691590992858971545\x1b[0m
-    3. 带（任意）名字查询 \x1b[3;36mid\x1b[0m
+    2. 带（任意）名字查询 \x1b[3;36mid\x1b[0m
         \x1b[4;34mhttp://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?2691590992858971545\x1b[0m
         \x1b[4;34mhttp://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?id=2691590992858971545\x1b[0m
         \x1b[4;34mhttp://localhost:8000/2691590992858971545/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv\x1b[0m
+    3. 查询 \x1b[3;36mpickcode\x1b[0m
+        \x1b[4;34mhttp://localhost:8000?ecjq9ichcb40lzlvx\x1b[0m
+        \x1b[4;34mhttp://localhost:8000/ecjq9ichcb40lzlvx\x1b[0m
+        \x1b[4;34mhttp://localhost:8000?pickcode=ecjq9ichcb40lzlvx\x1b[0m
+    4. 带（任意）名字查询 \x1b[3;36mpickcode\x1b[0m
+        \x1b[4;34mhttp://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?ecjq9ichcb40lzlvx\x1b[0m
+        \x1b[4;34mhttp://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?pickcode=ecjq9ichcb40lzlvx\x1b[0m
+        \x1b[4;34mhttp://localhost:8000/ecjq9ichcb40lzlvx/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv\x1b[0m
     4. 查询 \x1b[3;36msha1\x1b[0m
         \x1b[4;34mhttp://localhost:8000?E7FAA0BE343AF2DA8915F2B694295C8E4C91E691\x1b[0m
         \x1b[4;34mhttp://localhost:8000/E7FAA0BE343AF2DA8915F2B694295C8E4C91E691\x1b[0m
@@ -71,7 +71,7 @@ __doc__ = """\
 
 🌰 视频相关操作：
 
-当你提供 \x1b[3;36mmethod\x1b[0m 参数时，一般就意味着你需要操作的目标是视频，此参数的值分别如下：
+当你提供 \x1b[3;36mmethod\x1b[0m 参数时，通常就意味着你需要操作的目标是视频，此参数的值分别如下：
 
     1. \x1b[1m"subs"\x1b[0m、\x1b[1m"subtitle"\x1b[0m 或 \x1b[1m"subtitles"\x1b[0m，获取目标文件的内嵌字幕和与它同一目录下的字幕，返回这些字幕的信息和下载链接，结果是一个 JSON
     2. \x1b[1m"tran"\x1b[0m 或 \x1b[1m"transcode"\x1b[0m，获取目标文件的转码信息和在线播放地址，结果是一个 JSON
@@ -82,6 +82,7 @@ __doc__ = """\
     5. \x1b[1m"hist"\x1b[0m 或 \x1b[1m"history"\x1b[0m，获取或设置视频播放进度。当你没有 \x1b[3;36mtime\x1b[0m 和 \x1b[3;36mwatch_end\x1b[0m 查询参数时，会获取视频播放进度，否则会进行设置。结果是一个 JSON
         - \x1b[3;36mtime\x1b[0m，接受 1 个整数，视频播放进度时长，单位是：秒
         - \x1b[3;36mwatch_end\x1b[0m，接受 \x1b[1;36m0\x1b[0m 或者 \x1b[1;36m1\x1b[0m，视频是否播放播放完毕，默认为 \x1b[1;36m0\x1b[0m，\x1b[1;36m1\x1b[0m 表示播放完毕
+    6. \x1b[1m"info"\x1b[0m，获取文件信息，结果是一个 JSON
 """
 
 from argparse import ArgumentParser, Namespace, RawTextHelpFormatter

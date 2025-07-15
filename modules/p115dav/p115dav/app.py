@@ -60,10 +60,11 @@ from p115client import check_response, CLASS_TO_TYPE, SUFFIX_TO_TYPE, P115Client
 from p115client.exception import AuthenticationError, BusyOSError
 from p115client.type import P115ID
 from p115client.tool import (
-    get_id_to_path, get_id_to_pickcode, get_id_to_sha1, share_iterdir, 
+    get_id_to_path, get_id_to_sha1, share_iterdir, 
     share_get_id_to_path, get_ancestors, 
 )
 from p115client.tool.util import get_status_code, reduce_image_url_layers
+from p115pickcode import id_to_pickcode, pickcode_to_id
 from path_predicate import MappingPath
 from posixpatht import escape, normpath
 from property import locked_cacheproperty
@@ -1024,8 +1025,7 @@ def make_application(
         if pickcode:
             fid = await db.get_id(con, pickcode=pickcode.lower(), async_=True)
             if fid is None:
-                fid = await get_id_to_pickcode(client, pickcode, async_=True)
-                push_task_attr(fid)
+                fid = pickcode_to_id(pickcode)
         elif id >= 0:
             fid = id
         elif sha1:
@@ -1069,8 +1069,7 @@ def make_application(
         elif id > 0:
             pickcode = await db.get_pickcode(con, id=id, async_=True)
             if pickcode is None:
-                attr = await get_attr(id, skim=True)
-                return attr["pickcode"]
+                pickcode = id_to_pickcode(id, client.pickcode_stable_point)
             return pickcode
         elif sha1:
             pickcode = await db.get_pickcode(con, sha1=sha1.upper(), async_=True)

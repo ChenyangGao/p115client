@@ -27,6 +27,7 @@ from blacksheep.server.remotes.forwarding import ForwardedHeadersMiddleware
 from cachedict import LRUDict, TLRUDict
 from orjson import dumps, loads, OPT_INDENT_2, OPT_SORT_KEYS
 from p115rsacipher import encrypt, decrypt
+from p115pickcode import id_to_pickcode, pickcode_to_id, is_valid_pickcode
 from rich.box import ROUNDED
 from rich.console import Console
 from rich.highlighter import JSONHighlighter
@@ -367,10 +368,10 @@ def make_application(
             NAME_TO_PICKCODE[(user_id, name)] = pickcode
         return pickcode
 
-    async def share_get_id_for_name(
-        share_code: str, 
-        receive_code: str, 
+    async def share_name_to_id(
         name: str, 
+        share_code: str, 
+        receive_code: str = "", 
         parent_id: int = 0, 
         user_id: int = 0, 
         refresh: None | bool = False, 
@@ -561,7 +562,7 @@ def make_application(
                 raise ValueError(f"bad receive_code: {receive_code!r}")
             if not id:
                 if file_name:
-                    id = await share_get_id_for_name(share_code, receive_code, file_name, user_id=user_id, refresh=refresh)
+                    id = await share_name_to_id(file_name, share_code, receive_code, user_id=user_id, refresh=refresh)
             if not id:
                 raise FileNotFoundError(ENOENT, f"please specify id or name: share_code={share_code!r}")
             url = await get_share_downurl(share_code, receive_code, id, app=app, user_id=user_id)
@@ -656,6 +657,7 @@ if __name__ == "__main__":
         access_log=False, 
     )
 
-# TODO: 增加接口，支持一次性查询多个直链（只允许使用 pickcode 或 id）
+# TODO: 优先使用 id 而不是 pickcode
+# TODO: 功能追平 p115open302
 # TODO: 允许把缓存保存到 sqlite 数据库中，以便下次继续使用
 # TODO: 搜索路径时，再提供一个参数，以支持精确匹配，这时就不会使用查询接口了，而是通过罗列目录列表来进行匹配

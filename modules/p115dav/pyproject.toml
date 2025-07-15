@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "p115dav"
-version = "0.0.10.1"
+version = "0.0.10.2"
 description = "115 网盘 WebDAV 和 302 直链程序."
 authors = ["ChenyangGao <wosiwujm@gmail.com>"]
 license = "MIT"
@@ -32,7 +32,8 @@ blacksheep = ">=2.0.8"
 cachedict = ">=0.0.3"
 httpagentparser = "*"
 orjson = "*"
-p115client = ">=0.0.5.10.7.2"
+p115client = ">=0.0.5.14"
+p115pickcode = ">=0.0.4"
 path_predicate = ">=0.0.1.1"
 posixpatht = ">=0.0.3"
 pysubs2 = "*"

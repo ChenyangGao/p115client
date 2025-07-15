@@ -43,9 +43,9 @@ run(
 
 ```console
 $ p115open302 -h
-usage:  [-h] [-c COOKIES] [-cp COOKIES_PATH] [-a APP_ID] [-rt REFRESH_TOKEN]
-        [-t TOKEN] [-H HOST] [-P PORT] [-cu] [-d] [-uc UVICORN_RUN_CONFIG_PATH]
-        [-v] [-l]
+usage: p115open302 [-h] [-c COOKIES] [-cp COOKIES_PATH] [-a APP_ID]
+                   [-rt REFRESH_TOKEN] [-t TOKEN] [-H HOST] [-P PORT] [-cu] [-d]
+                   [-uc UVICORN_RUN_CONFIG_PATH] [-v] [-l]
 
     ╭───────────────────────── Welcome to 115 open 302 ────────────────────────────╮
     │                                                                              │
@@ -55,13 +55,13 @@ usage:  [-h] [-c COOKIES] [-cp COOKIES_PATH] [-a APP_ID] [-rt REFRESH_TOKEN]
     │                                                                              │
     │                      license     https://www.gnu.org/licenses/gpl-3.0.txt    │
     │                                                                              │
-    │                      version     0.0.3                                       │
+    │                      version     0.0.4                                       │
     │                                                                              │
     ╰──────────────────────────────────────────────────────────────────────────────╯
 
-> 网盘文件支持用 pickcode、id、sha1、name 或 path 查询（此顺序即优先级从高到低）
+> 网盘文件支持用 id、pickcode、sha1、name 或 path 查询（此顺序即优先级从高到低）
 > 支持参数 refresh，用于搜索 sha1、name 或 path 时忽略缓存（强制刷新）
-> 用 sha1、name 或 path 查询时，可指定 size，要求文件大小等于此值
+> 支持参数 size，用于搜索 sha1 或 name 时，要求文件大小等于此值
 
 🌰 携带 sign
 
@@ -75,26 +75,26 @@ usage:  [-h] [-c COOKIES] [-cp COOKIES_PATH] [-a APP_ID] [-rt REFRESH_TOKEN]
 - t 为过期时间点（默认值为 0，即永不过期）
 - value 就是值，像这样的链接，优先级顺序为 pickcode > id > sha1 > name > path > name2
 
-    http://localhost:8000/{name2}?id={id}&name={name}&path={path}&sha1={sha1}&pickcode={pickcode}
+    http://localhost:8000/{name2}?id={id}&pickcode={pickcode}&sha1={sha1}&name={name}&path={path}
 
 🌰 查询示例：
 
-    0. 查询 pickcode
-        http://localhost:8000?ecjq9ichcb40lzlvx
-        http://localhost:8000/ecjq9ichcb40lzlvx
-        http://localhost:8000?pickcode=ecjq9ichcb40lzlvx
-    1. 带（任意）名字查询 pickcode
-        http://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?ecjq9ichcb40lzlvx
-        http://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?pickcode=ecjq9ichcb40lzlvx
-        http://localhost:8000/ecjq9ichcb40lzlvx/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv
-    2. 查询 id
+    1. 查询 id
         http://localhost:8000?2691590992858971545
         http://localhost:8000/2691590992858971545
         http://localhost:8000?id=2691590992858971545
-    3. 带（任意）名字查询 id
+    2. 带（任意）名字查询 id
         http://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?2691590992858971545
         http://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?id=2691590992858971545
         http://localhost:8000/2691590992858971545/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv
+    3. 查询 pickcode
+        http://localhost:8000?ecjq9ichcb40lzlvx
+        http://localhost:8000/ecjq9ichcb40lzlvx
+        http://localhost:8000?pickcode=ecjq9ichcb40lzlvx
+    4. 带（任意）名字查询 pickcode
+        http://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?ecjq9ichcb40lzlvx
+        http://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?pickcode=ecjq9ichcb40lzlvx
+        http://localhost:8000/ecjq9ichcb40lzlvx/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv
     4. 查询 sha1
         http://localhost:8000?E7FAA0BE343AF2DA8915F2B694295C8E4C91E691
         http://localhost:8000/E7FAA0BE343AF2DA8915F2B694295C8E4C91E691
@@ -126,6 +126,7 @@ usage:  [-h] [-c COOKIES] [-cp COOKIES_PATH] [-a APP_ID] [-rt REFRESH_TOKEN]
     5. "hist" 或 "history"，获取或设置视频播放进度。当你没有 time 和 watch_end 查询参数时，会获取视频播放进度，否则会进行设置。结果是一个 JSON
         - time，接受 1 个整数，视频播放进度时长，单位是：秒
         - watch_end，接受 0 或者 1，视频是否播放播放完毕，默认为 0，1 表示播放完毕
+    6. "info"，获取文件信息，结果是一个 JSON
 
 options:
   -h, --help            show this help message and exit

@@ -2,7 +2,7 @@
 # encoding: utf-8
 
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
-__version__ = (0, 0, 3)
+__version__ = (0, 0, 4)
 __license__ = "GPLv3 <https://www.gnu.org/licenses/gpl-3.0.txt>"
 
 import logging
@@ -22,7 +22,9 @@ from blacksheep.contents import Content
 from blacksheep.server.remotes.forwarding import ForwardedHeadersMiddleware
 from cachedict import LRUDict, TLRUDict, TTLDict
 from orjson import dumps, OPT_INDENT_2, OPT_SORT_KEYS
-from p115client import check_response, P115Client, P115URL
+from p115client import check_response, P115OpenClient, P115ID, P115URL
+from p115pickcode import id_to_pickcode, is_valid_pickcode, pickcode_to_id
+from posixpatht import splits
 from rich.box import ROUNDED
 from rich.console import Console
 from rich.highlighter import JSONHighlighter
@@ -85,20 +87,35 @@ def get_first(m: Mapping, *keys, default=None):
 
 
 def make_application(
-    client: P115Client, 
+    client: P115OpenClient, 
     debug: bool = False, 
     token: str = "", 
     cache_url: bool = False, 
     cache_size: int = 65536, 
 ) -> Application:
-    ID_TO_PICKCODE: LRUDict[int, str] = LRUDict(cache_size)
-    SHA1_TO_PICKCODE: LRUDict[str | tuple[str, int], str] = LRUDict(cache_size)
-    NAME_TO_PICKCODE: LRUDict[str | tuple[str, int], str] = LRUDict(cache_size)
-    PATH_TO_PICKCODE: TTLDict[str, str] = TTLDict(cache_size, ttl=3600)
+    """创建 blacksheep 后台服务对象
+
+    :param client: 115 客户端对象
+    :param debug: 是否开启调试信息
+    :param token: 如果不为空，则支持链接签名
+    :param cache_url: 是否缓存下载链接
+    :param cache_size: 缓存大小（所有有关的缓存各自的大小，而不是总的大小）
+
+    :return: blacksheep 服务对象
+    """
+    #: sha1 或 (sha1, size) 对应 id
+    SHA1_TO_ID: LRUDict[str | tuple[str, int], int] = LRUDict(cache_size)
+    #: name 或 (name, size) 对应 id
+    NAME_TO_ID: LRUDict[str | tuple[str, int], int] = LRUDict(cache_size)
+    #: path 对应 id
+    PATH_TO_ID: TTLDict[str, int] = TTLDict(cache_size, ttl=3600)
     if cache_url:
-        DOWNLOAD_URL_CACHE: TLRUDict[tuple[str, str], P115URL] = TLRUDict(cache_size)
-    DOWNLOAD_URL_CACHE1: TLRUDict[str, P115URL] = TLRUDict(cache_size)
-    DOWNLOAD_URL_CACHE2: TLRUDict[tuple[str, str], P115URL] = TLRUDict(1024)
+        #: (id, user_agent) 对应下载 url
+        DOWNLOAD_URL_CACHE: TLRUDict[tuple[int, str], P115URL] = TLRUDict(cache_size)
+    #: id 对应下载 url（此 url 不限定 user_agent）
+    DOWNLOAD_URL_CACHE1: TLRUDict[int, P115URL] = TLRUDict(cache_size)
+    #: (id, user_agent) 对应下载 url
+    DOWNLOAD_URL_CACHE2: TLRUDict[tuple[int, str], P115URL] = TLRUDict(1024)
 
     app = Application(router=Router(), show_error_details=debug)
     logger = getattr(app, "logger")
@@ -183,30 +200,17 @@ def make_application(
                 raise
         return response
 
-    async def get_pickcode_to_id(id: int) -> str:
-        if pickcode := ID_TO_PICKCODE.get(id, ""):
-            return pickcode
-        resp = await client.fs_info_open(id, timeout=5, async_=True)
-        check_response(resp)
-        data = resp["data"]
-        if not data:
-            raise FileNotFoundError(ENOENT, id)
-        elif not data["sha1"]:
-            raise NotADirectoryError(ENOTDIR, id)
-        pickcode = ID_TO_PICKCODE[id] = data["pick_code"]
-        return pickcode
-
-    async def get_pickcode_for_sha1(
+    async def sha1_to_id(
         sha1: str, 
         size: int = -1, 
         refresh: bool = False, 
-    ) -> str:
+    ) -> int:
         if not refresh:
             if size < 0:
-                if pickcode := SHA1_TO_PICKCODE.get(sha1, ""):
-                    return pickcode
-            elif pickcode := SHA1_TO_PICKCODE.get((sha1, size), ""):
-                return pickcode
+                if id := SHA1_TO_ID.get(sha1):
+                    return id
+            elif id := SHA1_TO_ID.get((sha1, size)):
+                return id
         resp = await client.fs_search_open(
             {"search_value": sha1, "fc": 2, "limit": 16}, 
             async_=True, 
@@ -216,24 +220,25 @@ def make_application(
             if info["sha1"] == sha1:
                 if size >= 0 and int(info["file_size"]) != size:
                     continue
+                id = int(info["file_id"])
                 if size < 0:
-                    pickcode = SHA1_TO_PICKCODE[sha1] = info["pick_code"]
+                    SHA1_TO_ID[sha1] = id
                 else:
-                    pickcode = SHA1_TO_PICKCODE[(sha1, size)] = info["pick_code"]
-                return pickcode
-        raise FileNotFoundError(ENOENT, pickcode)
+                    SHA1_TO_ID[(sha1, size)] = id
+                return P115ID(id, info)
+        raise FileNotFoundError(ENOENT, {"sha1": sha1, "size": size, "error": "not found"})
 
-    async def get_pickcode_for_name(
+    async def name_to_id(
         name: str, 
         size: int = -1, 
         refresh: bool = False, 
-    ) -> str:
+    ) -> int:
         if not refresh:
             if size < 0:
-                if pickcode := NAME_TO_PICKCODE.get(name, ""):
-                    return pickcode
-            elif pickcode := NAME_TO_PICKCODE.get((name, size), ""):
-                return pickcode
+                if id := NAME_TO_ID.get(name):
+                    return id
+            elif id := NAME_TO_ID.get((name, size)):
+                return id
         payload = {"search_value": name, "fc": 2, "limit": 16}
         suffix = name.rpartition(".")[-1]
         if len(suffix) < 5 and suffix.isalnum() and suffix[0].isalpha():
@@ -241,63 +246,74 @@ def make_application(
         resp = await client.fs_search_open(payload, async_=True)
         check_response(resp)
         for info in resp["data"]:
-            if info["name"] == name:
+            if info["file_name"] == name:
                 if size >= 0 and int(info["file_size"]) != size:
                     continue
+                id = int(info["file_id"])
                 if size < 0:
-                    pickcode = NAME_TO_PICKCODE[name] = info["pick_code"]
+                    NAME_TO_ID[name] = id
                 else:
-                    pickcode = NAME_TO_PICKCODE[(name, size)] = info["pick_code"]
-                return pickcode
-        raise FileNotFoundError(ENOENT, name)
+                    NAME_TO_ID[(name, size)] = id
+                return P115ID(id, info)
+        raise FileNotFoundError(ENOENT, {"name": name, "size": size, "error": "not found"})
 
-    async def get_pickcode_for_path(
+    async def path_to_id(
         path: str, 
         refresh: bool = False, 
-    ) -> str:
-        path = "/" + path.replace(">", "/").strip("/")
+    ) -> int:
+        if ">" in path:
+            path = path.strip(">")
+            if ">>" in path:
+                path = ">".join(p for p in path.split(">") if p)
+            path = ">" + path
+        else:
+            patht, _ = splits(path)
+            path = ">".join(patht)
+            if patht[0]:
+                path = ">" + path
         if not refresh:
-            if pickcode := PATH_TO_PICKCODE.get(path, ""):
-                return pickcode
+            if id := PATH_TO_ID.get(path):
+                return id
         resp = await client.fs_info_open(path, timeout=5, async_=True)
         check_response(resp)
         data = resp["data"]
         if not data:
-            raise FileNotFoundError(ENOENT, path)
+            raise FileNotFoundError(ENOENT, {"path": path, "error": "not found"})
         elif not data["sha1"]:
-            raise NotADirectoryError(ENOTDIR, path)
-        pickcode = PATH_TO_PICKCODE[path] = data["pick_code"]
-        return pickcode
+            raise NotADirectoryError(ENOTDIR, {"path": path, "error": "not a directory"})
+        id = PATH_TO_ID[path] = int(data["file_id"])
+        return P115ID(id, data)
 
     async def get_downurl(
-        pickcode: str, 
+        id: int, 
         user_agent: str = "", 
     ) -> P115URL:
-        if (cache_url and (r := DOWNLOAD_URL_CACHE.get((pickcode, user_agent)))
-            or (r := DOWNLOAD_URL_CACHE1.get(pickcode))
-            or (r := DOWNLOAD_URL_CACHE2.get((pickcode, user_agent)))
+        if (cache_url and (r := DOWNLOAD_URL_CACHE.get((id, user_agent)))
+            or (r := DOWNLOAD_URL_CACHE1.get(id))
+            or (r := DOWNLOAD_URL_CACHE2.get((id, user_agent)))
         ):
             return r[1]
+        pickcode = id_to_pickcode(id, client.pickcode_stable_point)
         url = await client.download_url_open(
             pickcode, 
-            headers={"User-Agent": user_agent}, 
+            headers={"user-agent": user_agent}, 
             async_=True, 
         )
         expire_ts = int(next(v for k, v in parse_qsl(urlsplit(url).query) if k == "t")) - 60 * 5
         if "&c=0&f=&" in url:
-            DOWNLOAD_URL_CACHE1[pickcode] = (expire_ts, url)
+            DOWNLOAD_URL_CACHE1[id] = (expire_ts, url)
         elif "&c=0&f=1&" in url:
-            DOWNLOAD_URL_CACHE2[(pickcode, user_agent)] = (expire_ts, url)
+            DOWNLOAD_URL_CACHE2[(id, user_agent)] = (expire_ts, url)
         elif cache_url:
-            DOWNLOAD_URL_CACHE[(pickcode, user_agent)] = (expire_ts, url)
+            DOWNLOAD_URL_CACHE[(id, user_agent)] = (expire_ts, url)
         return url
 
     @app.router.route("/", methods=["GET", "HEAD", "POST"])
     @app.router.route("/<path:name2>", methods=["GET", "HEAD", "POST"])
     async def index(
         request: Request, 
-        pickcode: str = "", 
         id: int = 0, 
+        pickcode: str = "", 
         sha1: str = "", 
         path: str = "", 
         name: str = "", 
@@ -319,29 +335,29 @@ def make_application(
                 return json({"state": False, "message": "invalid sign"}, 403)
             elif t > 0 and t <= get_timestamp():
                 return json({"state": False, "message": "url was expired"}, 401)
-        if pickcode:
-            if resp := check_sign(pickcode):
-                return resp
-            if not (len(pickcode) == 17 and pickcode.isalnum()):
-                raise ValueError(f"bad pickcode: {pickcode!r}")
-        elif id:
+        if id:
             if resp := check_sign(id):
                 return resp
-            pickcode = await get_pickcode_to_id(id)
+        elif pickcode:
+            if resp := check_sign(pickcode):
+                return resp
+            if not is_valid_pickcode(pickcode):
+                raise ValueError(f"bad pickcode: {pickcode!r}")
+            id = pickcode_to_id(pickcode)
         elif sha1:
             if resp := check_sign(sha1):
                 return resp
             if len(sha1) != 40 or sha1.strip(hexdigits):
                 raise ValueError(f"bad sha1: {sha1!r}")
-            pickcode = await get_pickcode_for_sha1(sha1.upper(), size, refresh=refresh)
+            id = await sha1_to_id(sha1.upper(), size, refresh=refresh)
         elif name:
             if resp := check_sign(name):
                 return resp
-            pickcode = await get_pickcode_for_name(name, size, refresh=refresh)
+            id = await name_to_id(name, size, refresh=refresh)
         elif path:
             if resp := check_sign(path):
                 return resp
-            pickcode = await get_pickcode_for_path(path, refresh=refresh)
+            id = await path_to_id(path, refresh=refresh)
         else:
             remains = ""
             if match := CRE_name_search(unquote(request.url.query or b"")):
@@ -354,23 +370,24 @@ def make_application(
                 fullname = name + remains
                 if resp := check_sign(fullname):
                     return resp
-                if len(name) == 17 and name.isalnum():
-                    pickcode = name.lower()
-                elif not name.strip(digits):
-                    pickcode = await get_pickcode_to_id(int(name))
+                if not (name.startswith("0") or name.strip(digits)):
+                    id = int(name)
+                elif is_valid_pickcode(name):
+                    id = pickcode_to_id(name)
                 elif len(name) == 40 and not name.strip(hexdigits):
-                    pickcode = await get_pickcode_for_sha1(name.upper(), size, refresh=refresh)
+                    id = await sha1_to_id(name.upper(), size, refresh=refresh)
             else:
                 fullname = name2
                 if fullname and (resp := check_sign(fullname)):
                     return resp
-            if not pickcode and fullname:
+            if not id and fullname:
                 if ">" in fullname or "/" in fullname:
-                    pickcode = await get_pickcode_for_path(fullname, refresh=refresh)
+                    id = await path_to_id(fullname, refresh=refresh)
                 else:
-                    pickcode = await get_pickcode_for_name(fullname, size, refresh=refresh)
-        if not pickcode:
+                    id = await name_to_id(fullname, size, refresh=refresh)
+        if not id:
             raise FileNotFoundError(ENOENT, f"not found: {str(request.url)!r}")
+        pickcode = id_to_pickcode(id, client.pickcode_stable_point)
         match method:
             # 视频字幕列表
             case "subs" | "subtitle" | "subtitles":
@@ -411,11 +428,24 @@ def make_application(
                     resp = await client.fs_video_history_open(pickcode, async_=True)
                     check_response(resp)
                     return json(resp["data"] or {})
-        user_agent = (request.get_first_header(b"User-agent") or b"").decode("latin-1")
-        url = await get_downurl(pickcode.lower(), user_agent)
+            # 获取文件信息
+            case "info":
+                if isinstance(id, P115ID):
+                    data = id.__dict__
+                else:
+                    data = {}
+                if "paths" not in data:
+                    resp = await client.fs_info_open(id, async_=True)
+                    check_response(resp)
+                    if not resp["data"]:
+                        raise FileNotFoundError(ENOENT, {"id": id, "error": "not found"})
+                    data.update(resp["data"])
+                return json(data)
+        user_agent = (request.get_first_header(b"user-agent") or b"").decode("latin-1")
+        url = await get_downurl(id, user_agent)
         return Response(302, [
-            (b"Location", bytes(url, "utf-8")), 
-            (b"Content-Disposition", b'attachment; filename="%s"' % bytes(quote(url["name"], safe=""), "latin-1")), 
+            (b"location", bytes(url, "utf-8")), 
+            (b"content-disposition", b'attachment; filename="%s"' % bytes(quote(url["name"], safe=""), "latin-1")), 
         ], Content(b"application/json; charset=utf-8", dumps(url.__dict__)))
 
     return app
@@ -423,6 +453,7 @@ def make_application(
 
 if __name__ == "__main__":
     from pathlib import Path
+    from p115client import P115Client
     from uvicorn import run
 
     client = P115Client(Path("115-cookies.txt"), ensure_cookies=True, check_for_relogin=True)

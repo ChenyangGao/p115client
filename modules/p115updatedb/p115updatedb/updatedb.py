@@ -33,7 +33,7 @@ from p115client.tool.fs_files import iter_fs_files, iter_fs_files_threaded
 from p115client.tool.iterdir import (
     get_file_count, get_id_to_path, iter_stared_dirs, iter_nodes, 
     iter_nodes_by_pickcode, iter_nodes_using_star_event, 
-    iter_nodes_using_category_get, 
+    iter_nodes_using_info, 
 )
 from p115client.tool.life import (
     iter_life_behavior, IGNORE_BEHAVIOR_TYPES, BEHAVIOR_TYPE_TO_NAME, 
@@ -437,7 +437,7 @@ def load_ancestors(
     """
     if use_star is None:
         id_to_dirnode: dict = {}
-        for _ in iter_nodes_using_category_get(
+        for _ in iter_nodes_using_info(
             client, 
             {a["parent_id"]: a["id"] for a in data}.values(), 
             id_to_dirnode=id_to_dirnode, 
@@ -649,7 +649,7 @@ def diff_dir(
     remove_list: list[int] = []
     if refresh or not ((dirlen := get_dir_count(con, id)) and dirlen["tree_file_count"]):
         future1 = run_as_thread(lambda: set(iter_descendants_bfs(con, id, fields="id")))
-        future2 = run_as_thread(lambda: [{"id": int(a["fid"]), "parent_id": int(a["pid"]), "name": a["fn"], "is_dir": 1, "is_alive": 1} 
+        future2 = run_as_thread(lambda: [{"id": a["id"], "parent_id": a["parent_id"], "name": a["name"], "is_dir": 1, "is_alive": 1} 
                                         for a in iter_download_nodes(client, id, files=False, max_workers=None)])
         if tree:
             _, ancestors, _, data_it = iterdir(client, id, count=count, show_dir=False, cooldown=0.5, **request_kwargs)
@@ -717,7 +717,7 @@ def normalize_attr(info: Mapping, /) -> dict:
 
     :return: 经过规范化后的数据
     """
-    attr = normalize_attr_simple(info)
+    attr: dict = normalize_attr_simple(info)
     attr["is_alive"] = 1
     return attr
 

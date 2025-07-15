@@ -75,7 +75,7 @@ def updatedb_all(
     max_workers: None | int = None, 
 ) -> tuple[int, int]:
     def norm_attr(info: dict, /) -> dict:
-        attr = normalize_attr_simple(info)
+        attr: dict = normalize_attr_simple(info)
         attr["top_id"] = top_id
         return attr
     if page_size <= 0:
@@ -209,4 +209,3 @@ def updatedb(
                 )
 
 # TODO: 支持增量更新，根据 mtime 逆序排列进行比对
-
