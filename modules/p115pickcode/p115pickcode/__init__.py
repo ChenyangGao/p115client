@@ -11,7 +11,6 @@ __all__ = [
 ]
 __license__ = "GPLv3 <https://www.gnu.org/licenses/gpl-3.0.txt>"
 
-from itertools import product
 from string import ascii_lowercase, digits
 from typing import Final, Literal
 
@@ -32,10 +31,9 @@ PREFIX_TO_TRANSTAB: Final = {
     "fe": str.maketrans("ljm0es2cfhwakqv6x4dgp8r1by9u7znt5io3", ALPHABET), 
 }
 #: pickcode 的前缀对应的替换表，用来把密文转换为明文
-PREFIX_TO_TRANSTAB_REV: Final = {
-    k: {v: k for k, v in v.items()} for k, v in PREFIX_TO_TRANSTAB.items()}
+PREFIX_TO_TRANSTAB_REV: Final = {k: {v: k for k, v in v.items()} for k, v in PREFIX_TO_TRANSTAB.items()}
 #: pickcode 的前缀（如果首字母是 "f"，则是 pickcode[:2]，否则是 pickcode[0]）和后缀首字符 pickcode[-4] 的对应关系（之所以可以如此，因为不动点左起第 1 个字符固定是 0）
-PREFIX_TO_FIRST_SUFFIX: Final = dict(zip((a+b for a, b in product(("", "f"), "abcde")), "h8dxz4wr53"))
+PREFIX_TO_FIRST_SUFFIX: Final = {a: chr(b[ord("0")]) for a, b in PREFIX_TO_TRANSTAB.items()}
 #: pickcode 的后缀首字符 pickcode[-4] 和前缀（如果首字母是 "f"，则是 pickcode[:2]，否则是 pickcode[0]）的对应关系
 FIRST_SUFFIX_TO_PREFIX: Final = {v: k for k, v in PREFIX_TO_FIRST_SUFFIX.items()}
 
@@ -157,13 +155,21 @@ def id_to_pickcode(
         return ""
     elif id < 0:
         raise ValueError(f"negtive id is not allowed, got {id!r}")
-    is_stable_point = prefix and len(stable_point) == 4
-    prefix_: str = prefix
-    if not is_stable_point:
-        if len(stable_point) > 4 and stable_point.startswith(("a", "b", "c", "d", "e", "f")):
+    len_stable_point = len(stable_point)
+    is_stable_point = prefix and len_stable_point <= 4
+    if is_stable_point:
+        if len_stable_point < 4:
+            stable_point = "0" * (4 - len_stable_point) + stable_point
+        prefix_: str = prefix
+    else:
+        if len_stable_point > 4 and stable_point.startswith(("a", "b", "c", "d", "e", "f")):
             prefix_ = stable_point[:2] if stable_point.startswith("f") else stable_point[0]
         else:
             prefix_ = FIRST_SUFFIX_TO_PREFIX[stable_point[-4]]
+        if prefix and prefix_ != prefix:
+            is_stable_point = True
+            stable_point = stable_point[-4:].translate(PREFIX_TO_TRANSTAB_REV[prefix_])
+            prefix_ = prefix
     transtab = PREFIX_TO_TRANSTAB[prefix_]
     if is_stable_point:
         suffix = stable_point.translate(transtab)
