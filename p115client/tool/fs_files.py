@@ -19,7 +19,7 @@ from time import time
 from typing import cast, overload, Any, Final, Literal
 from warnings import warn
 
-from iterutils import as_gen_step, run_gen_step_iter, Yield
+from iterutils import run_gen_step_iter, Yield
 from p115client import check_response, P115Client, P115OpenClient
 from p115client.client import get_status_code
 from p115client.exception import BusyOSError, DataError, P115Warning

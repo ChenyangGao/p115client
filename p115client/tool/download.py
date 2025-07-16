@@ -41,7 +41,7 @@ from p115client import (
     P115OpenClient, P115URL, 
 )
 from p115client.exception import P115Warning
-from p115pickcode import to_id, to_pickcode
+from p115pickcode import to_id
 
 from .iterdir import (
     get_path_to_cid, iterdir, iter_files, iter_files_with_path, 
@@ -94,15 +94,14 @@ def batch_get_url(
     """
     if isinstance(client, str):
         client = P115Client(client, check_for_relogin=True)
-    stable_point = client.pickcode_stable_point
     if headers := request_kwargs.get("headers"):
         request_kwargs["headers"] = dict(headers, **{"user-agent": user_agent})
     else:
         request_kwargs["headers"] = {"user-agent": user_agent}
     if isinstance(pickcode, (int, str)):
-        pickcode = to_pickcode(pickcode, stable_point)
+        pickcode = client.to_pickcode(pickcode)
     elif not isinstance(pickcode, str):
-        pickcode = ",".join(to_pickcode(pc, stable_point) for pc in pickcode)
+        pickcode = ",".join(map(client.to_pickcode, pickcode))
     if not isinstance(client, P115Client) or app == "open":
         get_download_url: Callable = client.download_url_info_open
     else:
@@ -184,7 +183,6 @@ def iter_url_batches(
     """
     if isinstance(client, str):
         client = P115Client(client, check_for_relogin=True)
-    stable_point = client.pickcode_stable_point
     if headers := request_kwargs.get("headers"):
         request_kwargs["headers"] = dict(headers, **{"user-agent": user_agent})
     else:
@@ -196,7 +194,7 @@ def iter_url_batches(
     if batch_size <= 0:
         batch_size = 1
     def gen_step():
-        for pcs in batched((to_pickcode(pc, stable_point) for pc in pickcodes), batch_size):
+        for pcs in batched(map(client.to_pickcode, pickcodes), batch_size):
             resp = yield get_download_url(
                 ",".join(pcs), 
                 async_=async_, 
@@ -1210,7 +1208,6 @@ def iter_download_nodes(
     """
     if isinstance(client, str):
         client = P115Client(client, check_for_relogin=True)
-    stable_point = client.pickcode_stable_point
     get_base_url = cycle(("http://proapi.115.com", "https://proapi.115.com")).__next__
     if async_:
         if max_workers is None or max_workers <= 0:
@@ -1272,9 +1269,10 @@ def iter_download_nodes(
         async_=async_, 
         **{"base_url": get_base_url, **request_kwargs}, 
     )
+    to_pickcode = client.to_pickcode
     if max_workers == 1:
         def gen_step(pickcode: int | str, /):
-            pickcode = to_pickcode(pickcode, stable_point)
+            pickcode = to_pickcode(pickcode)
             for i in count(1):
                 payload = {"pickcode": pickcode, "page": i}
                 resp = yield get_nodes(payload)
@@ -1324,7 +1322,7 @@ def iter_download_nodes(
                 n = executor._max_workers
                 submit = executor.submit
                 shutdown = lambda: executor.shutdown(False, cancel_futures=True)
-            pickcode = to_pickcode(pickcode, stable_point)
+            pickcode = to_pickcode(pickcode)
             try:
                 sentinel = object()
                 countdown: Callable
@@ -1449,7 +1447,6 @@ def iter_download_files(
     """
     if isinstance(client, str):
         client = P115Client(client, check_for_relogin=True)
-    stable_point = client.pickcode_stable_point
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
     elif id_to_dirnode is ...:
@@ -1594,7 +1591,7 @@ def iter_download_files(
             for pickcode in pickcodes:
                 yield YieldFrom(run_gen_step_iter(gen_step(pickcode), async_))
                 ancestors_loaded = False
-    return run_gen_step_iter(gen_step(to_pickcode(cid, stable_point)), async_)
+    return run_gen_step_iter(gen_step(client.to_pickcode(cid)), async_)
 
 
 @overload

@@ -59,7 +59,7 @@ from orjson import dumps, loads
 from p115cipher.fast import (
     rsa_encode, rsa_decode, ecdh_encode_token, ecdh_aes_encode, ecdh_aes_decode, make_upload_payload, 
 )
-from p115pickcode import get_stable_point
+from p115pickcode import get_stable_point, to_id, to_pickcode
 from property import locked_cacheproperty
 from re import compile as re_compile
 from startfile import startfile, startfile_async # type: ignore
@@ -629,29 +629,32 @@ def check_response(resp: dict | Awaitable[dict], /) -> dict | Coroutine[Any, Any
 
 @overload
 def normalize_attr_web(
-    info: Mapping, 
+    info: Mapping[str, Any], 
     /, 
     simple: bool = False, 
     keep_raw: bool = False, 
+    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
     *, 
     dict_cls: None = None, 
 ) -> dict[str, Any]:
     ...
 @overload
 def normalize_attr_web[D: dict[str, Any]](
-    info: Mapping, 
+    info: Mapping[str, Any], 
     /, 
     simple: bool = False, 
     keep_raw: bool = False, 
+    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
     *, 
     dict_cls: type[D], 
 ) -> D:
     ...
 def normalize_attr_web[D: dict[str, Any]](
-    info: Mapping, 
+    info: Mapping[str, Any], 
     /, 
     simple: bool = False, 
     keep_raw: bool = False, 
+    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
     *, 
     dict_cls: None | type[D] = None, 
 ) -> dict[str, Any] | D:
@@ -660,6 +663,7 @@ def normalize_attr_web[D: dict[str, Any]](
     :param info: 原始数据
     :param simple: 只提取少量必要字段 "is_dir", "id", "parent_id", "name", "sha1", "size", "pickcode", "is_collect", "ctime", "mtime", "type"
     :param keep_raw: 是否保留原始数据，如果为 True，则保存到 "raw" 字段
+    :param default: 一些预设值，可被覆盖
     :param dict_cls: 字典类型
 
     :return: 翻译后的 dict 类型数据
@@ -667,6 +671,8 @@ def normalize_attr_web[D: dict[str, Any]](
     if dict_cls is None:
         dict_cls = cast(type[D], dict)
     attr: dict[str, Any] = dict_cls()
+    if default:
+        attr.update(default)
     is_dir = attr["is_dir"] = "fid" not in info
     if is_dir:
         attr["id"] = int(info["cid"])        # category_id
@@ -771,29 +777,33 @@ def normalize_attr_web[D: dict[str, Any]](
 
 @overload
 def normalize_attr_app(
-    info: Mapping, 
+    info: Mapping[str, Any], 
     /, 
     simple: bool = False, 
     keep_raw: bool = False, 
+    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
     *, 
     dict_cls: None = None, 
 ) -> dict[str, Any]:
     ...
 @overload
 def normalize_attr_app[D: dict[str, Any]](
-    info: Mapping, 
+    info: Mapping[str, Any], 
     /, 
     simple: bool = False, 
     keep_raw: bool = False, 
+    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
     *, 
     dict_cls: type[D], 
 ) -> D:
     ...
 def normalize_attr_app[D: dict[str, Any]](
-    info: Mapping, 
+    info: Mapping[str, Any], 
     /, 
     simple: bool = False, 
     keep_raw: bool = False, 
+    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
+    *, 
     dict_cls: None | type[D] = None, 
 ) -> dict[str, Any] | D:
     """翻译 `P115Client.fs_files_app` 接口响应的文件信息数据，使之便于阅读
@@ -801,6 +811,7 @@ def normalize_attr_app[D: dict[str, Any]](
     :param info: 原始数据
     :param simple: 只提取少量必要字段 "is_dir", "id", "parent_id", "name", "sha1", "size", "pickcode", "is_collect", "ctime", "mtime", "type"
     :param keep_raw: 是否保留原始数据，如果为 True，则保存到 "raw" 字段
+    :param default: 一些预设值，可被覆盖
     :param dict_cls: 字典类型
 
     :return: 翻译后的 dict 类型数据
@@ -808,8 +819,10 @@ def normalize_attr_app[D: dict[str, Any]](
     if dict_cls is None:
         dict_cls = cast(type[D], dict)
     attr: dict[str, Any] = dict_cls()
+    if default:
+        attr.update(default)
     is_dir = attr["is_dir"] = info["fc"] == "0" # file_category
-    attr["id"] = int(info["fid"])          # file_id
+    attr["id"] = int(info["fid"])               # file_id
     attr["parent_id"] = int(info["pid"])        # parent_id
     attr["name"] = info["fn"]
     sha1 = attr["sha1"] = info.get("sha1") or ""
@@ -892,29 +905,33 @@ def normalize_attr_app[D: dict[str, Any]](
 
 @overload
 def normalize_attr_app2(
-    info: Mapping, 
+    info: Mapping[str, Any], 
     /, 
     simple: bool = False, 
     keep_raw: bool = False, 
+    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
     *, 
     dict_cls: None = None, 
 ) -> dict[str, Any]:
     ...
 @overload
 def normalize_attr_app2[D: dict[str, Any]](
-    info: Mapping, 
+    info: Mapping[str, Any], 
     /, 
     simple: bool = False, 
     keep_raw: bool = False, 
+    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
     *, 
     dict_cls: type[D], 
 ) -> D:
     ...
 def normalize_attr_app2[D: dict[str, Any]](
-    info: Mapping, 
+    info: Mapping[str, Any], 
     /, 
     simple: bool = False, 
     keep_raw: bool = False, 
+    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
+    *, 
     dict_cls: None | type[D] = None, 
 ) -> dict[str, Any] | D:
     """翻译 `P115Client.fs_files_app2` 接口响应的文件信息数据，使之便于阅读
@@ -922,6 +939,7 @@ def normalize_attr_app2[D: dict[str, Any]](
     :param info: 原始数据
     :param simple: 只提取少量必要字段 "is_dir", "id", "parent_id", "name", "sha1", "size", "pickcode", "is_collect", "ctime", "mtime", "type"
     :param keep_raw: 是否保留原始数据，如果为 True，则保存到 "raw" 字段
+    :param default: 一些预设值，可被覆盖
     :param dict_cls: 字典类型
 
     :return: 翻译后的 dict 类型数据
@@ -929,6 +947,8 @@ def normalize_attr_app2[D: dict[str, Any]](
     if dict_cls is None:
         dict_cls = cast(type[D], dict)
     attr: dict[str, Any] = dict_cls()
+    if default:
+        attr.update(default)
     if "file_id" in info and "parent_id" in info:
         if "file_category" in info:
             is_dir = not int(info["file_category"])
@@ -1052,29 +1072,32 @@ def normalize_attr_app2[D: dict[str, Any]](
 
 @overload
 def normalize_attr(
-    info: Mapping, 
+    info: Mapping[str, Any], 
     /, 
     simple: bool = False, 
     keep_raw: bool = False, 
+    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
     *, 
     dict_cls: None = None, 
 ) -> AttrDict[str, Any]:
     ...
 @overload
 def normalize_attr[D: dict[str, Any]](
-    info: Mapping, 
+    info: Mapping[str, Any], 
     /, 
     simple: bool = False, 
     keep_raw: bool = False, 
+    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
     *, 
     dict_cls: type[D], 
 ) -> D:
     ...
 def normalize_attr[D: dict[str, Any]](
-    info: Mapping, 
+    info: Mapping[str, Any], 
     /, 
     simple: bool = False, 
     keep_raw: bool = False, 
+    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
     *, 
     dict_cls: None | type[D] = None, 
 ) -> AttrDict[str, Any] | D:
@@ -1083,55 +1106,68 @@ def normalize_attr[D: dict[str, Any]](
     :param info: 原始数据
     :param simple: 只提取少量必要字段 "is_dir", "id", "parent_id", "name", "sha1", "size", "pickcode", "is_collect", "ctime", "mtime"
     :param keep_raw: 是否保留原始数据，如果为 True，则保存到 "raw" 字段
+    :param default: 一些预设值，可被覆盖
     :param dict_cls: 字典类型
 
     :return: 翻译后的 dict 类型数据
     """
-    if dict_cls is None:
-        if "fn" in info:
-            return normalize_attr_app(info, simple=simple, keep_raw=keep_raw, dict_cls=AttrDict)
-        elif "file_id" in info or "category_id" in info:
-            return normalize_attr_app2(info, simple=simple, keep_raw=keep_raw, dict_cls=AttrDict)
-        else:
-            return normalize_attr_web(info, simple=simple, keep_raw=keep_raw, dict_cls=AttrDict)
+    if "fn" in info:
+        call = normalize_attr_app
+    elif "file_id" in info or "category_id" in info:
+        call = normalize_attr_app2
     else:
-        if "fn" in info:
-            return normalize_attr_app(info, simple=simple, keep_raw=keep_raw, dict_cls=dict_cls)
-        elif "file_id" in info or "category_id" in info:
-            return normalize_attr_app2(info, simple=simple, keep_raw=keep_raw, dict_cls=dict_cls)
-        else:
-            return normalize_attr_web(info, simple=simple, keep_raw=keep_raw, dict_cls=dict_cls)
+        call = normalize_attr_web
+    if dict_cls is None:
+        return call(info, simple=simple, keep_raw=keep_raw, default=default, dict_cls=AttrDict)
+    else:
+        return call(info, simple=simple, keep_raw=keep_raw, default=default, dict_cls=dict_cls)
 
 
 @overload
 def normalize_attr_simple(
-    info: Mapping, 
+    info: Mapping[str, Any], 
     /, 
     keep_raw: bool = False, 
+    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
     *, 
-    dict_cls: None, 
-) -> dict[str, Any]:
+    dict_cls: None = None, 
+) -> AttrDict[str, Any]:
     ...
 @overload
 def normalize_attr_simple[D: dict[str, Any]](
-    info: Mapping, 
+    info: Mapping[str, Any], 
     /, 
     keep_raw: bool = False, 
+    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
     *, 
-    dict_cls: type[D] = AttrDict, # type: ignore
+    dict_cls: type[D], 
 ) -> D:
     ...
 def normalize_attr_simple[D: dict[str, Any]](
-    info: Mapping, 
+    info: Mapping[str, Any], 
     /, 
     keep_raw: bool = False, 
+    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
     *, 
-    dict_cls: None | type[D] = AttrDict, # type: ignore
-) -> dict[str, Any] | D:
+    dict_cls: None | type[D] = None, 
+) -> AttrDict[str, Any] | D:
+    """翻译获取自罗列目录、搜索、获取文件信息等接口的数据，使之便于阅读
+
+    .. note::
+        只提取少量必要字段 "is_dir", "id", "parent_id", "name", "sha1", "size", "pickcode", "is_collect", "ctime", "mtime"
+
+    :param info: 原始数据
+    :param keep_raw: 是否保留原始数据，如果为 True，则保存到 "raw" 字段
+    :param default: 一些预设值，可被覆盖
+    :param dict_cls: 字典类型
+
+    :return: 翻译后的 dict 类型数据
+    """
     return normalize_attr(
         info, 
         simple=True, 
         keep_raw=keep_raw, 
+        default=default, 
         dict_cls=dict_cls, 
     )
 
@@ -5406,6 +5442,26 @@ class P115OpenClient(ClientRequestMixin):
     upload_file_init_open = upload_file_init
     upload_file_open = upload_file
     vip_qr_url_open = vip_qr_url
+
+    to_id = staticmethod(to_id)
+
+    def to_pickcode(
+        self, 
+        id: int | str, 
+        /, 
+        prefix: Literal["a", "b", "c", "d", "e", "fa", "fb", "fc", "fd", "fe"] = "a", 
+    ) -> str:
+        """把可能是 id 或 pickcode 的一律转换成 pickcode
+
+        .. note::
+            规定：空提取码 "" 对应的 id 是 0
+
+        :param id: 可能是 id 或 pickcode
+        :param prefix: 前缀
+
+        :return: pickcode
+        """
+        return to_pickcode(id, self.pickcode_stable_point, prefix=prefix)
 
 
 class P115Client(P115OpenClient):
@@ -18474,41 +18530,6 @@ class P115Client(P115OpenClient):
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
-    def offline_info(
-        self, 
-        /, 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[False] = False, 
-        **request_kwargs, 
-    ) -> dict:
-        ...
-    @overload
-    def offline_info(
-        self, 
-        /, 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[True], 
-        **request_kwargs, 
-    ) -> Coroutine[Any, Any, dict]:
-        ...
-    def offline_info(
-        self, 
-        /, 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[False, True] = False, 
-        **request_kwargs, 
-    ) -> dict | Coroutine[Any, Any, dict]:
-        """获取关于离线的限制的信息，以及 sign 和 time 字段（各个添加任务的接口需要）
-
-        GET https://115.com/?ct=offline&ac=space
-        """
-        api = complete_api("/?ct=offline&ac=space", base_url=base_url)
-        return self.request(url=api, async_=async_, **request_kwargs)
-
-    @overload
     def offline_list(
         self, 
         payload: int | dict = 1, 
@@ -18823,6 +18844,79 @@ class P115Client(P115OpenClient):
             async_=async_, 
             **request_kwargs, 
         )
+
+    @overload
+    def offline_sign(
+        self, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def offline_sign(
+        self, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def offline_sign(
+        self, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取 sign 和 time 字段（各个添加任务的接口需要），以及其它信息
+
+        GET https://115.com/?ct=offline&ac=space
+        """
+        api = complete_api("/?ct=offline&ac=space", base_url=base_url)
+        return self.request(url=api, async_=async_, **request_kwargs)
+
+    @overload
+    def offline_sign_app(
+        self, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        app: str = "android", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def offline_sign_app(
+        self, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        app: str = "android", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def offline_sign_app(
+        self, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        app: str = "android", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取 sign 和 time 字段（各个添加任务的接口需要）
+
+        GET https://proapi.115.com/android/files/offlinesign
+        """
+        api = complete_proapi("/files/offlinesign", base_url, app)
+        return self.request(url=api, async_=async_, **request_kwargs)
 
     @overload
     def offline_task_count(

@@ -20,9 +20,7 @@ __all__ = [
 __doc__ = "这个模块提供了一些和目录信息罗列有关的函数"
 
 # TODO: 再实现 2 个方法，利用 iter_download_nodes，一个有 path，一个没有，可以把某个目录下的所有节点都搞出来，导出时，先导出目录节点，再导出文件节点，但它们是并发执行的，然后必有字段：id, parent_id, pickcode, name, is_dir, sha1 等
-
 # TODO: 路径表示法，应该支持 / 和 > 开头，而不仅仅是 / 开头
-# TODO: 对于路径，增加 top_id 和 relpath 字段，表示搜素目录的 id 和相对于搜索路径的相对路径
 # TODO: get_id* 这类方法，应该放在 attr.py，用来获取某个 id 对应的值（根本还是 get_attr）
 # TODO: 创造函数 get_id, get_parent_id, get_ancestors, get_sha1, get_pickcode, get_path 等，支持多种类型的参数，目前已有的名字太长，需要改造，甚至转为私有，另外这些函数或许可以放到另一个包中，attr.py
 # TODO: 去除掉一些并不便利的办法，然后加上 traverse 和 walk 方法，通过递归拉取（支持深度和广度优先遍历）
@@ -60,7 +58,7 @@ from p115client import (
     P115Client, P115OpenClient, P115OSError, P115Warning, 
 )
 from p115client.type import P115ID
-from p115pickcode import pickcode_to_id, to_id, to_pickcode
+from p115pickcode import pickcode_to_id, to_id
 from posixpatht import path_is_dir_form, splitext, splits
 
 from .attr import type_of_attr
@@ -138,42 +136,50 @@ def _overview_attr(info: Mapping, /) -> OverviewAttr:
     return OverviewAttr(is_dir, id, pid, name, ctime, mtime)
 
 
-def _update_resp_2_id_to_dirnode(
+def _update_resp_ancestors(
     resp: dict, 
-    id_to_dirnode: EllipsisType | MutableMapping[int, tuple[str, int] | DirNode], 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     /, 
     error: None | OSError = FileNotFoundError(ENOENT, "not found"), 
 ) -> dict:
+    list_append = list.append
+    need_update_id_to_dirnode = id_to_dirnode not in (..., None)
     if "path" in resp:
-        if id_to_dirnode is not ...:
-            for info in resp["path"][1:]:
-                id_to_dirnode[int(info["cid"])] = DirNode(info["name"], int(info["pid"]))
+        ancestors = resp["ancestors"] = []
+        start_idx = not resp["path"][0]["cid"]
+        if start_idx:
+            list_append(ancestors, {"id": 0, "parent_id": 0, "name": ""})
+        for info in resp["path"][start_idx:]:
+            id, name, pid = int(info["cid"]), info["name"], int(info["pid"])
+            list_append(ancestors, {"id": id, "parent_id": pid, "name": name})
+            if need_update_id_to_dirnode:
+                id_to_dirnode[id] = DirNode(name, pid) # type: ignore
     else:
+        if resp and "paths" not in resp:
+            check_response(resp)
+            resp = resp["data"]
         if not resp:
             if error is None:
                 return resp
             raise error
-        if "paths" not in resp:
-            check_response(resp)
-            resp = resp["data"]
-            if not resp:
-                if error is None:
-                    return resp
-                raise error
-        if id_to_dirnode is not ...:
-            paths = resp["paths"]
-            info = paths[0]
-            pid = int(info["file_id"])
-            for info in paths[1:]:
-                fid = int(info["file_id"])
-                id_to_dirnode[fid] = DirNode(info["file_name"], pid)
-                pid = fid
-            if not resp["sha1"]:
-                if "file_id" in resp:
-                    fid = int(resp["file_id"])
-                else:
-                    fid = to_id(resp["pick_code"])
-                id_to_dirnode[fid] = DirNode(resp["file_name"], pid)
+        ancestors = resp["ancestors"] = []
+        pid = int(resp["paths"][0]["file_id"])
+        for info in resp["paths"][1:]:
+            id = int(info["file_id"])
+            name = info["file_name"]
+            list_append(ancestors, {"id": id, "parent_id": pid, "name": name})
+            if need_update_id_to_dirnode:
+                id_to_dirnode[id] = DirNode(name, pid) # type: ignore
+            pid = id
+        if not resp["sha1"]:
+            if "file_id" in resp:
+                id = int(resp["file_id"])
+            else:
+                id = to_id(resp["pick_code"])
+            name = resp["file_name"]
+            list_append(ancestors, {"id": id, "parent_id": pid, "name": name})
+            if need_update_id_to_dirnode:
+                id_to_dirnode[id] = DirNode(name, pid) # type: ignore
     return resp
 
 
@@ -405,13 +411,11 @@ def get_file_count(
             if cid != int(resp["path"][-1]["cid"]):
                 resp["cid"] = cid
                 raise NotADirectoryError(ENOTDIR, resp)
-            if id_to_dirnode is not ...:
-                for info in resp["path"][1:]:
-                    id_to_dirnode[int(info["cid"])] = DirNode(info["name"], int(info["pid"]))
+            _update_resp_ancestors(resp, id_to_dirnode)
             return int(resp["count"])
         else:
             resp = yield get_resp_of_category_get(cid)
-            resp = _update_resp_2_id_to_dirnode(resp, id_to_dirnode, FileNotFoundError(ENOENT, cid))
+            resp = _update_resp_ancestors(resp, id_to_dirnode, FileNotFoundError(ENOENT, cid))
             if resp["sha1"]:
                 resp["cid"] = cid
                 raise NotADirectoryError(ENOTDIR, resp)
@@ -577,7 +581,7 @@ def get_ancestors(
                 return ancestors
             else:
                 resp = yield get_resp_of_category_get(fid)
-                resp = _update_resp_2_id_to_dirnode(resp, id_to_dirnode)
+                resp = _update_resp_ancestors(resp, id_to_dirnode)
                 for info in resp["paths"]:
                     add_ancestor({
                         "parent_id": pid, 
@@ -607,7 +611,7 @@ def get_ancestors(
                     id_to_dirnode[ans["id"]] = DirNode(ans["name"], ans["parent_id"])
         else:
             resp = yield get_resp_of_category_get(fid)
-            resp = _update_resp_2_id_to_dirnode(resp, id_to_dirnode)
+            resp = _update_resp_ancestors(resp, id_to_dirnode)
             for info in resp["paths"]:
                 add_ancestor({
                     "parent_id": pid, 
@@ -835,7 +839,7 @@ def get_id_to_path(
         if not isinstance(client, P115Client) or app == "open":
             path = ">" + ">".join(patht)
             resp = yield client.fs_info_open(path, async_=async_, **request_kwargs)
-            data = _update_resp_2_id_to_dirnode(resp, id_to_dirnode)
+            data = _update_resp_ancestors(resp, id_to_dirnode)
             return P115ID(data["file_id"], data, about="path", path=path)
         i = 0
         start_parent_id = parent_id
@@ -1312,7 +1316,7 @@ def ensure_attr_path[D: dict](
                     pid = id_to_dirnode[pid][1]
                 if pid and pid not in dangling_id_to_name:
                     resp = yield get_info(pid, async_=async_, **request_kwargs)
-                    resp = _update_resp_2_id_to_dirnode(resp, id_to_dirnode, None)
+                    resp = _update_resp_ancestors(resp, id_to_dirnode, None)
                     if not resp:
                         dangling_id_to_name[pid] = ""
                         yield Yield(attr)
@@ -1506,6 +1510,7 @@ def _iter_fs_files(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = ..., 
     raise_for_changed_count: bool = False, 
     ensure_file: None | bool = None, 
+    hold_top: bool = True, 
     app: str = "android", 
     cooldown: int | float = 0, 
     max_workers: None | int = None, 
@@ -1525,6 +1530,7 @@ def _iter_fs_files(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = ..., 
     raise_for_changed_count: bool = False, 
     ensure_file: None | bool = None, 
+    hold_top: bool = True, 
     app: str = "android", 
     cooldown: int | float = 0, 
     max_workers: None | int = None, 
@@ -1543,6 +1549,7 @@ def _iter_fs_files(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = ..., 
     raise_for_changed_count: bool = False, 
     ensure_file: None | bool = None, 
+    hold_top: bool = True, 
     app: str = "android", 
     cooldown: int | float = 0, 
     max_workers: None | int = None, 
@@ -1565,6 +1572,7 @@ def _iter_fs_files(
         - False: 必须是目录
         - None: 可以是目录或文件
 
+    :param hold_top: 保留顶层目录信息，返回字段增加 "top_id", "top_ancestors"
     :param app: 使用指定 app（设备）的接口
     :param cooldown: 冷却时间，大于 0，则使用此时间间隔执行并发
     :param max_workers: 最大并发数，如果为 None 或 <= 0，则自动确定
@@ -1647,12 +1655,12 @@ def _iter_fs_files(
                 max_workers=max_workers, 
                 **request_kwargs, 
             )
+        top_id = int(payload.get("cid") or 0)
         with with_iter_next(it) as get_next:
             while True:
                 resp = yield get_next()
-                if id_to_dirnode is not ...:
-                    for info in resp["path"][1:]:
-                        id_to_dirnode[int(info["cid"])] = DirNode(info["name"], int(info["pid"]))
+                _update_resp_ancestors(resp, id_to_dirnode)
+                ancestors = resp["ancestors"]
                 for info in resp["data"]:
                     if normalize_attr is None:
                         attr: dict | OverviewAttr = _overview_attr(info)
@@ -1667,6 +1675,9 @@ def _iter_fs_files(
                         continue
                     if with_dirname:
                         info["dirname"] = pid_to_name[attr["parent_id"]]
+                    if hold_top:
+                        info["top_id"] = top_id
+                        info["top_ancestors"] = ancestors
                     yield Yield(info)
     return run_gen_step_iter(gen_step, async_)
 
@@ -2294,7 +2305,6 @@ def iter_files_with_path(
         raise ValueError("please set the non-zero value of suffix or type")
     if isinstance(client, str):
         client = P115Client(client, check_for_relogin=True)
-    stable_point = client.pickcode_stable_point
     if isinstance(escape, bool):
         if escape:
             from posixpatht import escape
@@ -2377,7 +2387,7 @@ def iter_files_with_path(
             if id:
                 yield through(iter_download_nodes(
                     client, 
-                    to_pickcode(id, stable_point), 
+                    client.to_pickcode(id), 
                     files=False, 
                     id_to_dirnode=id_to_dirnode, 
                     max_workers=None, 
@@ -2516,7 +2526,6 @@ def iter_files_with_path_skim(
     from .download import iter_download_nodes
     if isinstance(client, str):
         client = P115Client(client, check_for_relogin=True)
-    stable_point = client.pickcode_stable_point
     if isinstance(escape, bool):
         if escape:
             from posixpatht import escape
@@ -2561,6 +2570,8 @@ def iter_files_with_path_skim(
             dirname = id_to_path[pid] = get_path(id_to_dirnode[pid]) + "/"
         return dirname + name
     def update_path(attr: dict, /) -> dict:
+        attr["top_id"] = top_id
+        attr["top_ancestors"] = top_ancestors
         try:
             if with_ancestors:
                 attr["ancestors"] = get_ancestors(attr["id"], attr)
@@ -2585,12 +2596,28 @@ def iter_files_with_path_skim(
         def set_path_already(*_):
             nonlocal _path_already
             _path_already = True
+        top_id = cid
+        if not cid:
+            top_ancestors = [{"id": 0, "parent_id": 0, "name": ""}]
+        else:
+            top_ancestors = []
+            if id_to_dirnode:
+                add_ancestor = top_ancestors.append
+                tid = top_id
+                while tid and tid in id_to_dirnode:
+                    name, pid = id_to_dirnode[tid]
+                    add_ancestor({"id": tid, "parent_id": pid, "name": name})
+                    tid = pid
+                if not tid:
+                    add_ancestor({"id": 0, "parent_id": 0, "name": ""})
+                top_ancestors.reverse()
         @as_gen_step
         def fetch_dirs(id: int | str, /):
+            nonlocal top_ancestors
             if id:
                 if cid:
                     do_next: Callable = anext if async_ else next
-                    yield do_next(_iter_fs_files(
+                    attr = yield do_next(_iter_fs_files(
                         client, 
                         to_id(id), 
                         page_size=1, 
@@ -2598,9 +2625,10 @@ def iter_files_with_path_skim(
                         async_=async_, 
                         **request_kwargs, 
                     ))
+                    top_ancestors = attr["top_ancestors"]
                 yield through(iter_download_nodes(
                     client, 
-                    to_pickcode(id, stable_point), 
+                    client.to_pickcode(id), 
                     files=False, 
                     id_to_dirnode=id_to_dirnode, 
                     max_workers=max_workers, 
@@ -2872,7 +2900,6 @@ def iter_nodes_by_pickcode(
     """
     if isinstance(client, str):
         client = P115Client(client, check_for_relogin=True)
-    stable_point = client.pickcode_stable_point
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
     methods: list[Callable] = []
@@ -2910,7 +2937,7 @@ def iter_nodes_by_pickcode(
         project, 
         conmap(
             get_response, 
-            (to_pickcode(pc, stable_point) for pc in pickcodes), 
+            map(client.to_pickcode, pickcodes), 
             max_workers=max_workers, 
             kwargs=request_kwargs, 
             async_=async_, 
@@ -3096,7 +3123,7 @@ def iter_nodes_using_info(
             return None
         check_response(resp)
         if id_to_dirnode is not ...:
-            _update_resp_2_id_to_dirnode(resp, id_to_dirnode)
+            _update_resp_ancestors(resp, id_to_dirnode)
         return resp
     return do_filter(None, do_map(
         project, 
@@ -4214,6 +4241,7 @@ def share_search_iter(
 
 '''
 # TODO: 需要优化，大优化，优化不好，就删了
+# TODO: 可以在拉取的同时，检测其它待拉取目录大小，但需要设定冷却时间（例如一秒最多 10 次查询）
 @overload
 def traverse_files(
     client: str | P115Client, 
