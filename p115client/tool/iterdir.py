@@ -11,27 +11,29 @@ __all__ = [
     "ensure_attr_path", "ensure_attr_path_using_star_event", 
     "iterdir", "iter_stared_dirs", "iter_dirs", "iter_dirs_with_path", 
     "iter_files", "iter_files_with_path", "iter_files_with_path_skim", 
-    "iter_nodes", "iter_nodes_skim", "iter_nodes_by_pickcode", 
-    "iter_nodes_using_update", "iter_nodes_using_info", 
-    "iter_nodes_using_star_event",  "iter_dir_nodes_using_star", 
-    "iter_parents", "iter_files_shortcut", "iter_dupfiles", "iter_image_files", 
-    "search_iter", "share_iterdir", "share_iter_files", "share_search_iter", 
+    "traverse_tree", "traverse_tree_with_path", "iter_nodes", 
+    "iter_nodes_skim", "iter_nodes_by_pickcode", "iter_nodes_using_update", 
+    "iter_nodes_using_info", "iter_nodes_using_star_event",  
+    "iter_dir_nodes_using_star", "iter_parents", "iter_files_shortcut", 
+    "iter_dupfiles", "iter_image_files", "search_iter", "share_iterdir", 
+    "share_iter_files", "share_search_iter", 
 ]
 __doc__ = "这个模块提供了一些和目录信息罗列有关的函数"
 
-# TODO: 再实现 2 个方法，利用 iter_download_nodes，一个有 path，一个没有，可以把某个目录下的所有节点都搞出来，导出时，先导出目录节点，再导出文件节点，但它们是并发执行的，然后必有字段：id, parent_id, pickcode, name, is_dir, sha1 等
 # TODO: 路径表示法，应该支持 / 和 > 开头，而不仅仅是 / 开头
 # TODO: get_id* 这类方法，应该放在 attr.py，用来获取某个 id 对应的值（根本还是 get_attr）
 # TODO: 创造函数 get_id, get_parent_id, get_ancestors, get_sha1, get_pickcode, get_path 等，支持多种类型的参数，目前已有的名字太长，需要改造，甚至转为私有，另外这些函数或许可以放到另一个包中，attr.py
 # TODO: 去除掉一些并不便利的办法，然后加上 traverse 和 walk 方法，通过递归拉取（支持深度和广度优先遍历）
 # TODO: 要获取某个 id 对应的路径，可以先用 fs_file_skim 或 fs_info 看一下是不是存在，以及是不是文件，然后再选择响应最快的办法获取
 
-from asyncio import create_task, sleep as async_sleep
+from asyncio import create_task, sleep as async_sleep, Task
 from collections import defaultdict
 from collections.abc import (
-    AsyncIterable, AsyncIterator, Callable, Coroutine, Iterable, 
-    Iterator, Mapping, MutableMapping, Sequence, 
+    AsyncIterable, AsyncIterator, Callable, Coroutine, Generator, 
+    Iterable, Iterator, Mapping, MutableMapping, Sequence, 
 )
+from contextlib import contextmanager
+from concurrent.futures import Future
 from dataclasses import dataclass
 from errno import EIO, ENOENT, ENOTDIR
 from functools import partial
@@ -181,6 +183,76 @@ def _update_resp_ancestors(
             if need_update_id_to_dirnode:
                 id_to_dirnode[id] = DirNode(name, pid) # type: ignore
     return resp
+
+
+def _make_top_adder(
+    top_id: int, 
+    id_to_dirnode: MutableMapping[int, tuple[str, int] | DirNode], 
+) -> Callable:
+    top_ancestors: list[dict]
+    if not top_id:
+        top_ancestors = [{"id": 0, "parent_id": 0, "name": ""}]
+    def add_top[T: MutableMapping](attr: T, /) -> T:
+        nonlocal top_ancestors
+        try:
+            top_ancestors
+        except NameError:
+            top_ancestors = []
+            add_ancestor = top_ancestors.append
+            tid = top_id
+            while tid and tid in id_to_dirnode:
+                name, pid = id_to_dirnode[tid]
+                add_ancestor({"id": tid, "parent_id": pid, "name": name})
+                tid = pid
+            if not tid:
+                add_ancestor({"id": 0, "parent_id": 0, "name": ""})
+            top_ancestors.reverse()
+        attr["top_id"] = top_id
+        attr["top_ancestors"] = top_ancestors
+        return attr
+    return add_top
+
+
+@overload
+@contextmanager
+def cache_loading[T](
+    it: Iterator[T], 
+    /, 
+) -> Generator[tuple[list[T], Future]]:
+    ...
+@overload
+@contextmanager
+def cache_loading[T](
+    it: AsyncIterator[T], 
+    /, 
+) -> Generator[tuple[list[T], Task]]:
+    ...
+@contextmanager
+def cache_loading[T](
+    it: Iterator[T] | AsyncIterator[T], 
+    /, 
+) -> Generator[tuple[list[T], Future | Task]]:
+    cache: list[T] = []
+    add_to_cache = cache.append
+    running = True
+    if isinstance(it, AsyncIterator):
+        async def arunner():
+            async for e in it:
+                add_to_cache(e)
+                if not running:
+                    break
+        task: Future | Task = create_task(arunner())
+    else:
+        def runner():
+            for e in it:
+                add_to_cache(e)
+                if not running:
+                    break
+        task = run_as_thread(runner)
+    try:
+        yield (cache, task)
+    finally:
+        running = False
 
 
 # TODO: 支持 open
@@ -2037,7 +2109,8 @@ def iter_dirs_with_path(
             async_=async_, # type: ignore
             **request_kwargs, 
         ))
-        return YieldFrom(ensure_attr_path(
+        add_top = _make_top_adder(to_id(cid), id_to_dirnode)
+        return YieldFrom(do_map(add_top, ensure_attr_path(
             client, 
             attrs, 
             with_ancestors=with_ancestors, 
@@ -2046,7 +2119,7 @@ def iter_dirs_with_path(
             app=app, 
             async_=async_, 
             **request_kwargs, 
-        ))
+        )))
     return run_gen_step_iter(gen_step, async_)
 
 
@@ -2690,6 +2763,212 @@ def iter_files_with_path_skim(
                     task.result()
                 yield YieldFrom(map(update_path, cache))
         return run_gen_step_iter(gen_step, async_)
+
+
+@overload
+def traverse_tree(
+    client: str | P115Client, 
+    cid: int | str = 0, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    app: str = "android", 
+    max_workers: None | int = None, 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> Iterator[dict]:
+    ...
+@overload
+def traverse_tree(
+    client: str | P115Client, 
+    cid: int | str = 0, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    app: str = "android", 
+    max_workers: None | int = None, 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> AsyncIterator[dict]:
+    ...
+def traverse_tree(
+    client: str | P115Client, 
+    cid: int | str = 0, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    app: str = "android", 
+    max_workers: None | int = None, 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+) -> Iterator[dict] | AsyncIterator[dict]:
+    """遍历目录树，获取文件或目录节点的信息
+
+    :param client: 115 客户端或 cookies
+    :param cid: 目录 id 或 pickcode
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
+    :param app: 使用指定 app（设备）的接口
+    :param max_workers: 最大并发数，如果为 None 或 <= 0，则自动确定
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+
+    :return: 迭代器，返回此目录内的文件或目录节点的信息
+    """
+    if isinstance(client, str):
+        client = P115Client(client, check_for_relogin=True)
+    if id_to_dirnode is None:
+        id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
+    elif id_to_dirnode is ...:
+        id_to_dirnode = {}
+    from .download import iter_download_nodes
+    to_pickcode = client.to_pickcode
+    def fulfill_dir_node(attr: dict, /) -> dict:
+        attr["pickcode"] = to_pickcode(attr["id"], "fa")
+        attr["size"] = 0
+        attr["sha1"] = ""
+        return attr
+    def gen_step():
+        files = iter_download_nodes(
+            client, 
+            cid, 
+            files=True,
+            ensure_name=True, 
+            id_to_dirnode=id_to_dirnode, 
+            app=app, 
+            max_workers=max_workers, 
+            async_=async_, 
+            **request_kwargs, 
+        )
+        with cache_loading(files) as (cache, task):
+            yield YieldFrom(do_map(fulfill_dir_node, iter_download_nodes(
+                client, 
+                cid, 
+                files=False, 
+                id_to_dirnode=id_to_dirnode, 
+                app=app, 
+                max_workers=max_workers, 
+                async_=async_, 
+                **request_kwargs, 
+            )))
+        if isinstance(task, Task):
+            yield task
+        else:
+            task.result()
+        yield YieldFrom(cache)
+        yield YieldFrom(files)
+    return run_gen_step_iter(gen_step, async_)
+
+
+@overload
+def traverse_tree_with_path(
+    client: str | P115Client, 
+    cid: int | str = 0, 
+    with_ancestors: bool = False, 
+    escape: None | bool | Callable[[str], str] = True, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    app: str = "android", 
+    max_workers: None | int = None, 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> Iterator[dict]:
+    ...
+@overload
+def traverse_tree_with_path(
+    client: str | P115Client, 
+    cid: int | str = 0, 
+    with_ancestors: bool = False, 
+    escape: None | bool | Callable[[str], str] = True, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    app: str = "android", 
+    max_workers: None | int = None, 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> AsyncIterator[dict]:
+    ...
+def traverse_tree_with_path(
+    client: str | P115Client, 
+    cid: int | str = 0, 
+    with_ancestors: bool = False, 
+    escape: None | bool | Callable[[str], str] = True, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    app: str = "android", 
+    max_workers: None | int = None, 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+) -> Iterator[dict] | AsyncIterator[dict]:
+    """遍历目录树，获取文件或目录节点的信息（包含 "path"，可选 "ancestors"）
+
+    :param client: 115 客户端或 cookies
+    :param cid: 目录 id 或 pickcode
+    :param with_ancestors: 文件信息中是否要包含 "ancestors"
+    :param escape: 对文件名进行转义
+
+        - 如果为 None，则不处理；否则，这个函数用来对文件名中某些符号进行转义，例如 "/" 等
+        - 如果为 True，则使用 `posixpatht.escape`，会对文件名中 "/"，或单独出现的 "." 和 ".." 用 "\\" 进行转义
+        - 如果为 False，则使用 `posix_escape_name` 函数对名字进行转义，会把文件名中的 "/" 转换为 "|"
+        - 如果为 Callable，则用你所提供的调用，以或者转义后的名字
+
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
+    :param app: 使用指定 app（设备）的接口
+    :param max_workers: 最大并发数，如果为 None 或 <= 0，则自动确定
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+
+    :return: 迭代器，返回此目录内的文件或目录节点的信息
+    """
+    if isinstance(client, str):
+        client = P115Client(client, check_for_relogin=True)
+    if id_to_dirnode is None:
+        id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
+    elif id_to_dirnode is ...:
+        id_to_dirnode = {}
+    from .download import iter_download_nodes
+    to_pickcode = client.to_pickcode
+    def fulfill_dir_node(attr: dict, /) -> dict:
+        attr["pickcode"] = to_pickcode(attr["id"], "fa")
+        attr["size"] = 0
+        attr["sha1"] = ""
+        return attr
+    def gen_step():
+        files = iter_download_nodes(
+            client, 
+            cid, 
+            files=True,
+            ensure_name=True, 
+            id_to_dirnode=id_to_dirnode, 
+            app=app, 
+            max_workers=max_workers, 
+            async_=async_, 
+            **request_kwargs, 
+        )
+        with cache_loading(files) as (cache, task):
+            yield YieldFrom(do_map(fulfill_dir_node, iter_dirs_with_path(
+                client, 
+                cid, 
+                with_ancestors=with_ancestors, 
+                escape=escape, 
+                id_to_dirnode=id_to_dirnode, 
+                app=app, 
+                max_workers=max_workers, 
+                async_=async_, 
+                **request_kwargs, 
+            )))
+        if isinstance(task, Task):
+            yield task
+        else:
+            task.result()
+        add_top = _make_top_adder(to_id(cid), id_to_dirnode)
+        yield YieldFrom(do_map(add_top, ensure_attr_path(
+            client, 
+            chain(cache, files), # type: ignore
+            with_ancestors=with_ancestors, 
+            escape=escape, 
+            id_to_dirnode=id_to_dirnode, 
+            app=app, 
+            async_=async_, 
+            **request_kwargs, 
+        )))
+    return run_gen_step_iter(gen_step, async_)
 
 
 @overload
