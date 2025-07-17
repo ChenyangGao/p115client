@@ -2,7 +2,7 @@
 # encoding: utf-8
 
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
-__version__ = (0, 0, 4)
+__version__ = (0, 0, 5)
 __all__ = [
     "ALPHABET", "PREFIX_TO_TRANSTAB", "PREFIX_TO_TRANSTAB_REV", 
     "PREFIX_TO_FIRST_SUFFIX", "FIRST_SUFFIX_TO_PREFIX", 
@@ -146,8 +146,8 @@ def id_to_pickcode(
     """从 115 的 id 得到 pickcode
 
     :param id: 文件或目录的 id
-    :param stable_point: 不动点，长度为 4，范围在 0-9 和 a-z 内的字符串，左起第 1 个字符是 0
-    :param prefix: 前缀，但如果为 ""，则 `stable_point` 视为加密后的不动点或 `pickcode`
+    :param stable_point: 不动点（长度为 4，范围在 0-9 和 a-z 内的字符串，左起第 1 个字符是 0），或者是 `pickcode` 或者 `pickcode[-4:]`
+    :param prefix: 前缀，如果为 ""，则自动确定，确定不了时默认为 "a"
 
     :return: 提取码
     """
@@ -156,25 +156,31 @@ def id_to_pickcode(
     elif id < 0:
         raise ValueError(f"negtive id is not allowed, got {id!r}")
     len_stable_point = len(stable_point)
-    is_stable_point = prefix and len_stable_point <= 4
-    if is_stable_point:
-        if len_stable_point < 4:
-            stable_point = "0" * (4 - len_stable_point) + stable_point
-        prefix_: str = prefix
-    else:
-        if len_stable_point > 4 and stable_point.startswith(("a", "b", "c", "d", "e", "f")):
-            prefix_ = stable_point[:2] if stable_point.startswith("f") else stable_point[0]
-        else:
-            prefix_ = FIRST_SUFFIX_TO_PREFIX[stable_point[-4]]
-        if prefix and prefix_ != prefix:
-            is_stable_point = True
-            stable_point = stable_point[-4:].translate(PREFIX_TO_TRANSTAB_REV[prefix_])
-            prefix_ = prefix
-    transtab = PREFIX_TO_TRANSTAB[prefix_]
+    prefix_: str = prefix or "a"
+    is_stable_point = True
+    if len_stable_point < 4:
+        stable_point = "0" * (4 - len_stable_point) + stable_point
+    elif len_stable_point >= 6 and stable_point[:2] in ("fa", "fb", "fc", "fd", "fe"):
+        prefix_ = stable_point[:2]
+        is_stable_point = False
+    elif len_stable_point >= 5 and stable_point[0] in ("a", "b", "c", "d", "e"):
+        prefix_ = stable_point[0]
+        is_stable_point = False
+    elif stable_point[-4] != "0":
+        prefix_ = FIRST_SUFFIX_TO_PREFIX[stable_point[-4]]
+        is_stable_point = False
+    if len_stable_point > 4:
+        stable_point = stable_point[-4:]
+    transtab = PREFIX_TO_TRANSTAB[prefix or prefix_]
     if is_stable_point:
         suffix = stable_point.translate(transtab)
+    elif not prefix or prefix == prefix_:
+        suffix = stable_point
+        prefix_ = prefix or prefix_
     else:
-        suffix = stable_point[-4:]
+        stable_point = stable_point.translate(PREFIX_TO_TRANSTAB_REV[prefix_])
+        suffix = stable_point.translate(transtab)
+        prefix_ = prefix
     cipher = b36encode(id).translate(transtab)
     return prefix_ + cipher + suffix
 
@@ -214,8 +220,8 @@ def to_pickcode(
         规定：空提取码 "" 对应的 id 是 0
 
     :param id: 可能是 id 或 pickcode
-    :param stable_point: 不动点，长度为 4，范围在 0-9 和 a-z 内的字符串，左起第 1 个字符是 0
-    :param prefix: 前缀，但如果为 ""，则 `stable_point` 视为加密后的不动点或 `pickcode`
+    :param stable_point: 不动点（长度为 4，范围在 0-9 和 a-z 内的字符串，左起第 1 个字符是 0），或者是 `pickcode` 或者 `pickcode[-4:]`
+    :param prefix: 前缀，如果为 ""，则自动确定，确定不了时默认为 "a"
 
     :return: pickcode
     """
