@@ -15,7 +15,7 @@ from urllib.parse import parse_qsl, urlsplit
 
 
 CRE_115_CHARREF_sub: Final = re_compile("\\[\x02([0-9]+)\\]").sub
-CRE_SHARE_LINK_search = re_compile(r"(?:^|(?<=/))(?P<share_code>[a-z0-9]+)(?:-|\?|\?password=)(?P<receive_code>[a-z0-9]{4})").search
+CRE_SHARE_LINK_search = re_compile(r"(?:^|(?<=/))(?P<share_code>[a-z0-9]+)(?:-|\?password=|\?)(?P<receive_code>[a-z0-9]{4})(?!==)\b").search
 
 
 class SharePayload(TypedDict):

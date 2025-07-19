@@ -3171,10 +3171,26 @@ class P115OpenClient(ClientRequestMixin):
         .. todo::
             不动点可能和用户 id 有某种联系，但目前样本不足，难以推断，以后再尝试分析
         """
-        resp = self.fs_files({"show_dir": 1, "limit": 1, "cid": 0})
-        check_response(resp)
-        info = resp["data"][0]
-        return get_stable_point(normalize_attr(info)["pickcode"])
+        user_id = str(self.user_id)
+        cache_dir = Path("~/.p115client.cache.d").expanduser()
+        cache_dir.mkdir(exist_ok=True)
+        pc_2_point_json = cache_dir / "pickcode_stable_points.json"
+        try:
+            cache = loads(pc_2_point_json.open("rb").read())
+        except OSError:
+            cache = {}
+        if point := cache.get(user_id):
+            return point
+        else:
+            resp = self.fs_files({"show_dir": 1, "limit": 1, "cid": 0})
+            check_response(resp)
+            info = resp["data"][0]
+            point = cache[user_id] = get_stable_point(normalize_attr(info)["pickcode"])
+            try:
+                pc_2_point_json.open("wb").write(dumps(cache))
+            except Exception:
+                pass
+            return point
 
     @overload
     def refresh_access_token(
@@ -10455,7 +10471,7 @@ class P115Client(P115OpenClient):
             - aid: int | str = 1 💡 area_id。1:正常文件 7:回收站文件 12:瞬间文件 120:彻底删除文件、简历附件
             - asc: 0 | 1 = <default> 💡 是否升序排列。0:降序 1:升序
             - code: int | str = <default>
-            - count_folders: 0 | 1 = 1 💡 统计文件数和目录数
+            - count_folders: 0 | 1 = 1 💡 统计文件数和目录数，好像也可以写成 ``countfolders``
             - cur: 0 | 1 = <default> 💡 是否只搜索当前目录
             - custom_order: 0 | 1 = <default> 💡 启用自定义排序，如果指定了 "asc"、"fc_mix"、"o" 中其一，则此参数会被自动设置为 1
 
@@ -10467,8 +10483,10 @@ class P115Client(P115OpenClient):
             - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
             - fields: str = <default>
             - format: str = "json" 💡 返回格式，默认即可
+            - hidden: 0 | 1 = <default>
             - is_q: 0 | 1 = <default>
             - is_share: 0 | 1 = <default>
+            - last_utime: int = <default> 💡 需传入一个时间戳
             - min_size: int = 0 💡 最小的文件大小
             - max_size: int = 0 💡 最大的文件大小
             - natsort: 0 | 1 = <default> 💡 是否执行自然排序(natural sorting) 💡 natural sorting
@@ -10487,7 +10505,7 @@ class P115Client(P115OpenClient):
             - r_all: 0 | 1 = <default>
             - record_open_time: 0 | 1 = 1 💡 是否要记录目录的打开时间
             - scid: int | str = <default>
-            - show_dir: 0 | 1 = 1 💡 是否显示目录
+            - show_dir: 0 | 1 = 1 💡 是否显示目录，好像也可以写成 showdir
             - snap: 0 | 1 = <default>
             - source: str = <default>
             - sys_dir: int | str = <default>
@@ -14138,12 +14156,12 @@ class P115Client(P115OpenClient):
             - fond: 0 | 1 = 0   💡 是否星标
             - start: int = 0    💡 开始索引
             - limit: int = 1150 💡 最多返回数量
+            - hidden: 0 | 1 = 0
         """
         api = complete_webapi("/files/music_topic_listnew", base_url=base_url)
         if isinstance(payload, int):
-            payload = {"fond": 0, "limit": 1150, "start": payload}
-        else:
-            payload = {"fond": 0, "limit": 1150, "start": 0, **payload}
+            payload = {"start": payload}
+        payload = {"fond": 0, "hidden": 0, "limit": 1150, "start": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -16029,7 +16047,13 @@ class P115Client(P115OpenClient):
         if not isinstance(payload, dict):
             payload = {"delete_data": (b"[%s]" % b",".join(map(dumps, payload))).decode("utf-8")}
         api = f"http://life.115.com/api/1.0/{app}/1.0/life/life_batch_delete"
-        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+        return self.request(
+            url=api, 
+            method="POST", 
+            data=payload, 
+            async_=async_, 
+            **request_kwargs, 
+        )
 
     @overload
     def life_behavior_detail(
@@ -16314,6 +16338,41 @@ class P115Client(P115OpenClient):
         return self.request(url=api, async_=async_, **request_kwargs)
 
     @overload
+    def life_calendar_getoption2(
+        self, 
+        /, 
+        app: str = "web", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def life_calendar_getoption2(
+        self, 
+        /, 
+        app: str = "web", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def life_calendar_getoption2(
+        self, 
+        /, 
+        app: str = "web", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取 115 生活的开关设置
+
+        GET https://life.115.com/api/1.0/web/1.0/calendar/recent_operations_getoption
+        """
+        api = f"http://life.115.com/api/1.0/{app}/1.0/calendar/recent_operations_getoption"
+        return self.request(url=api, async_=async_, **request_kwargs)
+
+    @overload
     def life_calendar_setoption(
         self, 
         payload: Literal[0, 1] | dict = 1, 
@@ -16367,6 +16426,59 @@ class P115Client(P115OpenClient):
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
+    def life_calendar_setoption2(
+        self, 
+        payload: Literal[0, 1] | dict = 1, 
+        /, 
+        app: str = "web", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def life_calendar_setoption2(
+        self, 
+        payload: Literal[0, 1] | dict = 1, 
+        /, 
+        app: str = "web", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def life_calendar_setoption2(
+        self, 
+        payload: Literal[0, 1] | dict = 1, 
+        /, 
+        app: str = "web", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """设置 115 生活的开关选项
+
+        POST https://life.115.com/api/1.0/web/1.0/calendar/recent_operations_setoption
+
+        :payload:
+            - locus: 0 | 1 = 1     💡 开启或关闭最近记录
+            - open_life: 0 | 1 = 1 💡 显示或关闭
+            - birthday: 0 | 1 = <default>
+            - holiday: 0 | 1 = <default>
+            - lunar: 0 | 1 = <default>
+            - view: 0 | 1 = <default>
+            - diary: 0 | 1 = <default>
+            - del_notice_item: 0 | 1 = <default>
+            - first_week: 0 | 1 = <default>
+        """
+        if isinstance(payload, dict):
+            payload = {"locus": 1, "open_life": 1, **payload}
+        else:
+            payload = {"locus": 1, "open_life": payload}
+        api = f"http://life.115.com/api/1.0/{app}/1.0/calendar/recent_operations_setoption"
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
     def life_clear_history(
         self, 
         payload: int | dict = 0, 
@@ -16407,60 +16519,6 @@ class P115Client(P115OpenClient):
         if isinstance(payload, int):
             payload = {"tab_type": 0}
         api = f"http://life.115.com/api/1.0/{app}/1.0/life/life_clear_history"
-        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
-
-    @overload
-    def life_doc_behavior_post_app(
-        self, 
-        payload: int | str | Iterable[int | str] | dict, 
-        /, 
-        app: str = "android", 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[False] = False, 
-        **request_kwargs, 
-    ) -> dict:
-        ...
-    @overload
-    def life_doc_behavior_post_app(
-        self, 
-        payload: int | str | Iterable[int | str] | dict, 
-        /, 
-        app: str = "android", 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[True], 
-        **request_kwargs, 
-    ) -> Coroutine[Any, Any, dict]:
-        ...
-    def life_doc_behavior_post_app(
-        self, 
-        payload: int | str | Iterable[int | str] | dict, 
-        /, 
-        app: str = "android", 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[False, True] = False, 
-        **request_kwargs, 
-    ) -> dict | Coroutine[Any, Any, dict]:
-        """推送事件：浏览文档 "browse_document"
-
-        POST https://proapi.115.com/android/files/doc_behavior
-
-        .. note::
-            如果提供的是目录的 id，则会把其中（直属的）文档记为浏览
-
-        :payload:
-            - file_id: int | str
-            - file_id[0]: int | str
-            - file_id[1]: int | str
-            - ...
-        """
-        api = complete_proapi("/files/doc_behavior", base_url, app)
-        if isinstance(payload, (int, str)):
-            payload = {"file_id": payload}
-        elif not isinstance(payload, dict):
-            payload = {f"file_id[{i}]": fid for i, fid in enumerate(payload)}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -16641,6 +16699,145 @@ class P115Client(P115OpenClient):
             - type: int = <default> 💡 类型
         """
         api = f"http://life.115.com/api/1.0/{app}/1.0/life/life_list"
+        if isinstance(payload, (int, str)):
+            payload = {"limit": 1_000, "show_type": 0, "start": payload}
+        else:
+            payload = {"limit": 1_000, "show_type": 0, "start": 0, **payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def life_list2(
+        self, 
+        payload: int | str | dict = 0, 
+        /, 
+        app: str = "web", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def life_list2(
+        self, 
+        payload: int | str | dict = 0, 
+        /, 
+        app: str = "web", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def life_list2(
+        self, 
+        payload: int | str | dict = 0, 
+        /, 
+        app: str = "web", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """罗列登录和增删改操作记录（最新几条）
+
+        GET https://life.115.com/api/1.0/web/1.0/life/recent_operations
+
+        .. note::
+            为了实现分页拉取，需要指定 last_data 参数。只要上次返回的数据不为空，就会有这个值，直接使用即可
+
+        .. hint::
+            引用：https://cdnres.115.com/life/m_r/web/static_v11.0/homepage/lifetime.js
+
+            - 'upload_file'          => '上传文件'   💡 上传文件(非图片) 文件类
+            - 'upload_image_file'    => '上传图片'   💡 上传文件(图片)   文件类
+            - 'backup_album'         => '备份相册'   💡 备份相册         文件类
+            - 'sync_communication'   => '同步通讯录' 💡 同步通讯录       文件类
+            - 'receive_files'        => '接收文件'   💡 接收文件         文件类
+            - 'star_file'            => '星标文件'   💡 星标文件         文件类
+            - 'radar_sharing'        => '雷达分享'   💡 雷达分享         文件类
+            - 'file_search'          => '文件搜索'   💡 文件搜索         文件类
+            - 'move_file'            => '移动文件'   💡 移动文件(非图片) 文件类
+            - 'move_image_file'      => '移动图片'   💡 移动文件(图片)   文件类
+            - 'browse_document'      => '浏览文档'   💡 浏览文档         信息预览类
+            - 'browse_video'         => '浏览视频'   💡 浏览视频         信息预览类
+            - 'browse_audio'         => '浏览音频'   💡 浏览音频         信息预览类
+            - 'browse_image'         => '浏览图片'   💡 浏览图片         信息预览类
+            - 'publish_record'       => '发布记录'   💡 发布记录         信息发布类
+            - 'publish_calendar'     => '发布日程'   💡 发布日程         信息发布类
+            - 'publish_home'         => '发布传说'   💡 发布传说         信息发布类
+            - 'account_security'     => '账号安全'   💡 账号安全         账号安全类
+
+            一些筛选条件::
+
+                - 全部：type=0
+                - 上传文件：type=1&file_behavior_type=1
+                - 浏览文件：type=1&file_behavior_type=2
+                - 星标文件：type=1&file_behavior_type=3
+                - 移动文件：type=1&file_behavior_type=4
+                - 目录：type=1&file_behavior_type=5
+                - 备份：type=1&file_behavior_type=6
+                - 删除文件：type=1&file_behavior_type=7
+                - 账号安全：type=2
+                - 通讯录：type=3
+                - 其他：type=99
+
+            一些类型分类::
+
+                .. code:: python
+
+                    {
+                        'file':['upload_file', 'upload_image_file', 'backup_album', 'sync_communication', 
+                                'receive_files', 'star_file', 'radar_sharing', 'file_search', 'move_file', 
+                                'move_image_file', 'star_image', 'del_photo_image', 'del_similar_image', 
+                                'generate_smart_albums', 'new_person_albums', 'del_person_albums', 
+                                'generate_photo_story', 'share_photo', 'folder_rename', 'folder_label', 
+                                'new_folder', 'copy_folder', 'delete_file'],
+                        'review':['browse_video', 'browse_document', 'browse_audio', 'browse_image'],
+                        'edit':['publish_record', 'publish_calendar', 'publish_home'],
+                        'safe':['account_security'],
+                        'cloud':[],
+                        'share': ['share_contact']
+                    }
+
+        :payload:
+            - start: int = 0
+            - limit: int = 1_000
+            - check_num: int = <default> 💡 选中记录数
+            - del_data: str = <default> 💡 JSON array，删除时传给接口数据
+            - end_time: int = <default> 💡 结束时间戳
+            - file_behavior_type: int | str = <default> 💡 筛选类型，有多个则用逗号 ',' 隔开
+
+                - 💡 0: 所有
+                - 💡 1: 上传
+                - 💡 2: 浏览
+                - 💡 3: 星标
+                - 💡 4: 移动
+                - 💡 5: 标签
+                - 💡 6: <UNKNOWN>
+                - 💡 7: 删除
+
+            - isPullData: 'true' | 'false' = <default> 💡 是否下拉加载数据
+            - isShow: 0 | 1 = <default> 💡 是否显示
+            - last_data: str = <default> 💡 JSON object, e.g. '{"last_time":1700000000,"last_count":1,"total_count":200}'
+            - mode: str = <default> 💡 操作模式
+
+                - 💡 "show" 展示列表模式
+                - 💡 "select": 批量操作模式
+
+            - selectedRecords: str = <default> 💡 JSON array，选中记录 id 数组
+            - show_note_cal: 0 | 1 = <default>
+            - show_type: int = 0 💡 筛选类型，有多个则用逗号 ',' 隔开
+
+                - 💡 0: 所有
+                - 💡 1: 增、删、改、移动、上传、接收、设置标签等文件系统操作
+                - 💡 2: 浏览文件
+                - 💡 3: <UNKNOWN>
+                - 💡 4: account_security
+
+            - start_time: int = <default> 💡 开始时间戳
+            - tab_type: int = <default>
+            - total_count: int = <default> 💡 列表所有项数
+            - type: int = <default> 💡 类型
+        """
+        api = f"http://life.115.com/api/1.0/{app}/1.0/life/recent_operations"
         if isinstance(payload, (int, str)):
             payload = {"limit": 1_000, "show_type": 0, "start": payload}
         else:
@@ -18702,6 +18899,7 @@ class P115Client(P115OpenClient):
 
         :payload:
             - page: int | str = 1
+            - stat: int = 0 💡 目前已知：9:下载失败 11:已完成 12:正在下载
         """
         if isinstance(payload, int):
             payload = {"page": payload}
@@ -19049,6 +19247,62 @@ class P115Client(P115OpenClient):
         return self.request(url=api, async_=async_, **request_kwargs)
 
     @overload
+    def offline_task_cnt(
+        self, 
+        payload: dict | int = 0, 
+        /, 
+        base_url: None | bool | str | Callable[[], str] = None, 
+        method: str = "GET", 
+        type: Literal[None, "", "web", "ssp"] = None, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def offline_task_cnt(
+        self, 
+        payload: dict | int = 0, 
+        /, 
+        base_url: None | bool | str | Callable[[], str] = None, 
+        method: str = "GET", 
+        type: Literal[None, "", "web", "ssp"] = None, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def offline_task_cnt(
+        self, 
+        payload: dict | int = 0, 
+        /, 
+        base_url: None | bool | str | Callable[[], str] = None, 
+        method: str = "GET", 
+        type: Literal[None, "", "web", "ssp"] = None, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取当前正在运行的离线任务数
+
+        GET https://lixian.115.com/lixian/?ac=get_task_cnt
+
+        :payload:
+            - flag: int = 0
+        """
+        if isinstance(payload, int):
+            payload = {"flag": payload}
+        return self._offline_request(
+            payload, 
+            "get_task_cnt", 
+            method=method, 
+            type=type, 
+            base_url=base_url, 
+            async_=async_, 
+            **request_kwargs, 
+        )
+
+    @overload
     def offline_task_count(
         self, 
         payload: dict | int = 0, 
@@ -19085,18 +19339,18 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """获取当前正在运行的离线任务数
+        """获取当前各种类型任务的计数
 
         GET https://lixian.115.com/lixian/?ac=get_task_cnt
 
         :payload:
-            flag: int = 0
+            - stat: int = 0 💡 这个参数似乎没什么作用
         """
         if isinstance(payload, int):
-            payload = {"flag": 0}
+            payload = {"stat": payload}
         return self._offline_request(
             payload, 
-            "get_task_cnt", 
+            "task_count", 
             method=method, 
             type=type, 
             base_url=base_url, 
@@ -22310,6 +22564,44 @@ class P115Client(P115OpenClient):
         return run_gen_step(gen_step, async_)
 
     ########## User API ##########
+
+    @overload
+    def user_base_info(
+        self, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def user_base_info(
+        self, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def user_base_info(
+        self, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取用户的基本信息
+
+        GET https://qrcodeapi.115.com/app/1.0/web/1.0/user/base_info
+        """
+        api = complete_webapi(f"/app/1.0/{app}/1.0/user/base_info", base_url=base_url)
+        return self.request(url=api, async_=async_, **request_kwargs)
 
     @overload
     def user_card(
