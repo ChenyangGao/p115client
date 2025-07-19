@@ -396,6 +396,9 @@ def check_response(resp: dict | Awaitable[dict], /) -> dict | Coroutine[Any, Any
                 # {"state": false, "errno": 911, "error": "请验证账号"}
                 case 911:
                     raise AuthenticationError(errno.EAUTH, resp)
+                # {"state": false, "errno": 1001, "error": "参数错误"}
+                case 1001:
+                    raise OperationalError(errno.EINVAL, resp)
                 # {"state": false, "errno": 10004, "error": "错误的链接"}
                 case 10004:
                     raise OperationalError(errno.EINVAL, resp)
@@ -693,7 +696,8 @@ def normalize_attr_web[D: dict[str, Any]](
         if "te" in info:
             attr["mtime"] = int(info["te"])
     else:
-        attr["pick_code"] = attr["pickcode"]
+        if "pickcode" in attr:
+            attr["pick_code"] = attr["pickcode"]
         attr["ico"] = info.get("ico", "folder" if is_dir else "")
         if "te" in info:
             attr["mtime"] = attr["user_utime"] = int(info["te"])
@@ -837,7 +841,8 @@ def normalize_attr_app[D: dict[str, Any]](
         if "upt" in info:
             attr["mtime"] = int(info["upt"])
     else:
-        attr["pick_code"] = attr["pickcode"]
+        if "pickcode" in attr:
+            attr["pick_code"] = attr["pickcode"]
         attr["ico"] = info.get("ico", "folder" if attr["is_dir"] else "")
         if "thumb" in info:
             thumb = info["thumb"]
@@ -980,7 +985,8 @@ def normalize_attr_app2[D: dict[str, Any]](
         if "user_ptime" in info:
             attr["mtime"] = int(info["user_ptime"])
     else:
-        attr["pick_code"] = attr["pickcode"]
+        if "pickcode" in attr:
+            attr["pick_code"] = attr["pickcode"]
         if is_dir:
             if "thumb_url" in info:
                 attr["thumb"] = info["thumb_url"]
@@ -1620,7 +1626,7 @@ class ClientRequestMixin:
         api = complete_api("/open/authorize", base_url=base_url)
         payload = {"response_type": "code", **payload}
         def parse(resp, content, /):
-            if resp.status_code == 302:
+            if get_status_code(resp) == 302:
                 return {
                     "state": True, 
                     "url": resp.headers["location"], 
@@ -2290,6 +2296,7 @@ class ClientRequestMixin:
 
         :param app: 扫二维码后绑定的 `app` （或者叫 `device`）
         :param console_qrcode: 在命令行输出二维码，否则在浏览器中打开
+        :param base_url: 接口的基地址
         :param async_: 是否异步
         :param request_kwargs: 其它请求参数
 
@@ -3546,13 +3553,13 @@ class P115OpenClient(ClientRequestMixin):
             - nf: str = <default> 💡 不要显示文件（即仅显示目录），但如果 show_dir=0，则此参数无效
             - o: str = <default> 💡 用某字段排序（未定义的值会被视为 "user_utime"）
 
-              - "file_name": 文件名
-              - "file_size": 文件大小
-              - "file_type": 文件种类
-              - "user_etime": 事件时间（无效，效果相当于 "user_utime"）
-              - "user_utime": 修改时间
-              - "user_ptime": 创建时间（无效，效果相当于 "user_utime"）
-              - "user_otime": 上一次打开时间（无效，效果相当于 "user_utime"）
+                - "file_name": 文件名
+                - "file_size": 文件大小
+                - "file_type": 文件种类
+                - "user_etime": 事件时间（无效，效果相当于 "user_utime"）
+                - "user_utime": 修改时间
+                - "user_ptime": 创建时间（无效，效果相当于 "user_utime"）
+                - "user_otime": 上一次打开时间（无效，效果相当于 "user_utime"）
 
             - qid: int = <default>
             - r_all: 0 | 1 = <default>
@@ -3567,23 +3574,23 @@ class P115OpenClient(ClientRequestMixin):
             - suffix: str = <default> 💡 后缀名（优先级高于 `type`）
             - type: int = <default> 💡 文件类型
 
-              - 0: 全部（仅当前目录）
-              - 1: 文档
-              - 2: 图片
-              - 3: 音频
-              - 4: 视频
-              - 5: 压缩包
-              - 6: 软件/应用
-              - 7: 书籍
-              - 8: 其它
-              - 9: 相当于 8
-              - 10: 相当于 8
-              - 11: 相当于 8
-              - 12: ？？？
-              - 13: ？？？
-              - 14: ？？？
-              - 15: 图片和视频，相当于 2 和 4
-              - >= 16: 相当于 8
+                - 0: 全部（仅当前目录）
+                - 1: 文档
+                - 2: 图片
+                - 3: 音频
+                - 4: 视频
+                - 5: 压缩包
+                - 6: 软件/应用
+                - 7: 书籍
+                - 8: 其它
+                - 9: 相当于 8
+                - 10: 相当于 8
+                - 11: 相当于 8
+                - 12: ？？？
+                - 13: ？？？
+                - 14: ？？？
+                - 15: 图片和视频，相当于 2 和 4
+                - >= 16: 相当于 8
         """
         api = complete_proapi("/open/ufile/files", base_url)
         if isinstance(payload, (int, str)):
@@ -3842,12 +3849,12 @@ class P115OpenClient(ClientRequestMixin):
             - lte_day: str 💡 搜索结果匹配的结束时间；格式：YYYY-MM-DD
             - o: str = <default> 💡 用某字段排序
 
-              - "file_name": 文件名
-              - "file_size": 文件大小
-              - "file_type": 文件种类
-              - "user_utime": 修改时间
-              - "user_ptime": 创建时间
-              - "user_otime": 上一次打开时间
+                - "file_name": 文件名
+                - "file_size": 文件大小
+                - "file_type": 文件种类
+                - "user_utime": 修改时间
+                - "user_ptime": 创建时间
+                - "user_otime": 上一次打开时间
 
             - offset: int = 0  💡 索引偏移，索引从 0 开始计算
             - pick_code: str = <default> 💡 是否查询提取码，如果该值为 1 则查询提取码为 `search_value` 的文件
@@ -3858,15 +3865,15 @@ class P115OpenClient(ClientRequestMixin):
             - suffix: str = <default> 💡 后缀名（优先级高于 `type`）
             - type: int = <default> 💡 文件类型
 
-              - 0: 全部（仅当前目录）
-              - 1: 文档
-              - 2: 图片
-              - 3: 音频
-              - 4: 视频
-              - 5: 压缩包
-              - 6: 软件/应用
-              - 7: 书籍
-              - 99: 仅文件
+                - 0: 全部（仅当前目录）
+                - 1: 文档
+                - 2: 图片
+                - 3: 音频
+                - 4: 视频
+                - 5: 压缩包
+                - 6: 软件/应用
+                - 7: 书籍
+                - 99: 所有文件
 
             - version: str = <default> 💡 版本号，比如 3.1
         """
@@ -4383,12 +4390,12 @@ class P115OpenClient(ClientRequestMixin):
         :payload:
             - flag: int = 0 💡 标识，用于对应某种情况
 
-              - 0: 已完成
-              - 1: 全部
-              - 2: 已失败
-              - 3: 进行中
-              - 4: 已完成+删除源文件
-              - 5: 全部+删除源文件
+                - 0: 已完成
+                - 1: 全部
+                - 2: 已失败
+                - 3: 进行中
+                - 4: 已完成+删除源文件
+                - 5: 全部+删除源文件
         """
         api = complete_proapi("/open/offline/clear_task", base_url)
         if isinstance(payload, int):
@@ -7322,9 +7329,9 @@ class P115Client(P115OpenClient):
         :payload:
             - type: 0 | 1 | 2 = 0 💡 类型
 
-              - 0: 全部
-              - 1: 进行中
-              - 2: 已实现
+                - 0: 全部
+                - 1: 进行中
+                - 2: 已实现
 
             - start: int = 0  💡 开始索引
             - page: int = 1   💡 第几页
@@ -7378,9 +7385,9 @@ class P115Client(P115OpenClient):
         :payload:
             - type: 0 | 1 | 2 = 0 💡 类型
 
-              - 0: 全部
-              - 1: 进行中
-              - 2: 已实现
+                - 0: 全部
+                - 1: 进行中
+                - 2: 已实现
 
             - start: int = 0  💡 开始索引
             - page: int = 1   💡 第几页
@@ -9265,9 +9272,9 @@ class P115Client(P115OpenClient):
             - file_id: int | str 目录 id，多个用逗号 "," 隔开
             - op: "add" | "delete" | "top" = "add" 操作代码
 
-              - "add":    添加
-              - "delete": 删除
-              - "top":    置顶
+                - "add":    添加
+                - "delete": 删除
+                - "top":    置顶
         """
         api = complete_webapi("/category/shortcut", base_url=base_url)
         if isinstance(payload, (int, str)):
@@ -10468,12 +10475,12 @@ class P115Client(P115OpenClient):
             - nf: str = <default> 💡 不要显示文件（即仅显示目录），但如果 show_dir=0，则此参数无效
             - o: str = <default> 💡 用某字段排序
 
-              - "file_name": 文件名
-              - "file_size": 文件大小
-              - "file_type": 文件种类
-              - "user_utime": 修改时间
-              - "user_ptime": 创建时间
-              - "user_otime": 上一次打开时间
+                - "file_name": 文件名
+                - "file_size": 文件大小
+                - "file_type": 文件种类
+                - "user_utime": 修改时间
+                - "user_ptime": 创建时间
+                - "user_otime": 上一次打开时间
 
             - oof_token: str = <default>
             - qid: int | str = <default>
@@ -10490,26 +10497,26 @@ class P115Client(P115OpenClient):
             - suffix_type: int = <default>
             - type: int = <default> 💡 文件类型
 
-              - 0: 全部（仅当前目录）
-              - 1: 文档
-              - 2: 图片
-              - 3: 音频
-              - 4: 视频
-              - 5: 压缩包
-              - 6: 软件/应用
-              - 7: 书籍
-              - 8: 其它
-              - 9: 相当于 8
-              - 10: 相当于 8
-              - 11: 相当于 8
-              - 12: ？？？
-              - 13: 相当于 3
-              - 14: ？？？
-              - 15: 图片和视频，相当于 2 和 4
-              - 16: ？？？
-              - 17~98: 相当于 8
-              - 99: 仅文件
-              - >=100: 相当于 8
+                - 0: 全部（仅当前目录）
+                - 1: 文档
+                - 2: 图片
+                - 3: 音频
+                - 4: 视频
+                - 5: 压缩包
+                - 6: 软件/应用
+                - 7: 书籍
+                - 8: 其它
+                - 9: 相当于 8
+                - 10: 相当于 8
+                - 11: 相当于 8
+                - 12: ？？？
+                - 13: 相当于 3
+                - 14: ？？？
+                - 15: 图片和视频，相当于 2 和 4
+                - 16: ？？？
+                - 17~98: 相当于 8
+                - 99: 所有文件
+                - >=100: 相当于 8
         """
         api = complete_webapi("/files", base_url=base_url)
         if isinstance(payload, (int, str)):
@@ -10611,13 +10618,13 @@ class P115Client(P115OpenClient):
             - nf: str = <default> 💡 不要显示文件（即仅显示目录），但如果 show_dir=0，则此参数无效
             - o: str = <default> 💡 用某字段排序（未定义的值会被视为 "user_utime"）
 
-              - "file_name": 文件名
-              - "file_size": 文件大小
-              - "file_type": 文件种类
-              - "user_etime": 事件时间（无效，效果相当于 "user_utime"）
-              - "user_utime": 修改时间
-              - "user_ptime": 创建时间（无效，效果相当于 "user_utime"）
-              - "user_otime": 上一次打开时间（无效，效果相当于 "user_utime"）
+                - "file_name": 文件名
+                - "file_size": 文件大小
+                - "file_type": 文件种类
+                - "user_etime": 事件时间（无效，效果相当于 "user_utime"）
+                - "user_utime": 修改时间
+                - "user_ptime": 创建时间（无效，效果相当于 "user_utime"）
+                - "user_otime": 上一次打开时间（无效，效果相当于 "user_utime"）
 
             - r_all: 0 | 1 = <default>
             - record_open_time: 0 | 1 = 1 💡 是否要记录目录的打开时间
@@ -10631,23 +10638,23 @@ class P115Client(P115OpenClient):
             - suffix: str = <default> 💡 后缀名（优先级高于 `type`）
             - type: int = <default> 💡 文件类型
 
-              - 0: 全部（仅当前目录）
-              - 1: 文档
-              - 2: 图片
-              - 3: 音频
-              - 4: 视频
-              - 5: 压缩包
-              - 6: 软件/应用
-              - 7: 书籍
-              - 8: 其它
-              - 9: 相当于 8
-              - 10: 相当于 8
-              - 11: 相当于 8
-              - 12: ？？？
-              - 13: ？？？
-              - 14: ？？？
-              - 15: 图片和视频，相当于 2 和 4
-              - >= 16: 相当于 8
+                - 0: 全部（仅当前目录）
+                - 1: 文档
+                - 2: 图片
+                - 3: 音频
+                - 4: 视频
+                - 5: 压缩包
+                - 6: 软件/应用
+                - 7: 书籍
+                - 8: 其它
+                - 9: 相当于 8
+                - 10: 相当于 8
+                - 11: 相当于 8
+                - 12: ？？？
+                - 13: ？？？
+                - 14: ？？？
+                - 15: 图片和视频，相当于 2 和 4
+                - >= 16: 相当于 8
         """
         api = complete_proapi("/2.0/ufile/files", base_url, app)
         if isinstance(payload, (int, str)):
@@ -10741,13 +10748,13 @@ class P115Client(P115OpenClient):
             - nf: str = <default> 💡 不要显示文件（即仅显示目录），但如果 show_dir=0，则此参数无效
             - o: str = <default> 💡 用某字段排序（未定义的值会被视为 "user_utime"）
 
-              - "file_name": 文件名
-              - "file_size": 文件大小
-              - "file_type": 文件种类
-              - "user_etime": 事件时间（无效，效果相当于 "user_utime"）
-              - "user_utime": 修改时间
-              - "user_ptime": 创建时间（无效，效果相当于 "user_utime"）
-              - "user_otime": 上一次打开时间（无效，效果相当于 "user_utime"）
+                - "file_name": 文件名
+                - "file_size": 文件大小
+                - "file_type": 文件种类
+                - "user_etime": 事件时间（无效，效果相当于 "user_utime"）
+                - "user_utime": 修改时间
+                - "user_ptime": 创建时间（无效，效果相当于 "user_utime"）
+                - "user_otime": 上一次打开时间（无效，效果相当于 "user_utime"）
 
             - r_all: 0 | 1 = <default>
             - record_open_time: 0 | 1 = 1 💡 是否要记录目录的打开时间
@@ -10761,23 +10768,23 @@ class P115Client(P115OpenClient):
             - suffix: str = <default> 💡 后缀名（优先级高于 `type`）
             - type: int = <default> 💡 文件类型
 
-              - 0: 全部（仅当前目录）
-              - 1: 文档
-              - 2: 图片
-              - 3: 音频
-              - 4: 视频
-              - 5: 压缩包
-              - 6: 软件/应用
-              - 7: 书籍
-              - 8: 其它
-              - 9: 相当于 8
-              - 10: 相当于 8
-              - 11: 相当于 8
-              - 12: ？？？
-              - 13: ？？？
-              - 14: ？？？
-              - 15: 图片和视频，相当于 2 和 4
-              - >= 16: 相当于 8
+                - 0: 全部（仅当前目录）
+                - 1: 文档
+                - 2: 图片
+                - 3: 音频
+                - 4: 视频
+                - 5: 压缩包
+                - 6: 软件/应用
+                - 7: 书籍
+                - 8: 其它
+                - 9: 相当于 8
+                - 10: 相当于 8
+                - 11: 相当于 8
+                - 12: ？？？
+                - 13: ？？？
+                - 14: ？？？
+                - 15: 图片和视频，相当于 2 和 4
+                - >= 16: 相当于 8
         """
         api = complete_proapi("/files", base_url, app)
         if isinstance(payload, (int, str)):
@@ -10881,26 +10888,26 @@ class P115Client(P115OpenClient):
             - suffix: str = <default> 💡 后缀名（优先级高于 `type`）
             - type: int = <default> 💡 文件类型
 
-              - 0: 全部（仅当前目录）
-              - 1: 文档
-              - 2: 图片
-              - 3: 音频
-              - 4: 视频
-              - 5: 压缩包
-              - 6: 软件/应用
-              - 7: 书籍
-              - 8: 其它
-              - 9: 相当于 8
-              - 10: 相当于 8
-              - 11: 相当于 8
-              - 12: ？？？
-              - 13: 相当于 3
-              - 14: ？？？
-              - 15: 图片和视频，相当于 2 和 4
-              - 16: ？？？
-              - 17~98: 相当于 8
-              - 99: 仅文件
-              - >=100: 相当于 8
+                - 0: 全部（仅当前目录）
+                - 1: 文档
+                - 2: 图片
+                - 3: 音频
+                - 4: 视频
+                - 5: 压缩包
+                - 6: 软件/应用
+                - 7: 书籍
+                - 8: 其它
+                - 9: 相当于 8
+                - 10: 相当于 8
+                - 11: 相当于 8
+                - 12: ？？？
+                - 13: 相当于 3
+                - 14: ？？？
+                - 15: 图片和视频，相当于 2 和 4
+                - 16: ？？？
+                - 17~98: 相当于 8
+                - 99: 所有文件
+                - >=100: 相当于 8
         """
         api = complete_api("/natsort/files.php", "aps", base_url=base_url)
         if isinstance(payload, (int, str)):
@@ -11068,6 +11075,209 @@ class P115Client(P115OpenClient):
 
     fs_video_history_set = fs_files_history_set
 
+
+    @overload
+    def fs_files_image(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def fs_files_image(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def fs_files_image(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取目录中的图片列表和基本信息
+
+        GET https://webapi.115.com/files/imglist
+
+        .. danger::
+            这个函数大概是有 bug 的，不推荐使用
+
+        .. attention::
+            只能获取直属于 `cid` 所在目录的图片，不会遍历整个目录树
+
+        :payload:
+            - cid: int | str     💡 目录 id，对应 parent_id
+            - file_id: int | str 💡 不能是 0，可以不同于 `cid`，必须是任何一个有效的 id（单纯是被检查一下）
+            - limit: int = <default> 💡 最多返回数量
+            - offset: int = 0    💡 索引偏移，索引从 0 开始计算
+            - is_asc: 0 | 1 = <default> 💡 是否升序排列
+            - next: 0 | 1 = <default>
+            - order: str = <default> 💡 用某字段排序
+
+                - 文件名："file_name"
+                - 文件大小："file_size"
+                - 文件种类："file_type"
+                - 修改时间："user_utime"
+                - 创建时间："user_ptime"
+                - 上一次打开时间："user_otime"
+        """
+        api = complete_webapi("/files/imglist", base_url=base_url)
+        if isinstance(payload, (int, str)):
+            payload = {"limit": 32, "offset": 0, "cid": payload}
+        else:
+            payload = {"limit": 32, "offset": 0, "cid": 0, **payload}
+        if cid := payload.get("cid"):
+            payload.setdefault("file_id", cid)
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def fs_files_image_app(
+        self, 
+        payload: int | str | dict = 0, 
+        /, 
+        app: str = "android", 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def fs_files_image_app(
+        self, 
+        payload: int | str | dict = 0, 
+        /, 
+        app: str = "android", 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def fs_files_image_app(
+        self, 
+        payload: int | str | dict = 0, 
+        /, 
+        app: str = "android", 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取目录中的图片列表和基本信息
+
+        GET https://proapi.115.com/android/files/imglist
+
+        :payload:
+            - cid: int | str = 0 💡 目录 id，对应 parent_id
+            - limit: int = 32    💡 一页大小，建议控制在 <= 9000，不然会报错
+            - offset: int = 0    💡 索引偏移，索引从 0 开始计算
+
+            - aid: int | str = 1 💡 area_id。1:正常文件 7:回收站文件 12:瞬间文件 120:彻底删除文件、简历附件
+            - asc: 0 | 1 = <default> 💡 是否升序排列
+            - cur: 0 | 1 = <default> 💡 只罗列当前目录
+            - o: str = <default> 💡 用某字段排序
+
+                - 文件名："file_name"
+                - 文件大小："file_size"
+                - 文件种类："file_type"
+                - 修改时间："user_utime"
+                - 创建时间："user_ptime"
+                - 上一次打开时间："user_otime"
+        """
+        api = complete_proapi("/files/imglist", base_url, app)
+        if isinstance(payload, (int, str)):
+            payload = {"limit": 32, "offset": 0, "aid": 1, "cid": payload}
+        else:
+            payload = {"limit": 32, "offset": 0, "aid": 1, "cid": 0, **payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def fs_files_media_app(
+        self, 
+        payload: int | str | dict = 0, 
+        /, 
+        app: str = "android", 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def fs_files_media_app(
+        self, 
+        payload: int | str | dict = 0, 
+        /, 
+        app: str = "android", 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def fs_files_media_app(
+        self, 
+        payload: int | str | dict = 0, 
+        /, 
+        app: str = "android", 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取目录中的文件列表和基本信息
+
+        GET https://proapi.115.com/android/files/medialist
+
+        :payload:
+            - cid: int | str = 0 💡 目录 id，对应 parent_id
+            - limit: int = 32    💡 一页大小，建议控制在 <= 9000，不然会报错
+            - offset: int = 0    💡 索引偏移，索引从 0 开始计算
+
+            - aid: int | str = 1 💡 area_id。1:正常文件 7:回收站文件 12:瞬间文件 120:彻底删除文件、简历附件
+            - asc: 0 | 1 = <default> 💡 是否升序排列
+            - cur: 0 | 1 = <default> 💡 只罗列当前目录
+            - o: str = <default> 💡 用某字段排序
+
+                - 文件名："file_name"
+                - 文件大小："file_size"
+                - 文件种类："file_type"
+                - 修改时间："user_utime"
+                - 创建时间："user_ptime"
+                - 上一次打开时间："user_otime"
+
+            - type: int = 0 💡 文件类型
+
+                - 0: 相当于 2
+                - 1: 文档
+                - 2: 图片
+                - 3: 音频
+                - 4: 视频
+                - 5: 压缩包
+                - 6: 软件/应用
+                - 7: 书籍
+                - ...: > 7 则相当于 1，< 0 则是全部文件
+        """
+        api = complete_proapi("/files/medialist", base_url, app)
+        if isinstance(payload, (int, str)):
+            payload = {"limit": 32, "offset": 0, "aid": 1, "type": 0, "cid": payload}
+        else:
+            payload = {"limit": 32, "offset": 0, "aid": 1, "type": 0, "cid": 0, **payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
     @overload
     def fs_files_second_type(
         self, 
@@ -11107,13 +11317,13 @@ class P115Client(P115OpenClient):
             - cid: int | str = 0 💡 目录 id，对应 parent_id
             - type: int = 1 💡 文件类型
 
-              - 1: 文档
-              - 2: 图片
-              - 3: 音频
-              - 4: 视频
-              - 5: 压缩包
-              - 6: 软件/应用
-              - 7: 书籍
+                - 1: 文档
+                - 2: 图片
+                - 3: 音频
+                - 4: 视频
+                - 5: 压缩包
+                - 6: 软件/应用
+                - 7: 书籍
 
             - file_label: int | str = <default> 💡 标签 id，多个用逗号 "," 隔开
         """
@@ -11672,15 +11882,15 @@ class P115Client(P115OpenClient):
         :payload:
             - type: int | str = 0 💡 类型（？？表示还未搞清楚），多个用逗号 "," 隔开
 
-              - 全部: 0
-              - ？？: 1
-              - 离线下载: 2
-              - 播放视频: 3
-              - 上传: 4
-              - ？？: 5
-              - ？？: 6（似乎是一些在离线、转存等过程中有重名的目录）
-              - 接收: 7
-              - 移动: 8
+                - 全部: 0
+                - ？？: 1
+                - 离线下载: 2
+                - 播放视频: 3
+                - 上传: 4
+                - ？？: 5
+                - ？？: 6（似乎是一些在离线、转存等过程中有重名的目录）
+                - 接收: 7
+                - 移动: 8
 
             - with_file: 0 | 1 = 0
         """
@@ -11827,15 +12037,15 @@ class P115Client(P115OpenClient):
         :payload:
             - type: int | str = 0 💡 类型（？？表示还未搞清楚），多个用逗号 "," 隔开
 
-              - 全部: 0
-              - ？？: 1
-              - 离线下载: 2
-              - 播放视频: 3
-              - 上传: 4
-              - ？？: 5
-              - ？？: 6（似乎是一些在离线、转存等过程中有重名的目录）
-              - 接收: 7
-              - 移动: 8
+                - 全部: 0
+                - ？？: 1
+                - 离线下载: 2
+                - 播放视频: 3
+                - 上传: 4
+                - ？？: 5
+                - ？？: 6（似乎是一些在离线、转存等过程中有重名的目录）
+                - 接收: 7
+                - 移动: 8
 
             - with_file: 0 | 1 = 0
         """
@@ -11887,15 +12097,15 @@ class P115Client(P115OpenClient):
             - played_end: 0 | 1 = <default> 💡 是否已经播放完
             - type: int = <default> 💡 类型（？？表示还未搞清楚），多个用逗号 "," 隔开
 
-              - 全部: 0
-              - ？？: 1
-              - 离线下载: 2
-              - 播放视频: 3
-              - 上传: 4
-              - ？？: 5
-              - ？？: 6（似乎是一些在离线、转存等过程中有重名的目录）
-              - 接收: 7
-              - 移动: 8
+                - 全部: 0
+                - ？？: 1
+                - 离线下载: 2
+                - 播放视频: 3
+                - 上传: 4
+                - ？？: 5
+                - ？？: 6（似乎是一些在离线、转存等过程中有重名的目录）
+                - 接收: 7
+                - 移动: 8
         """
         api = complete_webapi("/history/list", base_url=base_url)
         if isinstance(payload, (int, str)):
@@ -11948,15 +12158,15 @@ class P115Client(P115OpenClient):
             - played_end: 0 | 1 = <default>
             - type: int = <default> 💡 类型（？？表示还未搞清楚），多个用逗号 "," 隔开
 
-              - 全部: 0
-              - ？？: 1
-              - 离线下载: 2
-              - 播放视频: 3
-              - 上传: 4
-              - ？？: 5
-              - ？？: 6（似乎是一些在离线、转存等过程中有重名的目录）
-              - 接收: 7
-              - 移动: 8
+                - 全部: 0
+                - ？？: 1
+                - 离线下载: 2
+                - 播放视频: 3
+                - 上传: 4
+                - ？？: 5
+                - ？？: 6（似乎是一些在离线、转存等过程中有重名的目录）
+                - 接收: 7
+                - 移动: 8
         """
         api = complete_proapi("/history/list", base_url, app)
         if isinstance(payload, (int, str)):
@@ -12185,134 +12395,6 @@ class P115Client(P115OpenClient):
         if isinstance(payload, str):
             payload = {"imgurl": payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
-
-    @overload
-    def fs_imglist(
-        self, 
-        payload: int | str | dict, 
-        /, 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[False] = False, 
-        **request_kwargs, 
-    ) -> dict:
-        ...
-    @overload
-    def fs_imglist(
-        self, 
-        payload: int | str | dict, 
-        /, 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[True], 
-        **request_kwargs, 
-    ) -> Coroutine[Any, Any, dict]:
-        ...
-    def fs_imglist(
-        self, 
-        payload: int | str | dict, 
-        /, 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[False, True] = False, 
-        **request_kwargs, 
-    ) -> dict | Coroutine[Any, Any, dict]:
-        """获取目录中的图片列表和基本信息
-
-        GET https://webapi.115.com/files/imglist
-
-        .. danger::
-            这个函数大概是有 bug 的，不推荐使用
-
-        .. attention::
-            只能获取直属于 `cid` 所在目录的图片，不会遍历整个目录树
-
-        :payload:
-            - cid: int | str     💡 目录 id，对应 parent_id
-            - file_id: int | str 💡 不能是 0，可以不同于 `cid`，必须是任何一个有效的 id（单纯是被检查一下）
-            - limit: int = <default> 💡 最多返回数量
-            - offset: int = 0    💡 索引偏移，索引从 0 开始计算
-            - is_asc: 0 | 1 = <default> 💡 是否升序排列
-            - next: 0 | 1 = <default>
-            - order: str = <default> 💡 用某字段排序
-
-              - 文件名："file_name"
-              - 文件大小："file_size"
-              - 文件种类："file_type"
-              - 修改时间："user_utime"
-              - 创建时间："user_ptime"
-              - 上一次打开时间："user_otime"
-        """
-        api = complete_webapi("/files/imglist", base_url=base_url)
-        if isinstance(payload, (int, str)):
-            payload = {"limit": 32, "offset": 0, "cid": payload}
-        else:
-            payload = {"limit": 32, "offset": 0, "cid": 0, **payload}
-        if cid := payload.get("cid"):
-            payload.setdefault("file_id", cid)
-        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
-
-    @overload
-    def fs_imglist_app(
-        self, 
-        payload: int | str | dict = 0, 
-        /, 
-        app: str = "android", 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[False] = False, 
-        **request_kwargs, 
-    ) -> dict:
-        ...
-    @overload
-    def fs_imglist_app(
-        self, 
-        payload: int | str | dict = 0, 
-        /, 
-        app: str = "android", 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[True], 
-        **request_kwargs, 
-    ) -> Coroutine[Any, Any, dict]:
-        ...
-    def fs_imglist_app(
-        self, 
-        payload: int | str | dict = 0, 
-        /, 
-        app: str = "android", 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[False, True] = False, 
-        **request_kwargs, 
-    ) -> dict | Coroutine[Any, Any, dict]:
-        """获取目录中的图片列表和基本信息
-
-        GET https://proapi.115.com/android/files/imglist
-
-        :payload:
-            - cid: int | str = 0 💡 目录 id，对应 parent_id
-            - limit: int = 32    💡 一页大小，建议控制在 <= 9000，不然会报错
-            - offset: int = 0    💡 索引偏移，索引从 0 开始计算
-
-            - aid: int | str = 1 💡 area_id。1:正常文件 7:回收站文件 12:瞬间文件 120:彻底删除文件、简历附件
-            - asc: 0 | 1 = <default> 💡 是否升序排列
-            - cur: 0 | 1 = <default> 💡 只罗列当前目录
-            - o: str = <default> 💡 用某字段排序
-
-              - 文件名："file_name"
-              - 文件大小："file_size"
-              - 文件种类："file_type"
-              - 修改时间："user_utime"
-              - 创建时间："user_ptime"
-              - 上一次打开时间："user_otime"
-        """
-        api = complete_proapi("/files/imglist", base_url, app)
-        if isinstance(payload, (int, str)):
-            payload = {"limit": 32, "offset": 0, "aid": 1, "cid": payload}
-        else:
-            payload = {"limit": 32, "offset": 0, "aid": 1, "cid": 0, **payload}
-        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
     def fs_index_info(
@@ -12677,9 +12759,9 @@ class P115Client(P115OpenClient):
             - keyword: str = <default> 💡 搜索关键词
             - sort: "name" | "update_time" | "create_time" = <default> 💡 排序字段
 
-              - 名称: "name"
-              - 创建时间: "create_time"
-              - 更新时间: "update_time"
+                - 名称: "name"
+                - 创建时间: "create_time"
+                - 更新时间: "update_time"
 
             - order: "asc" | "desc" = <default> 💡 排序顺序："asc"(升序), "desc"(降序)
         """
@@ -12734,9 +12816,9 @@ class P115Client(P115OpenClient):
             - keyword: str = <default> 💡 搜索关键词
             - sort: "name" | "update_time" | "create_time" = <default> 💡 排序字段
 
-              - 名称: "name"
-              - 创建时间: "create_time"
-              - 更新时间: "update_time"
+                - 名称: "name"
+                - 创建时间: "create_time"
+                - 更新时间: "update_time"
 
             - order: "asc" | "desc" = <default> 💡 排序顺序："asc"(升序), "desc"(降序)
         """
@@ -12871,10 +12953,10 @@ class P115Client(P115OpenClient):
         :payload:
             - action: "add" | "remove" | "reset" | "replace" 💡 操作名
 
-              - "add": 添加
-              - "remove": 移除
-              - "reset": 重设
-              - "replace": 替换
+                - "add": 添加
+                - "remove": 移除
+                - "reset": 重设
+                - "replace": 替换
 
             - file_ids: int | str 💡 文件或目录 id，多个用逗号 "," 隔开
             - file_label: int | str = <default> 💡 标签 id，多个用逗号 "," 隔开
@@ -12924,10 +13006,10 @@ class P115Client(P115OpenClient):
         :payload:
             - action: "add" | "remove" | "reset" | "replace" 💡 操作名
 
-              - "add": 添加
-              - "remove": 移除
-              - "reset": 重设
-              - "replace": 替换
+                - "add": 添加
+                - "remove": 移除
+                - "reset": 重设
+                - "replace": 替换
 
             - file_ids: int | str 💡 文件或目录 id，多个用逗号 "," 隔开
             - file_label: int | str = <default> 💡 标签 id，多个用逗号 "," 隔开
@@ -14200,12 +14282,12 @@ class P115Client(P115OpenClient):
         :payload:
             - user_order: str 💡 用某字段排序
 
-              - "file_name": 文件名
-              - "file_size": 文件大小
-              - "file_type": 文件种类
-              - "user_utime": 修改时间
-              - "user_ptime": 创建时间
-              - "user_otime": 上一次打开时间
+                - "file_name": 文件名
+                - "file_size": 文件大小
+                - "file_type": 文件种类
+                - "user_utime": 修改时间
+                - "user_ptime": 创建时间
+                - "user_otime": 上一次打开时间
 
             - file_id: int | str = 0 💡 目录 id，对应 parent_id
             - user_asc: 0 | 1 = <default> 💡 是否升序排列
@@ -14263,12 +14345,12 @@ class P115Client(P115OpenClient):
         :payload:
             - user_order: str 💡 用某字段排序
 
-              - "file_name": 文件名
-              - "file_size": 文件大小
-              - "file_type": 文件种类
-              - "user_utime": 修改时间
-              - "user_ptime": 创建时间
-              - "user_otime": 上一次打开时间
+                - "file_name": 文件名
+                - "file_size": 文件大小
+                - "file_type": 文件种类
+                - "user_utime": 修改时间
+                - "user_ptime": 创建时间
+                - "user_otime": 上一次打开时间
 
             - file_id: int | str = 0 💡 目录 id，对应 parent_id
             - user_asc: 0 | 1 = <default> 💡 是否升序排列
@@ -14711,12 +14793,12 @@ class P115Client(P115OpenClient):
             - limit: int = 32 💡 一页大小，意思就是 page_size
             - o: str = <default> 💡 用某字段排序
 
-              - "file_name": 文件名
-              - "file_size": 文件大小
-              - "file_type": 文件种类
-              - "user_utime": 修改时间
-              - "user_ptime": 创建时间
-              - "user_otime": 上一次打开时间
+                - "file_name": 文件名
+                - "file_size": 文件大小
+                - "file_type": 文件种类
+                - "user_utime": 修改时间
+                - "user_ptime": 创建时间
+                - "user_otime": 上一次打开时间
 
             - offset: int = 0  💡 索引偏移，索引从 0 开始计算
             - pick_code: str = <default> 💡 是否查询提取码，如果该值为 1 则查询提取码为 `search_value` 的文件
@@ -14727,15 +14809,15 @@ class P115Client(P115OpenClient):
             - suffix: str = <default> 💡 文件后缀（扩展名），优先级高于 `type`
             - type: int = <default>   💡 文件类型
 
-              - 0: 全部（仅当前目录）
-              - 1: 文档
-              - 2: 图片
-              - 3: 音频
-              - 4: 视频
-              - 5: 压缩包
-              - 6: 软件/应用
-              - 7: 书籍
-              - 99: 仅文件
+                - 0: 全部（仅当前目录）
+                - 1: 文档
+                - 2: 图片
+                - 3: 音频
+                - 4: 视频
+                - 5: 压缩包
+                - 6: 软件/应用
+                - 7: 书籍
+                - 99: 所有文件
         """
         api = complete_webapi("/files/search", base_url=base_url)
         if isinstance(payload, str):
@@ -14808,12 +14890,12 @@ class P115Client(P115OpenClient):
             - limit: int = 32 💡 一页大小，意思就是 page_size
             - o: str = <default> 💡 用某字段排序
 
-              - "file_name": 文件名
-              - "file_size": 文件大小
-              - "file_type": 文件种类
-              - "user_utime": 修改时间
-              - "user_ptime": 创建时间
-              - "user_otime": 上一次打开时间
+                - "file_name": 文件名
+                - "file_size": 文件大小
+                - "file_type": 文件种类
+                - "user_utime": 修改时间
+                - "user_ptime": 创建时间
+                - "user_otime": 上一次打开时间
 
             - offset: int = 0  💡 索引偏移，索引从 0 开始计算
             - pick_code: str = <default> 💡 是否查询提取码，如果该值为 1 则查询提取码为 `search_value` 的文件
@@ -14824,15 +14906,15 @@ class P115Client(P115OpenClient):
             - suffix: str = <default> 💡 后缀名（优先级高于 `type`）
             - type: int = <default> 💡 文件类型
 
-              - 0: 全部（仅当前目录）
-              - 1: 文档
-              - 2: 图片
-              - 3: 音频
-              - 4: 视频
-              - 5: 压缩包
-              - 6: 软件/应用
-              - 7: 书籍
-              - 99: 仅文件
+                - 0: 全部（仅当前目录）
+                - 1: 文档
+                - 2: 图片
+                - 3: 音频
+                - 4: 视频
+                - 5: 压缩包
+                - 6: 软件/应用
+                - 7: 书籍
+                - 99: 所有文件
 
             - version: str = <default> 💡 版本号，比如 3.1
         """
@@ -14909,12 +14991,12 @@ class P115Client(P115OpenClient):
             - lte_day: str 💡 搜索结果匹配的结束时间；格式：YYYY-MM-DD
             - o: str = <default> 💡 用某字段排序
 
-              - "file_name": 文件名
-              - "file_size": 文件大小
-              - "file_type": 文件种类
-              - "user_utime": 修改时间
-              - "user_ptime": 创建时间
-              - "user_otime": 上一次打开时间
+                - "file_name": 文件名
+                - "file_size": 文件大小
+                - "file_type": 文件种类
+                - "user_utime": 修改时间
+                - "user_ptime": 创建时间
+                - "user_otime": 上一次打开时间
 
             - offset: int = 0  💡 索引偏移，索引从 0 开始计算
             - pick_code: str = <default> 💡 是否查询提取码，如果该值为 1 则查询提取码为 `search_value` 的文件
@@ -14925,15 +15007,15 @@ class P115Client(P115OpenClient):
             - suffix: str = <default> 💡 后缀名（优先级高于 `type`）
             - type: int = <default> 💡 文件类型
 
-              - 0: 全部（仅当前目录）
-              - 1: 文档
-              - 2: 图片
-              - 3: 音频
-              - 4: 视频
-              - 5: 压缩包
-              - 6: 软件/应用
-              - 7: 书籍
-              - 99: 仅文件
+                - 0: 全部（仅当前目录）
+                - 1: 文档
+                - 2: 图片
+                - 3: 音频
+                - 4: 视频
+                - 5: 压缩包
+                - 6: 软件/应用
+                - 7: 书籍
+                - 99: 所有文件
 
             - version: str = <default> 💡 版本号，比如 3.1
         """
@@ -15990,24 +16072,24 @@ class P115Client(P115OpenClient):
         :payload:
             - type: str = "" 💡 操作类型，若不指定则是全部
 
-              - "upload_image_file": 1 💡 上传图片
-              - "upload_file":       2 💡 上传文件或目录（不包括图片）
-              - "star_image":        3 💡 给图片设置星标
-              - "star_file":         4 💡 给文件或目录设置星标（不包括图片）
-              - "move_image_file":   5 💡 移动图片
-              - "move_file":         6 💡 移动文件或目录（不包括图片）
-              - "browse_image":      7 💡 浏览图片
-              - "browse_video":      8 💡 浏览视频
-              - "browse_audio":      9 💡 浏览音频
-              - "browse_document":  10 💡 浏览文档
-              - "receive_files":    14 💡 接收文件
-              - "new_folder":       17 💡 新增目录
-              - "copy_folder":      18 💡 复制目录
-              - "folder_label":     19 💡 目录设置标签
-              - "folder_rename":    20 💡 目录改名
-              - "delete_file":      22 💡 删除文件或目录
-              - "copy_file":         ? 💡 复制文件（未实现）
-              - "rename_file":       ? 💡 文件改名（未实现）
+                - "upload_image_file": 1 💡 上传图片
+                - "upload_file":       2 💡 上传文件或目录（不包括图片）
+                - "star_image":        3 💡 给图片设置星标
+                - "star_file":         4 💡 给文件或目录设置星标（不包括图片）
+                - "move_image_file":   5 💡 移动图片
+                - "move_file":         6 💡 移动文件或目录（不包括图片）
+                - "browse_image":      7 💡 浏览图片
+                - "browse_video":      8 💡 浏览视频
+                - "browse_audio":      9 💡 浏览音频
+                - "browse_document":  10 💡 浏览文档
+                - "receive_files":    14 💡 接收文件
+                - "new_folder":       17 💡 新增目录
+                - "copy_folder":      18 💡 复制目录
+                - "folder_label":     19 💡 目录设置标签
+                - "folder_rename":    20 💡 目录改名
+                - "delete_file":      22 💡 删除文件或目录
+                - "copy_file":         ? 💡 复制文件（未实现）
+                - "rename_file":       ? 💡 文件改名（未实现）
 
             - limit: int = 32          💡 最大值为 1_000
             - offset: int = 0
@@ -16061,24 +16143,24 @@ class P115Client(P115OpenClient):
         :payload:
             - type: str = "" 💡 操作类型
 
-              - "upload_image_file": 1 💡 上传图片
-              - "upload_file":       2 💡 上传文件或目录（不包括图片）
-              - "star_image":        3 💡 给图片设置星标
-              - "star_file":         4 💡 给文件或目录设置星标（不包括图片）
-              - "move_image_file":   5 💡 移动图片
-              - "move_file":         6 💡 移动文件或目录（不包括图片）
-              - "browse_image":      7 💡 浏览图片
-              - "browse_video":      8 💡 浏览视频
-              - "browse_audio":      9 💡 浏览音频
-              - "browse_document":  10 💡 浏览文档
-              - "receive_files":    14 💡 接收文件
-              - "new_folder":       17 💡 新增目录
-              - "copy_folder":      18 💡 复制目录
-              - "folder_label":     19 💡 目录设置标签
-              - "folder_rename":    20 💡 目录改名
-              - "delete_file":      22 💡 删除文件或目录
-              - "copy_file":         ? 💡 复制文件（未实现）
-              - "rename_file":       ? 💡 文件改名（未实现）
+                - "upload_image_file": 1 💡 上传图片
+                - "upload_file":       2 💡 上传文件或目录（不包括图片）
+                - "star_image":        3 💡 给图片设置星标
+                - "star_file":         4 💡 给文件或目录设置星标（不包括图片）
+                - "move_image_file":   5 💡 移动图片
+                - "move_file":         6 💡 移动文件或目录（不包括图片）
+                - "browse_image":      7 💡 浏览图片
+                - "browse_video":      8 💡 浏览视频
+                - "browse_audio":      9 💡 浏览音频
+                - "browse_document":  10 💡 浏览文档
+                - "receive_files":    14 💡 接收文件
+                - "new_folder":       17 💡 新增目录
+                - "copy_folder":      18 💡 复制目录
+                - "folder_label":     19 💡 目录设置标签
+                - "folder_rename":    20 💡 目录改名
+                - "delete_file":      22 💡 删除文件或目录
+                - "copy_file":         ? 💡 复制文件（未实现）
+                - "rename_file":       ? 💡 文件改名（未实现）
 
             - limit: int = 32          💡 最大值为 1_000
             - offset: int = 0
@@ -16090,6 +16172,108 @@ class P115Client(P115OpenClient):
         else:
             payload = {"limit": 32, "offset": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def life_behavior_doc_post_app(
+        self, 
+        payload: int | str | Iterable[int | str] | dict, 
+        /, 
+        app: str = "android", 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def life_behavior_doc_post_app(
+        self, 
+        payload: int | str | Iterable[int | str] | dict, 
+        /, 
+        app: str = "android", 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def life_behavior_doc_post_app(
+        self, 
+        payload: int | str | Iterable[int | str] | dict, 
+        /, 
+        app: str = "android", 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """推送事件：浏览文档 "browse_document"
+
+        POST https://proapi.115.com/android/files/doc_behavior
+
+        :payload:
+            - file_id: int | str
+            - file_id[0]: int | str
+            - file_id[1]: int | str
+            - ...
+        """
+        api = complete_proapi("/files/doc_behavior", base_url, app)
+        if isinstance(payload, (int, str)):
+            payload = {"file_id": payload}
+        elif not isinstance(payload, dict):
+            payload = {f"file_id[{i}]": fid for i, fid in enumerate(payload)}
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def life_behavior_img_post_app(
+        self, 
+        payload: int | str | Iterable[int | str] | dict, 
+        /, 
+        app: str = "android", 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def life_behavior_img_post_app(
+        self, 
+        payload: int | str | Iterable[int | str] | dict, 
+        /, 
+        app: str = "android", 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def life_behavior_img_post_app(
+        self, 
+        payload: int | str | Iterable[int | str] | dict, 
+        /, 
+        app: str = "android", 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """推送事件：浏览图片 "browse_image"
+
+        POST https://proapi.115.com/android/files/img_behavior
+
+        :payload:
+            - file_id: int | str
+            - file_id[0]: int | str
+            - file_id[1]: int | str
+            - ...
+        """
+        api = complete_proapi("/files/img_behavior", base_url, app)
+        if isinstance(payload, (int, str)):
+            payload = {"file_id": payload}
+        elif not isinstance(payload, dict):
+            payload = {f"file_id[{i}]": fid for i, fid in enumerate(payload)}
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
     def life_calendar_getoption(
@@ -16323,60 +16507,6 @@ class P115Client(P115OpenClient):
         if isinstance(payload, int):
             payload = {"start_time": payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
-
-    @overload
-    def life_img_behavior_post_app(
-        self, 
-        payload: int | str | Iterable[int | str] | dict, 
-        /, 
-        app: str = "android", 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[False] = False, 
-        **request_kwargs, 
-    ) -> dict:
-        ...
-    @overload
-    def life_img_behavior_post_app(
-        self, 
-        payload: int | str | Iterable[int | str] | dict, 
-        /, 
-        app: str = "android", 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[True], 
-        **request_kwargs, 
-    ) -> Coroutine[Any, Any, dict]:
-        ...
-    def life_img_behavior_post_app(
-        self, 
-        payload: int | str | Iterable[int | str] | dict, 
-        /, 
-        app: str = "android", 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[False, True] = False, 
-        **request_kwargs, 
-    ) -> dict | Coroutine[Any, Any, dict]:
-        """推送事件：浏览图片 "browse_image"
-
-        POST https://proapi.115.com/android/files/img_behavior
-
-        .. note::
-            如果提供的是目录的 id，则会把其中（直属的）图片记为浏览
-
-        :payload:
-            - file_id: int | str
-            - file_id[0]: int | str
-            - file_id[1]: int | str
-            - ...
-        """
-        api = complete_proapi("/files/img_behavior", base_url, app)
-        if isinstance(payload, (int, str)):
-            payload = {"file_id": payload}
-        elif not isinstance(payload, dict):
-            payload = {f"file_id[{i}]": fid for i, fid in enumerate(payload)}
-        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
     def life_list(
@@ -18432,12 +18562,12 @@ class P115Client(P115OpenClient):
         :payload:
             - flag: int = 0 💡 标识，用于对应某种情况
 
-              - 0: 已完成
-              - 1: 全部
-              - 2: 已失败
-              - 3: 进行中
-              - 4: 已完成+删除源文件
-              - 5: 全部+删除源文件
+                - 0: 已完成
+                - 1: 全部
+                - 2: 已失败
+                - 3: 进行中
+                - 4: 已完成+删除源文件
+                - 5: 全部+删除源文件
         """
         if isinstance(payload, int):
             payload = {"flag": payload}
@@ -20100,12 +20230,12 @@ class P115Client(P115OpenClient):
             - is_asc: 0 | 1 = 1 💡 是否升序排列
             - order: str = "file_name" 💡 用某字段排序
 
-              - "file_name": 文件名
-              - "file_size": 文件大小
-              - "file_type": 文件种类
-              - "user_utime": 修改时间
-              - "user_ptime": 创建时间
-              - "user_otime": 上一次打开时间
+                - "file_name": 文件名
+                - "file_size": 文件大小
+                - "file_type": 文件种类
+                - "user_utime": 修改时间
+                - "user_ptime": 创建时间
+                - "user_otime": 上一次打开时间
 
             - ignore_warn: 0 | 1 = 1 💡 忽略信息提示，传 1 就行了
         """
@@ -20159,12 +20289,12 @@ class P115Client(P115OpenClient):
             - is_asc: 0 | 1 = 1 💡 是否升序排列
             - order: str = "file_name" 💡 用某字段排序
 
-              - "file_name": 文件名
-              - "file_size": 文件大小
-              - "file_type": 文件种类
-              - "user_utime": 修改时间
-              - "user_ptime": 创建时间
-              - "user_otime": 上一次打开时间
+                - "file_name": 文件名
+                - "file_size": 文件大小
+                - "file_type": 文件种类
+                - "user_utime": 修改时间
+                - "user_ptime": 创建时间
+                - "user_otime": 上一次打开时间
 
             - ignore_warn: 0 | 1 = 1 💡 忽略信息提示，传 1 就行了
         """
@@ -20223,15 +20353,15 @@ class P115Client(P115OpenClient):
             - suffix: str = <default> 💡 文件后缀（扩展名），优先级高于 `type`
             - type: int = <default>   💡 文件类型
 
-              - 0: 全部
-              - 1: 文档
-              - 2: 图片
-              - 3: 音频
-              - 4: 视频
-              - 5: 压缩包
-              - 6: 软件/应用
-              - 7: 书籍
-              - 99: 仅文件
+                - 0: 全部
+                - 1: 文档
+                - 2: 图片
+                - 3: 音频
+                - 4: 视频
+                - 5: 压缩包
+                - 6: 软件/应用
+                - 7: 书籍
+                - 99: 所有文件
         """
         api = complete_webapi("/share/search", base_url=base_url)
         payload = {"cid": 0, "limit": 32, "offset": 0, "search_value": ".", **payload}
@@ -20708,9 +20838,9 @@ class P115Client(P115OpenClient):
             - asc: 0 | 1 = <default> 💡 是否升序排列
             - o: str = <default> 💡 用某字段排序
 
-              - "file_name": 文件名
-              - "file_size": 文件大小
-              - "user_ptime": 创建时间/修改时间
+                - "file_name": 文件名
+                - "file_size": 文件大小
+                - "user_ptime": 创建时间/修改时间
         """
         api = complete_webapi("/share/snap", base_url=base_url)
         if isinstance(self, dict):
@@ -20783,9 +20913,9 @@ class P115Client(P115OpenClient):
             - asc: 0 | 1 = <default> 💡 是否升序排列
             - o: str = <default> 💡 用某字段排序
 
-              - "file_name": 文件名
-              - "file_size": 文件大小
-              - "user_ptime": 创建时间/修改时间
+                - "file_name": 文件名
+                - "file_size": 文件大小
+                - "user_ptime": 创建时间/修改时间
         """
         api = complete_proapi("/2.0/share/snap", base_url, app)
         if isinstance(self, dict):
@@ -21026,15 +21156,15 @@ class P115Client(P115OpenClient):
         :payload:
             - filter_field: "parents" | "file_name" | "" | "" = <default> 💡 保留条件（1. 用于批量删除）
 
-              - "file_name": 文件名（按长度）
-              - "parents": 所在目录路径（按长度）
-              - "user_utime": 操作时间
-              - "user_ptime": 创建时间
+                - "file_name": 文件名（按长度）
+                - "parents": 所在目录路径（按长度）
+                - "user_utime": 操作时间
+                - "user_ptime": 创建时间
 
             - filter_order: "asc" | "desc" = <default> 💡 排序（2. 用于批量删除）
 
-              - "asc": 升序，从小到大，取最小
-              - "desc": 降序，从大到小，取最大
+                - "asc": 升序，从小到大，取最小
+                - "desc": 降序，从大到小，取最大
 
             - batch: 0 | 1 = <default> 💡 是否批量操作（3. 用于批量删除）
             - sha1s[{sha1}]: int | str = <default> 💡 文件 id，多个用逗号 "," 隔开（1. 用于手动指定删除对象）

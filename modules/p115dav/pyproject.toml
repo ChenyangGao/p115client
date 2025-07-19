@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "p115dav"
-version = "0.0.10.2"
+version = "0.0.10.2.1"
 description = "115 网盘 WebDAV 和 302 直链程序."
 authors = ["ChenyangGao <wosiwujm@gmail.com>"]
 license = "MIT"

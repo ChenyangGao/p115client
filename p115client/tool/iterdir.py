@@ -13,9 +13,9 @@ __all__ = [
     "iter_files", "iter_files_with_path", "iter_files_with_path_skim", 
     "traverse_tree", "traverse_tree_with_path", "iter_nodes", 
     "iter_nodes_skim", "iter_nodes_by_pickcode", "iter_nodes_using_update", 
-    "iter_nodes_using_info", "iter_nodes_using_star_event",  
+    "iter_nodes_using_info", "iter_nodes_using_event",  
     "iter_dir_nodes_using_star", "iter_parents", "iter_files_shortcut", 
-    "iter_dupfiles", "iter_image_files", "search_iter", "share_iterdir", 
+    "iter_dupfiles", "iter_media_files", "search_iter", "share_iterdir", 
     "share_iter_files", "share_search_iter", 
 ]
 __doc__ = "这个模块提供了一些和目录信息罗列有关的函数"
@@ -64,7 +64,7 @@ from p115pickcode import pickcode_to_id, to_id
 from posixpatht import path_is_dir_form, splitext, splits
 
 from .attr import type_of_attr
-from .edit import update_desc, update_star
+from .edit import update_desc, update_star, post_event
 from .fs_files import (
     is_timeouterror, iter_fs_files, iter_fs_files_threaded, 
     iter_fs_files_asynchronized, 
@@ -1549,7 +1549,7 @@ def ensure_attr_path_using_star_event[D: dict](
             find_ids: set[int]
             while pids:
                 if find_ids := pids - id_to_dirnode.keys() - dangling_ids:
-                    yield through(iter_nodes_using_star_event(
+                    yield through(iter_nodes_using_event(
                         client, 
                         find_ids, 
                         normalize_attr=None, 
@@ -2203,7 +2203,7 @@ def iter_files(
         - 5: 压缩包
         - 6: 应用
         - 7: 书籍
-        - 99: 仅文件
+        - 99: 所有文件
 
     :param order: 排序
 
@@ -2225,7 +2225,7 @@ def iter_files(
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
 
-    :return: 迭代器，返回此目录内的（仅文件）文件信息
+    :return: 迭代器，返回此目录内的（所有文件）文件信息
     """
     suffix = suffix.strip(".")
     if not (type or suffix):
@@ -2340,7 +2340,7 @@ def iter_files_with_path(
         - 5: 压缩包
         - 6: 应用
         - 7: 书籍
-        - 99: 仅文件
+        - 99: 所有文件
 
     :param order: 排序
 
@@ -2371,7 +2371,7 @@ def iter_files_with_path(
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
 
-    :return: 迭代器，返回此目录内的（仅文件）文件信息
+    :return: 迭代器，返回此目录内的（所有文件）文件信息
     """
     suffix = suffix.strip(".")
     if not (type or suffix):
@@ -2594,7 +2594,7 @@ def iter_files_with_path_skim(
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
 
-    :return: 迭代器，返回此目录内的（仅文件）文件信息
+    :return: 迭代器，返回此目录内的（所有文件）文件信息
     """
     from .download import iter_download_nodes
     if isinstance(client, str):
@@ -3416,10 +3416,10 @@ def iter_nodes_using_info(
 
 
 @overload
-def iter_nodes_using_star_event(
+def iter_nodes_using_event(
     client: str | P115Client, 
     ids: Iterable[int | str], 
-    with_pics: bool = False, 
+    type: Literal["doc", "img"] = "img", 
     normalize_attr: None | bool | Callable[[dict], dict] = True, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "android", 
@@ -3430,10 +3430,10 @@ def iter_nodes_using_star_event(
 ) -> Iterator[dict]:
     ...
 @overload
-def iter_nodes_using_star_event(
+def iter_nodes_using_event(
     client: str | P115Client, 
     ids: Iterable[int | str], 
-    with_pics: bool = False, 
+    type: Literal["doc", "img"] = "img", 
     normalize_attr: None | bool | Callable[[dict], dict] = True, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "android", 
@@ -3443,10 +3443,10 @@ def iter_nodes_using_star_event(
     **request_kwargs, 
 ) -> AsyncIterator[dict]:
     ...
-def iter_nodes_using_star_event(
+def iter_nodes_using_event(
     client: str | P115Client, 
     ids: Iterable[int | str], 
-    with_pics: bool = False, 
+    type: Literal["doc", "img"] = "img", 
     normalize_attr: None | bool | Callable[[dict], dict] = True, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "android", 
@@ -3455,14 +3455,18 @@ def iter_nodes_using_star_event(
     async_: Literal[False, True] = False, 
     **request_kwargs, 
 ) -> Iterator[dict] | AsyncIterator[dict]:
-    """通过先打星标，然后收集这个操作事件，来获取一组 id 的信息
+    """通过先发送事件，然后收集这个事件，来获取一组 id 的信息
 
-    .. caution::
-        如果有任一 id 已经被删除，则打星标时会报错
+    .. note::
+        如果未收集到事件，则说明文件 id 不存在或者已删除，你也可以因此找出所有的无效 id
 
     :param client: 115 客户端或 cookies
     :param ids: 一组文件或目录的 id 或 pickcode
-    :param with_pics: 包含图片的 id
+    :param type: 事件类型
+
+        - "doc": 推送 "browse_document" 事件
+        - "img": 推送 "browse_image" 事件
+
     :param normalize_attr: 把数据进行转换处理，使之便于阅读
     :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典，如果为 ...，则忽略
     :param app: 使用指定 app（设备）的接口
@@ -3492,42 +3496,38 @@ def iter_nodes_using_star_event(
         client = P115Client(client, check_for_relogin=True)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
+    if type == "doc":
+        event_name = "browse_document"
+    else:
+        event_name = "browse_image"
     def gen_step():
         nonlocal ids
         ts = int(time())
         ids = set(map(to_id, ids))
         yield life_show(client, async_=async_, **request_kwargs)
-        yield update_star(client, ids, app=app, async_=async_, **request_kwargs)
+        yield post_event(
+            client, 
+            ids, 
+            type=type, 
+            app=app, 
+            async_=async_, 
+            **request_kwargs, 
+        )
         if app in ("", "web", "desktop", "harmony"):
             get_base_url = cycle(("http://webapi.115.com", "https://webapi.115.com")).__next__
         else:
             get_base_url = cycle(("http://proapi.115.com", "https://proapi.115.com")).__next__
         request_kwargs.setdefault("base_url", get_base_url)
         discard = ids.discard
-        it = iter_life_behavior_once(
+        with with_iter_next(iter_life_behavior_once(
             client, 
             from_time=ts, 
-            type="star_file", 
+            type=event_name, 
             app=app, 
             cooldown=cooldown, 
             async_=async_, 
             **request_kwargs, 
-        )
-        if with_pics:
-            it = chain(
-                it, 
-                iter_life_behavior_once(
-                    client, 
-                    from_time=ts, 
-                    type="star_image_file", 
-                    app=app, 
-                    cooldown=cooldown, 
-                    async_=async_, 
-                    **request_kwargs, 
-                ), 
-                async_=async_, # type: ignore
-            )
-        with with_iter_next(it) as get_next:
+        )) as get_next:
             while True:
                 event: dict = yield get_next()
                 fid = int(event["file_id"])
@@ -3807,7 +3807,7 @@ def iter_files_shortcut(
     async_: Literal[False, True] = False, 
     **request_kwargs, 
 ) -> Iterator[dict] | AsyncIterator[dict]:
-    """遍历目录树，获取（仅文件而非目录）文件信息（整合了多个函数的入口）
+    """遍历目录树，获取（所有文件而非目录）文件信息（整合了多个函数的入口）
 
     .. node::
         `is_skim` 和 `with_path` 的不同取值组合，会决定采用不同的函数:
@@ -3938,10 +3938,11 @@ def iter_dupfiles[K](
 
 
 @overload
-def iter_image_files(
+def iter_media_files(
     client: str | P115Client, 
-    cid: int = 0, 
+    cid: int | str = 0, 
     page_size: int = 8192, 
+    type: Literal[0, 1, 2, 3, 4, 5, 6, 7, 99] = 0, 
     order: Literal["file_name", "file_size", "file_type", "user_utime", "user_ptime", "user_otime"] = "user_ptime", 
     asc: Literal[0, 1] = 1, 
     cur: Literal[0, 1] = 0, 
@@ -3952,10 +3953,11 @@ def iter_image_files(
 ) -> Iterator[dict]:
     ...
 @overload
-def iter_image_files(
+def iter_media_files(
     client: str | P115Client, 
-    cid: int = 0, 
+    cid: int | str = 0, 
     page_size: int = 8192, 
+    type: Literal[0, 1, 2, 3, 4, 5, 6, 7, 99] = 0, 
     order: Literal["file_name", "file_size", "file_type", "user_utime", "user_ptime", "user_otime"] = "user_ptime", 
     asc: Literal[0, 1] = 1, 
     cur: Literal[0, 1] = 0, 
@@ -3965,10 +3967,11 @@ def iter_image_files(
     **request_kwargs, 
 ) -> AsyncIterator[dict]:
     ...
-def iter_image_files(
+def iter_media_files(
     client: str | P115Client, 
-    cid: int = 0, 
+    cid: int | str = 0, 
     page_size: int = 8192, 
+    type: Literal[0, 1, 2, 3, 4, 5, 6, 7, 99] = 0, 
     order: Literal["file_name", "file_size", "file_type", "user_utime", "user_ptime", "user_otime"] = "user_ptime", 
     asc: Literal[0, 1] = 1, 
     cur: Literal[0, 1] = 0, 
@@ -3977,14 +3980,26 @@ def iter_image_files(
     async_: Literal[False, True] = False, 
     **request_kwargs, 
 ) -> Iterator[dict] | AsyncIterator[dict]:
-    """遍历目录树，获取图片文件信息（包含图片的 CDN 链接）
+    """遍历目录树，获取文件信息（如果是图片，则包含图片的 CDN 链接）
 
     .. tip::
-        这个函数的效果相当于 ``iter_files(client, cid, type=2, ...)`` 所获取的文件列表，只是返回信息有些不同，速度似乎还是 ``iter_files`` 更快
+        这个函数的效果相当于 ``iter_files(client, cid, type=type, ...)`` 所获取的文件列表，只是返回信息有些不同，速度似乎还是 ``iter_files`` 更快
 
     :param client: 115 客户端或 cookies
-    :param cid: 目录 id
+    :param cid: 目录 id 或 pickcode
     :param page_size: 分页大小
+    :param type: 文件类型
+
+        - 0: 相当于 2，即获取图片，但用一个单独的接口
+        - 1: 文档
+        - 2: 图片
+        - 3: 音频
+        - 4: 视频
+        - 5: 压缩包
+        - 6: 应用
+        - 7: 书籍
+        - 99: 所有文件
+
     :param order: 排序
 
         - "file_name": 文件名
@@ -4015,12 +4030,21 @@ def iter_image_files(
         page_size = 8192
     elif page_size < 16:
         page_size = 16
+    cid = to_id(cid)
     payload = {"asc": asc, "cid": cid, "cur": cur, "limit": page_size, "o": order, "offset": 0}
+    if type:
+        fs_files = client.fs_files_media_app
+        if type == 99:
+            payload["type"] = -1
+        else:
+            payload["type"] = type
+    else:
+        fs_files = client.fs_files_image_app
     def gen_step():
         offset = 0
         count = 0
         while True:
-            resp = yield client.fs_imglist_app(payload, async_=async_, **request_kwargs)
+            resp = yield fs_files(payload, async_=async_, **request_kwargs)
             check_response(resp)
             if int(resp["cid"]) != cid:
                 raise FileNotFoundError(ENOENT, cid)
@@ -4107,7 +4131,7 @@ def search_iter(
         - 5: 压缩包
         - 6: 应用
         - 7: 书籍
-        - 99: 仅文件
+        - 99: 所有文件
 
     :param offset: 开始索引，从 0 开始，要求 <= 10,000
     :param page_size: 分页大小，要求 `offset + page_size <= 10,000`
@@ -4329,7 +4353,7 @@ def share_iter_files(
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
 
-    :return: 迭代器，返回此分享链接下的（仅文件）文件信息，由于接口返回信息有限，所以比较简略
+    :return: 迭代器，返回此分享链接下的（所有文件）文件信息，由于接口返回信息有限，所以比较简略
 
         .. code:: python
 
@@ -4460,7 +4484,7 @@ def share_search_iter(
         - 5: 压缩包
         - 6: 应用
         - 7: 书籍
-        - 99: 仅文件
+        - 99: 所有文件
 
     :param offset: 开始索引，从 0 开始，要求 <= 10,000
     :param page_size: 分页大小，要求 `offset + page_size <= 10,000`
@@ -4606,7 +4630,7 @@ def traverse_files(
         - 5: 压缩包
         - 6: 应用
         - 7: 书籍
-        - 99: 仅文件
+        - 99: 所有文件
 
     :param auto_splitting_tasks: 是否根据统计信息自动拆分任务
     :param auto_splitting_threshold: 如果 `auto_splitting_tasks` 为 True，且目录内的文件数大于 `auto_splitting_threshold`，则分拆此任务到它的各个直接子目录，否则批量拉取
@@ -4628,7 +4652,7 @@ def traverse_files(
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
 
-    :return: 迭代器，返回此目录内的（仅文件）文件信息
+    :return: 迭代器，返回此目录内的（所有文件）文件信息
     """
     suffix = suffix.strip(".")
     if not (type or suffix):

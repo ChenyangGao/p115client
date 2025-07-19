@@ -63,13 +63,19 @@ def get_stable_point(pickcode: str, /) -> str:
     .. node::
         同一个用户，它的网盘中的所有文件或目录的 pickcode，从这个函数得到的结果都相同
 
-    :param pickcode: 提取码或者加密后的不动点，须传入长度至少为 4 的字符串
+    :param pickcode: 提取码、不动点或者加密后的不动点
 
     :return: 不动点，长度为 4，范围在 0-9 和 a-z 内的字符串，左起第 1 个字符是 0
     """
-    assert pickcode, "不要传入空提取码"
-    if len(pickcode) > 4 and pickcode.startswith(("a", "b", "c", "d", "e", "f")):
-        prefix = pickcode[:2] if pickcode.startswith("f") else pickcode[0]
+    len_pickcode = len(pickcode)
+    if len_pickcode < 4:
+        return "0" * (4 - len_pickcode) + pickcode
+    elif len_pickcode >= 6 and pickcode[:2] in ("fa", "fb", "fc", "fd", "fe"):
+        prefix = pickcode[:2]
+    elif len_pickcode >= 5 and pickcode[0] in ("a", "b", "c", "d", "e"):
+        prefix = pickcode[0]
+    elif pickcode[-4] == "0":
+        return pickcode[-4:]
     else:
         prefix = FIRST_SUFFIX_TO_PREFIX[pickcode[-4]]
     transtab = PREFIX_TO_TRANSTAB_REV[prefix]
@@ -87,8 +93,11 @@ def is_valid_pickcode(pickcode: str, /) -> bool:
         return True
     elif pickcode.strip(ALPHABET):
         return False
+    len_pickcode = len(pickcode)
+    if pickcode.startswith("f") and len_pickcode < 7 or len_pickcode < 6:
+        return False
     prefix = pickcode[:2] if pickcode.startswith("f") else pickcode[0]
-    return prefix in PREFIX_TO_TRANSTAB
+    return prefix in PREFIX_TO_TRANSTAB and prefix == FIRST_SUFFIX_TO_PREFIX[pickcode[-4]]
 
 
 def pickcode_to_id(pickcode: str, /) -> int:

@@ -1341,6 +1341,7 @@ def make_application(
             sha1: str = "", 
             path: str = "", 
             path2: str = "", 
+            search: str = "", 
             file: None | bool = None, 
             image: bool = False, 
             web: bool = False, 
@@ -1352,6 +1353,7 @@ def make_application(
             :param sha1: 文件的 sha1，优先级高于 `path`
             :param path: 文件或目录的 path，优先级高于 `path2`
             :param path2: 文件或目录的 path，优先级最低
+            :param search: 搜索关键词
             :param file: 是否为文件，如果为 None，则需要进一步确定
             :param image: 是否为图片
             :param web: 是否使用 web 接口
@@ -1409,9 +1411,19 @@ def make_application(
                         (b"Location", bytes(url, "utf-8")), 
                         (b"Content-Disposition", b'attachment; filename="%s"' % bytes(quote(url["name"], safe=""), "latin-1")), 
                     ], Content(b"application/json; charset=utf-8", dumps(url.__dict__)))
-            file_list = await get_list(id=id)
-            ancestors = file_list["ancestors"]
-            children  = file_list["children"]
+            if search:
+                resp = await client.fs_search({"search_value": search, "cid": id, "limit": 10000}, async_=True)
+                check_response(resp)
+                children = list(map(normalize_attr, resp["data"]))
+                folder = resp["folder"]
+                ancestors = [
+                    {"id": folder["cid"], "parent_id": folder["pid"], "name": folder["name"] if int(folder["pid"]) else ""}, 
+                    {"id": folder["cid"], "parent_id": folder["pid"], "name": "目录信息"}
+                ]
+            else:
+                file_list = await get_list(id=id)
+                ancestors = file_list["ancestors"]
+                children  = file_list["children"]
             return await view_async(
                 "list", 
                 ancestors=ancestors, 
@@ -1733,6 +1745,7 @@ def make_application(
             sha1: str = "", 
             path: str = "", 
             path2: str = "", 
+            search: str = "", 
             file: None | bool = None, 
             image: bool = False, 
             web: bool = False, 
@@ -1745,6 +1758,7 @@ def make_application(
             :param sha1: 文件的 sha1，优先级高于 `path`
             :param path: 文件或目录的 path，优先级高于 `path2`
             :param path2: 文件或目录的 path，优先级最低
+            :param search: 搜索关键词
             :param file: 是否为文件，如果为 None，则需要进一步确定
             :param image: 是否为图片
             :param web: 是否使用 web 接口
@@ -1794,9 +1808,27 @@ def make_application(
                         (b"Location", bytes(url, "utf-8")), 
                         (b"Content-Disposition", b'attachment; filename="%s"' % bytes(quote(url["name"], safe=""), "latin-1")), 
                     ], Content(b"application/json; charset=utf-8", dumps(url.__dict__)))
-            file_list = await share_get_list(share_code, id=id, receive_code=receive_code)
-            ancestors = file_list["ancestors"]
-            children  = file_list["children"]
+            if search and share_code:
+                resp = await client.share_search(
+                    {
+                        "share_code": share_code, 
+                        "receive_code": receive_code, 
+                        "cid": id, 
+                        "search_value": search, 
+                        "limit": 10000, 
+                    }, 
+                    async_=True, 
+                )
+                children = resp["data"]["list"]
+                for i, info in enumerate(children):
+                    info["share_code"] = share_code
+                    info["receive_code"] = receive_code
+                    children[i] = normalize_attr(info)
+                ancestors = [{"id": 0, "parent_id": 0, "name": ""}, {"id": id, "parent_id": 0, "name": "回到分享"}, {"id": id, "parent_id": 0, "name": "目录信息"}]
+            else:
+                file_list = await share_get_list(share_code, id=id, receive_code=receive_code)
+                ancestors = file_list["ancestors"]
+                children  = file_list["children"]
             return await view_async(
                 "share_list", 
                 share_code=share_code, 
@@ -2199,6 +2231,7 @@ if __name__ == "__main__":
             remove("p115dav-test.db-wal")
 
 # TODO: 支持自定义挂载分享链接（可以取名字以及目录结构，通过子应用挂载到特定路径下，但也可以直接由 share_code 获取）
+# TODO: IMAGE_URL_CACHE 用 id 作key，各种都用 id 作 key
 
 # TODO: 更完整信息的支持，类似 xattr
 # TODO: 支持 fuse 挂载

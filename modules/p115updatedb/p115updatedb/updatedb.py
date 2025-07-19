@@ -11,8 +11,6 @@ import logging
 
 from collections.abc import Iterator, Iterable, Mapping
 from errno import EBUSY
-from functools import partial
-from itertools import takewhile
 from math import inf, isnan, isinf
 from os import PathLike
 from posixpath import splitext
@@ -30,15 +28,11 @@ from p115client.const import SUFFIX_TO_TYPE
 from p115client.exception import BusyOSError, P115Warning
 from p115client.tool.download import iter_download_nodes
 from p115client.tool.fs_files import iter_fs_files, iter_fs_files_threaded
-from p115client.tool.iterdir import (
-    get_file_count, get_id_to_path, iter_stared_dirs, iter_nodes, 
-    iter_nodes_by_pickcode, iter_nodes_using_star_event, 
-    iter_nodes_using_info, 
-)
+from p115client.tool.iterdir import get_file_count, get_id_to_path, iter_nodes_using_event
 from p115client.tool.life import (
     iter_life_behavior, IGNORE_BEHAVIOR_TYPES, BEHAVIOR_TYPE_TO_NAME, 
 )
-from sqlitetools import execute, find, upsert_items, AutoCloseConnection
+from sqlitetools import execute, upsert_items, AutoCloseConnection
 
 from .query import (
     get_dir_count, has_id, iter_descendants_bfs, iter_existing_id, 
@@ -421,8 +415,8 @@ def load_ancestors(
     client: P115Client, 
     data: list[dict], 
     all_are_files: bool = False, 
+    cooldown: float = 0.5, 
     refresh: bool = False, 
-    use_star: None | bool = False, 
 ) -> list[dict]:
     """加载祖先节点列表
 
@@ -430,105 +424,36 @@ def load_ancestors(
     :param client: 115 网盘客户端对象
     :param data: 文件信息列表
     :param all_are_files: 说明所有的列表元素都是文件节点，如此可减少一次判断
+    :param cooldown: 冷却时间，大于 0 时，两次拉取操作事件的接口调用之间至少间隔这么多秒
     :param refresh: 是否全量更新，如果为 False，则数据库中已经存在的节点不会被拉取
-    :param use_star: 使用星标事件
 
     :return: 返回所传入的文件信息列表所对应的祖先节点列表
     """
-    if use_star is None:
-        id_to_dirnode: dict = {}
-        for _ in iter_nodes_using_info(
+    seen = {0}
+    if not all_are_files:
+        seen.update(a["id"] for a in data if a["is_dir"])
+    ancestors: list[dict] = []
+    while pids := {pid for a in data if (pid := a["parent_id"]) not in seen}:
+        seen |= pids
+        if not refresh:
+            pids.difference_update(iter_existing_id(con, pids, is_alive=False))
+        ancestors.extend(iter_nodes_using_event(
             client, 
-            {a["parent_id"]: a["id"] for a in data}.values(), 
-            id_to_dirnode=id_to_dirnode, 
-            normalize_attr=normalize_attr, 
-        ):
-            pass
-        ancestors: list[dict] = [
-            {"id": fid, "name": name, "parent_id": pid, "is_dir": 1} 
-            for fid, (name, pid) in id_to_dirnode.items()
-        ]
-    else:
-        seen = {0}
-        if not all_are_files:
-            seen.update(a["id"] for a in data if a["is_dir"])
-        ancestors = []
-        if use_star:
-            call = partial(
-                iter_nodes_using_star_event, 
-                app="android", 
-                id_to_dirnode=..., 
-                normalize_attr = lambda event: {
-                    "id": int(event["file_id"]), 
-                    "parent_id": int(event["parent_id"]), 
-                    "name": event["file_name"], 
-                    "pickcode": event["pick_code"], 
-                    "is_dir": 1, 
-                }, 
-                cooldown=0.5, 
-            )
-        else:
-            call = partial(iter_nodes, id_to_dirnode=..., normalize_attr=normalize_attr)
-        while pids := {pid for a in data if (pid := a["parent_id"]) not in seen}:
-            seen |= pids
-            if not refresh:
-                pids.difference_update(iter_existing_id(con, pids, is_alive=False))
-            data = list(call(client, pids))
-            ancestors.extend(data)
+            pids, 
+            app="android", 
+            id_to_dirnode=..., 
+            normalize_attr = lambda event: {
+                "id": int(event["file_id"]), 
+                "parent_id": int(event["parent_id"]), 
+                "name": event["file_name"], 
+                "pickcode": event["pick_code"], 
+                "is_dir": 1, 
+            }, 
+            cooldown=cooldown, 
+        ))
     if ancestors:
         sort(ancestors)
     return ancestors
-
-
-def update_stared_dirs(
-    con: Connection | Cursor, 
-    /, 
-    client: P115Client, 
-    **request_kwargs, 
-) -> list[dict]:
-    """从网上增量拉取目录数据，并更新到数据库
-
-    :param con: 数据库连接或游标
-    :param client: 115 网盘客户端对象
-    :param request_kwargs: 其它 http 请求参数，会传给具体的请求函数，默认的是 httpx，可用参数 request 进行设置
-
-    :return: 拉取下来的新增或更新的目录的信息字典列表
-    """
-    mtime = find(con, "SELECT COALESCE(MAX(mtime), 0) FROM data WHERE is_dir")
-    data: list[dict] = []
-    if mtime:
-        data.extend(takewhile(
-            lambda attr: attr["mtime"] > mtime or not has_id(con, attr["id"]), 
-            iter_stared_dirs(
-                client, 
-                order="user_utime", 
-                asc=0, 
-                first_page_size=64, 
-                id_to_dirnode=..., 
-                normalize_attr=normalize_attr, 
-                app="android", 
-                **request_kwargs, 
-            ), 
-        ))
-    else:
-        data_add = data.append
-        for resp in iter_fs_files_threaded(
-            client, 
-            {"show_dir": 1, "star": 1, "fc_mix": 1}, 
-            app="android", 
-            cooldown=0.5, 
-            max_workers=20, 
-            **request_kwargs, 
-        ):
-            for attr in map(normalize_attr, resp["data"]):
-                if not attr["is_dir"]:
-                    break
-                data_add(attr)
-    if data:
-        ancestors = load_ancestors(con, client, data)
-        upsert_items(con, ancestors, extras={"_triggered": 0}, commit=True)
-        upsert_items(con, sort(data), extras={"_triggered": 0}, commit=True)
-    return data
 
 
 def is_timeouterror(exc: Exception) -> bool:
@@ -947,7 +872,7 @@ def updatedb_tree(
         pairs = dict(iter_id_to_parent_id(con, to_remove))
         to_remove = []
         add_to_recall = to_recall.append
-        for attr in iter_nodes_by_pickcode(
+        for attr in iter_nodes_using_event(
             client, 
             tuple(pairs.keys()), 
             normalize_attr = lambda info: {
@@ -955,8 +880,8 @@ def updatedb_tree(
                 "parent_id": int(info["parent_id"]), 
                 "name": info["file_name"], 
                 "pickcode": info["pick_code"], 
-                "is_dir": not info["file_sha1"], 
-                "is_collect": int(info["is_collect"]), 
+                "is_dir": not info["sha1"], 
+                "is_collect": 0, 
             }, 
             id_to_dirnode=..., 
             **request_kwargs, 
@@ -978,7 +903,6 @@ def updatedb_tree(
                 to_upsert+to_recall, 
                 all_are_files=True, 
                 refresh=not no_dir_moved, 
-                use_star=True, 
             )
             upsert_items(con, ancestors, extras={"_triggered": 0}, commit=True)
             upserted += len(ancestors)

@@ -5,6 +5,7 @@ __author__ = "ChenyangGao <https://chenyanggao.github.io>"
 __all__ = [
     "update_abstract", "update_desc", "update_star", "update_label", "update_score", 
     "update_top", "update_show_play_long", "update_category_shortcut", "batch_unstar", 
+    "post_event", 
 ]
 __doc__ = "这个模块提供了一些和修改文件或目录信息有关的函数"
 
@@ -71,16 +72,13 @@ def update_abstract(
     """
     if isinstance(client, str):
         client = P115Client(client, check_for_relogin=True)
-    if max_workers is None or max_workers <= 0:
-        max_workers = 20 if async_ else None
-    ids = do_map(to_id, ids)
     def gen_step():
         setter = partial(getattr(client, method), async_=async_, **request_kwargs)
         def call(batch, /):
             return check_response(setter(batch, value))
         yield through(conmap(
             call, 
-            chunked(ids, batch_size), 
+            chunked(do_map(to_id, ids), batch_size), 
             max_workers=max_workers, 
             async_=async_, 
         ))
@@ -130,7 +128,7 @@ def update_desc(
     """批量给文件或目录设置备注，此举可更新此文件或目录的 mtime
 
     :param client: 115 客户端或 cookies
-    :param ids: 一组文件或目录的 id
+    :param ids: 一组文件或目录的 id 或 pickcode
     :param desc: 备注文本
     :param batch_size: 批次大小，分批次，每次提交的 id 数
     :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
@@ -201,7 +199,7 @@ def update_star(
         如果一批中有任何一个 id 已经被删除，则这一批直接失败报错
 
     :param client: 115 客户端或 cookies
-    :param ids: 一组文件或目录的 id
+    :param ids: 一组文件或目录的 id 或 pickcode
     :param star: 是否设置星标
     :param batch_size: 批次大小，分批次，每次提交的 id 数
     :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
@@ -273,7 +271,7 @@ def update_label(
     """批量给文件或目录设置标签
 
     :param client: 115 客户端或 cookies
-    :param ids: 一组文件或目录的 id
+    :param ids: 一组文件或目录的 id 或 pickcode
     :param label: 标签 id，多个用逗号 "," 隔开，如果用一个根本不存在的 id，效果就是清空标签列表
     :param batch_size: 批次大小，分批次，每次提交的 id 数
     :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
@@ -338,7 +336,7 @@ def update_score(
     """批量给文件或目录设置分数
 
     :param client: 115 客户端或 cookies
-    :param ids: 一组文件或目录的 id
+    :param ids: 一组文件或目录的 id 或 pickcode
     :param score: 分数
     :param batch_size: 批次大小，分批次，每次提交的 id 数
     :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
@@ -397,7 +395,7 @@ def update_top(
     """批量给文件或目录设置置顶
 
     :param client: 115 客户端或 cookies
-    :param ids: 一组文件或目录的 id
+    :param ids: 一组文件或目录的 id 或 pickcode
     :param score: 分数
     :param batch_size: 批次大小，分批次，每次提交的 id 数
     :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
@@ -459,7 +457,7 @@ def update_show_play_long(
     """批量给目录设置显示时长
 
     :param client: 115 客户端或 cookies
-    :param ids: 一组目录的 id
+    :param ids: 一组目录的 id 或 pickcode
     :param show: 是否显示时长
     :param batch_size: 批次大小，分批次，每次提交的 id 数
     :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
@@ -524,7 +522,7 @@ def update_category_shortcut(
     """批量给目录设置显示时长
 
     :param client: 115 客户端或 cookies
-    :param ids: 一组目录的 id
+    :param ids: 一组目录的 id 或 pickcode
     :param set: 是否设为快捷入口
     :param batch_size: 批次大小，分批次，每次提交的 id 数
     :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
@@ -627,4 +625,85 @@ def batch_unstar(
         )
     return run_gen_step(gen_step, async_)
 
-# TODO: 上面这些，要支持 open 接口
+
+@overload
+def post_event(
+    client: str | P115Client, 
+    ids: Iterable[int | str], 
+    /, 
+    type: Literal["doc", "img"] = "doc", 
+    batch_size: int = 10_000, 
+    max_workers: None | int = None, 
+    app: str = "android", 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+):
+    ...
+@overload
+def post_event(
+    client: str | P115Client, 
+    ids: Iterable[int | str] | AsyncIterable[int | str], 
+    /, 
+    type: Literal["doc", "img"] = "doc", 
+    batch_size: int = 10_000, 
+    max_workers: None | int = None, 
+    app: str = "android", 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> Coroutine:
+    ...
+def post_event(
+    client: str | P115Client, 
+    ids: Iterable[int | str] | AsyncIterable[int | str], 
+    /, 
+    type: Literal["doc", "img"] = "doc", 
+    batch_size: int = 10_000, 
+    max_workers: None | int = None, 
+    app: str = "android", 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+):
+    """批量将文件或目录推送事件
+
+    .. note::
+        如果一批中有任何一个 id 已经被删除，则这一批直接失败报错
+
+    :param client: 115 客户端或 cookies
+    :param ids: 一组文件或目录的 id 或 pickcode
+    :param type: 事件类型
+
+        - "doc": 推送 "browse_document" 事件
+        - "img": 推送 "browse_image" 事件
+
+    :param batch_size: 批次大小，分批次，每次提交的 id 数
+    :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
+    :param app: 使用此设备的接口
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+    """
+    if isinstance(client, str):
+        client = P115Client(client, check_for_relogin=True)
+    if type == "doc":
+        post = client.life_behavior_doc_post_app
+    else:
+        post = client.life_behavior_img_post_app
+    def call(batch, /):
+        return check_response(post(
+            batch, 
+            app=app, 
+            async_=async_, 
+            request_kwargs=request_kwargs, 
+        ))
+    def gen_step():
+        yield through(conmap(
+            call, 
+            chunked(do_map(to_id, ids), batch_size), 
+            max_workers=max_workers, 
+            async_=async_, 
+        ))
+    return run_gen_step(gen_step, async_)
+
+# TODO: 上面这些，有些要支持 open 接口
