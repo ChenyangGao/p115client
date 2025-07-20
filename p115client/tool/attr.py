@@ -6,6 +6,7 @@ __all__ = ["get_attr", "type_of_attr"]
 __doc__ = "这个模块提供了一些和文件或目录信息有关的函数"
 
 from collections.abc import Coroutine, Mapping
+from os import PathLike
 from typing import overload, Any, Literal
 
 from iterutils import run_gen_step
@@ -18,7 +19,7 @@ from p115pickcode import to_id
 
 @overload
 def get_attr(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     id: int | str, 
     skim: bool = False, 
     *, 
@@ -28,7 +29,7 @@ def get_attr(
     ...
 @overload
 def get_attr(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     id: int | str, 
     skim: bool = False, 
     *, 
@@ -37,7 +38,7 @@ def get_attr(
 ) -> Coroutine[Any, Any, dict]:
     ...
 def get_attr(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     id: int | str, 
     skim: bool = False, 
     *, 
@@ -57,7 +58,7 @@ def get_attr(
 
     :return: 文件或目录的信息
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     id = to_id(id)
     def gen_step():

@@ -16,6 +16,7 @@ from functools import partial, total_ordering, update_wrapper
 from heapq import heappop, heappush, heapify
 from itertools import cycle, repeat
 from math import inf, isinf
+from os import PathLike
 from threading import Lock
 from time import time
 
@@ -53,7 +54,7 @@ class ComparedWithID[T]:
 
 
 def generate_auth_factory(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     app_ids: Iterable[int], 
     **request_kwargs, 
 ) -> Callable:
@@ -65,7 +66,7 @@ def generate_auth_factory(
 
     :return: 函数，调用以返回一个字典，包含 authorization 请求头
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     login = client.login_with_open
     get_app_id = cycle(app_ids).__next__
@@ -92,7 +93,7 @@ def generate_auth_factory(
 
 
 def generate_cookies_factory(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     app: str | Iterable[str] = "", 
     **request_kwargs, 
 ) -> Callable:
@@ -104,7 +105,7 @@ def generate_cookies_factory(
 
     :return: 函数，调用以返回一个字典，包含 cookie 请求头
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if isinstance(app, str):
         if app:
@@ -146,7 +147,7 @@ def generate_cookies_factory(
 
 
 def generate_client_factory(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     app: str | Iterable[str] = "", 
     **request_kwargs, 
 ) -> Callable:
@@ -158,6 +159,8 @@ def generate_client_factory(
 
     :return: 函数，调用以返回一个 client
     """
+    if isinstance(client, (str, PathLike)):
+        client = P115Client(client, check_for_relogin=True)
     cls = type(client)
     call = generate_cookies_factory(client, app, **request_kwargs)
     def make_client(async_: bool = False):
@@ -236,7 +239,7 @@ def make_pool[T](
 
 
 def auth_pool(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     app_ids: Iterable[int], 
     heap: None | list[tuple[float, dict | ComparedWithID[dict]]] = None, 
     cooldown_time: int | float = 1, 
@@ -269,7 +272,7 @@ def auth_pool(
 
 
 def cookies_pool(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     app: str | Iterable[str] = "", 
     heap: None | list[tuple[float, dict | ComparedWithID[dict]]] = None, 
     cooldown_time: int | float = 1, 
@@ -302,7 +305,7 @@ def cookies_pool(
 
 
 def client_pool(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     app: str | Iterable[str] = "", 
     heap: None | list[tuple[float, P115Client | ComparedWithID[P115Client]]] = None, 
     cooldown_time: int | float = 1, 

@@ -9,6 +9,7 @@ from asyncio import sleep as async_sleep
 from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from errno import EBUSY
 from itertools import count
+from os import PathLike
 from time import sleep, time
 from typing import overload, Literal
 
@@ -19,7 +20,7 @@ from p115client.exception import BusyOSError
 
 @overload
 def offline_iter(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     /, 
     page_start: int = 1, 
     page_stop: int = -1, 
@@ -33,7 +34,7 @@ def offline_iter(
     ...
 @overload
 def offline_iter(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     /, 
     page_start: int = 1, 
     page_stop: int = -1, 
@@ -46,7 +47,7 @@ def offline_iter(
 ) -> AsyncIterator[dict]:
     ...
 def offline_iter(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     /, 
     page_start: int = 1, 
     page_stop: int = -1, 
@@ -77,7 +78,7 @@ def offline_iter(
 
     :return: 迭代器，返回任务信息
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if page_start < 1:
         page_start = 1
@@ -133,7 +134,7 @@ def offline_iter(
 
 @overload
 def offline_restart_iter(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     /, 
     predicate: None | Callable[[dict], bool] = None, 
     *, 
@@ -143,7 +144,7 @@ def offline_restart_iter(
     ...
 @overload
 def offline_restart_iter(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     /, 
     predicate: None | Callable[[dict], bool] = None, 
     *, 
@@ -152,7 +153,7 @@ def offline_restart_iter(
 ) -> AsyncIterator[dict]:
     ...
 def offline_restart_iter(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     /, 
     predicate: None | Callable[[dict], bool] = None, 
     *, 
@@ -168,7 +169,7 @@ def offline_restart_iter(
 
     :return: 迭代器，逐个任务返回执行重试后的响应
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     def gen_step():
         left_no_space: list[dict] = []

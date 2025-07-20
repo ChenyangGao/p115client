@@ -12,6 +12,7 @@ from asyncio import sleep as async_sleep
 from collections.abc import AsyncIterator, Container, Coroutine, Iterator
 from functools import partial
 from itertools import cycle
+from os import PathLike
 from time import time, sleep
 from typing import overload, Any, Final, Literal
 
@@ -46,7 +47,7 @@ BEHAVIOR_TYPE_TO_NAME: Final = {v: k for k, v in BEHAVIOR_NAME_TO_TYPE.items()}
 
 @overload
 def life_show(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -54,14 +55,14 @@ def life_show(
     ...
 @overload
 def life_show(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
 ) -> Coroutine[Any, Any, dict]:
     ...
 def life_show(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -74,14 +75,14 @@ def life_show(
 
     :return: 接口返回值
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     return client.life_calendar_setoption(async_=async_, **request_kwargs)
 
 
 @overload
 def iter_life_list(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     start_time: int | float = 0, 
     app: str = "web", 
     *, 
@@ -91,7 +92,7 @@ def iter_life_list(
     ...
 @overload
 def iter_life_list(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     start_time: int | float = 0, 
     app: str = "web", 
     *, 
@@ -100,7 +101,7 @@ def iter_life_list(
 ) -> AsyncIterator[dict]:
     ...
 def iter_life_list(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     start_time: int | float = 0, 
     app: str = "web", 
     *, 
@@ -122,7 +123,7 @@ def iter_life_list(
 
     :return: 迭代器，产生 115 生活操作事件日志数据字典
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     life_list = partial(client.life_list, app=app, **request_kwargs)
     life_behavior_detail = partial(client.life_behavior_detail_app, **request_kwargs)
@@ -178,7 +179,7 @@ def iter_life_list(
 
 @overload
 def iter_life_behavior_once(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     from_time: int | float = 0, 
     from_id: int = 0, 
     type: str = "", 
@@ -194,7 +195,7 @@ def iter_life_behavior_once(
     ...
 @overload
 def iter_life_behavior_once(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     from_time: int | float = 0, 
     from_id: int = 0, 
     type: str = "", 
@@ -209,7 +210,7 @@ def iter_life_behavior_once(
 ) -> AsyncIterator[dict]:
     ...
 def iter_life_behavior_once(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     from_time: int | float = 0, 
     from_id: int = 0, 
     type: str = "", 
@@ -243,7 +244,7 @@ def iter_life_behavior_once(
 
     :return: 迭代器，产生 115 生活操作事件日志数据字典
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if app in ("", "web", "desktop", "harmony"):
         life_behavior_detail = partial(client.life_behavior_detail, **request_kwargs)
@@ -287,7 +288,7 @@ def iter_life_behavior_once(
 
 @overload
 def iter_life_behavior(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     from_time: int | float = 0, 
     from_id: int = 0, 
     type: str = "", 
@@ -302,7 +303,7 @@ def iter_life_behavior(
     ...
 @overload
 def iter_life_behavior(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     from_time: int | float = 0, 
     from_id: int = 0, 
     type: str = "", 
@@ -316,7 +317,7 @@ def iter_life_behavior(
 ) -> AsyncIterator[dict]:
     ...
 def iter_life_behavior(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     from_time: int | float = 0, 
     from_id: int = 0, 
     type: str = "", 
@@ -348,7 +349,7 @@ def iter_life_behavior(
 
     :return: 迭代器，产生 115 生活操作事件日志数据字典
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     def gen_step():
         nonlocal from_time, from_id
@@ -388,7 +389,7 @@ def iter_life_behavior(
 
 @overload
 def iter_life_behavior_list(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     from_time: int | float = 0, 
     from_id: int = 0, 
     type: str = "", 
@@ -402,7 +403,7 @@ def iter_life_behavior_list(
     ...
 @overload
 def iter_life_behavior_list(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     from_time: int | float = 0, 
     from_id: int = 0, 
     type: str = "", 
@@ -415,7 +416,7 @@ def iter_life_behavior_list(
 ) -> AsyncIterator[list[dict]]:
     ...
 def iter_life_behavior_list(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     from_time: int | float = 0, 
     from_id: int = 0, 
     type: str = "", 
@@ -445,7 +446,7 @@ def iter_life_behavior_list(
 
     :return: 迭代器，产生 115 生活操作事件日志数据字典
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     def gen_step():
         nonlocal from_time, from_id

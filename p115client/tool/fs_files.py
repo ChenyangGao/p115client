@@ -14,6 +14,7 @@ from errno import EBUSY, ENOENT, ENOTDIR
 from functools import partial
 from inspect import isawaitable
 from itertools import cycle
+from os import PathLike
 from sys import exc_info
 from time import time
 from typing import cast, overload, Any, Final, Literal
@@ -33,7 +34,7 @@ get_proapi_origin: Final = cycle(("http://proapi.115.com", "https://proapi.115.c
 
 @overload
 def iter_fs_files(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     payload: int | str | dict = 0, 
     /, 
     first_page_size: int = 0, 
@@ -49,7 +50,7 @@ def iter_fs_files(
     ...
 @overload
 def iter_fs_files(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     payload: int | str | dict = 0, 
     /, 
     first_page_size: int = 0, 
@@ -64,7 +65,7 @@ def iter_fs_files(
 ) -> AsyncIterator[dict]:
     ...
 def iter_fs_files(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     payload: int | str | dict = 0, 
     /, 
     first_page_size: int = 0, 
@@ -92,7 +93,7 @@ def iter_fs_files(
 
     :return: 迭代器，每次返回一次接口调用的结果
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if page_size <= 0:
         page_size = 7_000
@@ -156,7 +157,7 @@ def iter_fs_files(
 
 
 def iter_fs_files_threaded(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     payload: int | str | dict = 0, 
     /, 
     page_size: int = 7_000, 
@@ -185,7 +186,7 @@ def iter_fs_files_threaded(
 
     :return: 迭代器
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if page_size <= 0:
         page_size = 7_000
@@ -273,7 +274,7 @@ def iter_fs_files_threaded(
 
 
 async def iter_fs_files_asynchronized(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     payload: int | str | dict = 0, 
     /, 
     page_size: int = 7_000, 
@@ -300,7 +301,7 @@ async def iter_fs_files_asynchronized(
 
     :return: 迭代器
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if page_size <= 0:
         page_size = 7_000

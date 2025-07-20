@@ -6,6 +6,7 @@ __all__ = ["deauth_open"]
 __doc__ = "这个模块提供了一些和账号状况有关的函数"
 
 from collections.abc import Callable, Coroutine
+from os import PathLike
 from typing import overload, Any, Literal
 
 from iterutils import run_gen_step
@@ -14,7 +15,7 @@ from p115client import check_response, P115Client
 
 @overload
 def deauth_open(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     predicate: None | Callable = None, 
     *, 
     async_: Literal[False] = False, 
@@ -23,7 +24,7 @@ def deauth_open(
     ...
 @overload
 def deauth_open(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     predicate: None | Callable = None, 
     *, 
     async_: Literal[True], 
@@ -31,7 +32,7 @@ def deauth_open(
 ) -> Coroutine[Any, Any, None]:
     ...
 def deauth_open(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     predicate: None | Callable = None, 
     *, 
     async_: Literal[False, True] = False, 
@@ -44,7 +45,7 @@ def deauth_open(
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     def gen_step():
         resp = yield client.login_open_auth_list(

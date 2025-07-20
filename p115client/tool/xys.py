@@ -8,6 +8,7 @@ __all__ = [
 ]
 
 from collections.abc import AsyncIterator, Coroutine, Iterable, Iterator
+from os import PathLike
 from typing import overload, Any, Literal
 
 from iterutils import run_gen_step, run_gen_step_iter, YieldFrom
@@ -17,7 +18,7 @@ from p115client.type import P115StrID
 
 @overload
 def wish_info(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     wish_id: str, 
     *, 
     async_: Literal[False] = False, 
@@ -26,7 +27,7 @@ def wish_info(
     ...
 @overload
 def wish_info(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     wish_id: str, 
     *, 
     async_: Literal[True], 
@@ -34,7 +35,7 @@ def wish_info(
 ) -> Coroutine[Any, Any, dict]:
     ...
 def wish_info(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     wish_id: str, 
     *, 
     async_: Literal[False, True] = False, 
@@ -49,7 +50,7 @@ def wish_info(
 
     :return: 许愿信息
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client)
     def gen_step():
         resp = yield client.act_xys_get_desire_info(
@@ -64,7 +65,7 @@ def wish_info(
 
 @overload
 def wish_make(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     content: str = "随便许个愿", 
     size: int = 5, 
     *, 
@@ -74,7 +75,7 @@ def wish_make(
     ...
 @overload
 def wish_make(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     content: str = "随便许个愿", 
     size: int = 5, 
     *, 
@@ -83,7 +84,7 @@ def wish_make(
 ) -> Coroutine[Any, Any, P115StrID]:
     ...
 def wish_make(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     content: str = "随便许个愿", 
     size: int = 5, 
     *, 
@@ -100,7 +101,7 @@ def wish_make(
 
     :return: 许愿 id
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client)
     def gen_step():
         resp = yield client.act_xys_wish(
@@ -115,7 +116,7 @@ def wish_make(
 
 @overload
 def wish_answer(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     wish_id: str, 
     content: str = "帮你助个愿", 
     file_ids: int | str | Iterable[int | str] = "", 
@@ -126,7 +127,7 @@ def wish_answer(
     ...
 @overload
 def wish_answer(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     wish_id: str, 
     content: str = "帮你助个愿", 
     file_ids: int | str | Iterable[int | str] = "", 
@@ -136,7 +137,7 @@ def wish_answer(
 ) -> Coroutine[Any, Any, P115StrID]:
     ...
 def wish_answer(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     wish_id: str, 
     content: str = "帮你助个愿", 
     file_ids: int | str | Iterable[int | str] = "", 
@@ -158,7 +159,7 @@ def wish_answer(
 
     :return: 助愿 id
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client)
     if not isinstance(file_ids, (int, str)):
         file_ids = ",".join(map(str, file_ids))
@@ -175,7 +176,7 @@ def wish_answer(
 
 @overload
 def wish_adopt(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     wish_id: str, 
     aid_id: int | str, 
     to_cid: int = 0, 
@@ -186,7 +187,7 @@ def wish_adopt(
     ...
 @overload
 def wish_adopt(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     wish_id: str, 
     aid_id: int | str, 
     to_cid: int = 0, 
@@ -196,7 +197,7 @@ def wish_adopt(
 ) -> Coroutine[Any, Any, dict]:
     ...
 def wish_adopt(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     wish_id: str, 
     aid_id: int | str, 
     to_cid: int = 0, 
@@ -215,7 +216,7 @@ def wish_adopt(
 
     :return: 接口的返回信息
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client)
     return check_response(client.act_xys_adopt(
         {"did": wish_id, "aid": aid_id, "to_cid": to_cid}, 
@@ -226,7 +227,7 @@ def wish_adopt(
 
 @overload
 def wish_del(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     wish_id: str | Iterable[str], 
     *, 
     async_: Literal[False] = False, 
@@ -235,7 +236,7 @@ def wish_del(
     ...
 @overload
 def wish_del(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     wish_id: str | Iterable[str], 
     *, 
     async_: Literal[True], 
@@ -243,7 +244,7 @@ def wish_del(
 ) -> Coroutine[Any, Any, dict]:
     ...
 def wish_del(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     wish_id: str | Iterable[str], 
     *, 
     async_: Literal[False, True] = False, 
@@ -258,7 +259,7 @@ def wish_del(
 
     :return: 接口的返回信息
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client)
     if not isinstance(wish_id, str):
         wish_id = ",".join(wish_id)
@@ -271,7 +272,7 @@ def wish_del(
 
 @overload
 def wish_iter(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     type: int = 0, 
     page_size: int = 1_000, 
     *, 
@@ -281,7 +282,7 @@ def wish_iter(
     ...
 @overload
 def wish_iter(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     type: int = 0, 
     page_size: int = 1_000, 
     *, 
@@ -290,7 +291,7 @@ def wish_iter(
 ) -> AsyncIterator[dict]:
     ...
 def wish_iter(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     type: int = 0, 
     page_size: int = 1_000, 
     *, 
@@ -312,7 +313,7 @@ def wish_iter(
 
     :return: 迭代器，逐个返回许愿许愿信息
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client)
     if page_size <= 0:
         page_size = 1_000
@@ -335,7 +336,7 @@ def wish_iter(
 
 @overload
 def wish_aid_iter(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     wish_id: str, 
     page_size: int = 1_000, 
     *, 
@@ -345,7 +346,7 @@ def wish_aid_iter(
     ...
 @overload
 def wish_aid_iter(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     wish_id: str, 
     page_size: int = 1_000, 
     *, 
@@ -354,7 +355,7 @@ def wish_aid_iter(
 ) -> AsyncIterator[dict]:
     ...
 def wish_aid_iter(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     wish_id: str, 
     page_size: int = 1_000, 
     *, 
@@ -371,7 +372,7 @@ def wish_aid_iter(
 
     :return: 迭代器，逐个返回助愿信息
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client)
     if page_size <= 0:
         page_size = 1_000

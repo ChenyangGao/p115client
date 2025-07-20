@@ -18,7 +18,7 @@ from typing import cast, overload, Any, Literal
 from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
-from asynctools import to_list
+from asynctools import ensure_async, to_list
 from concurrenttools import threadpool_map, taskgroup_map, Return
 from hashtools import file_digest, file_digest_async
 from http_request import SupportsGeturl
@@ -468,7 +468,7 @@ def iter_115_to_115_resume(
 
 @overload
 def multipart_upload_init(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     path: str | PathLike | URL | SupportsGeturl, 
     pid: int | str = 0, 
     filename: str = "", 
@@ -485,7 +485,7 @@ def multipart_upload_init(
     ...
 @overload
 def multipart_upload_init(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     path: str | PathLike | URL | SupportsGeturl, 
     pid: int | str = 0, 
     filename: str = "", 
@@ -501,7 +501,7 @@ def multipart_upload_init(
 ) -> Coroutine[Any, Any, dict]:
     ...
 def multipart_upload_init(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     path: str | PathLike | URL | SupportsGeturl, 
     pid: int | str = 0, 
     filename: str = "", 
@@ -535,7 +535,7 @@ def multipart_upload_init(
     pid = to_id(pid)
     if not domain:
         domain = ALIYUN_DOMAIN
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if type(client) is P115OpenClient:
         use_open_api = True
@@ -576,15 +576,13 @@ def multipart_upload_init(
                     filesha1 = "DA39A3EE5E6B4B0D3255BFEF95601890AFD80709"
                 else:
                     if is_path:
-                        if async_:
-                            from aiofile import async_open
-                            async def request():
-                                async with async_open(path, "rb") as file:
-                                    return await file_digest_async(file, "sha1") # type: ignore
-                            filesize, filesha1_obj = yield request
-                        else:
+                        def make_hash(path):
                             with open(path, "rb") as file:
-                                filesize, filesha1_obj = file_digest(file, "sha1")
+                                return file_digest(file, "sha1")
+                        if async_:
+                            filesize, filesha1_obj = yield to_thread(make_hash, path)
+                        else:
+                            filesize, filesha1_obj = make_hash(path)
                     else:
                         if async_:
                             from httpfile import AsyncHttpxFileReader
@@ -592,7 +590,7 @@ def multipart_upload_init(
                                 file = await AsyncHttpxFileReader.new(path, headers={"user-agent": ""})
                                 async with file:
                                     return await file_digest_async(file, "sha1")
-                            filesize, filesha1_obj = yield request
+                            filesize, filesha1_obj = yield request()
                         else:
                             from httpfile import HTTPFileReader
                             with HTTPFileReader(path, headers={"user-agent": ""}) as file:
@@ -613,40 +611,24 @@ def multipart_upload_init(
             if partsize <= 0:
                 partsize = determine_part_size(filesize)
             read_range_bytes_or_hash: Callable
+            def read_range_bytes_or_hash(sign_check: str, /) -> bytes:
+                if is_path:
+                    start, end = map(int, sign_check.split("-"))
+                    with open(path, "rb") as file:
+                        file.seek(start)
+                        return file.read(end - start + 1)
+                else:
+                    with urlopen(path, headers={"Range": "bytes="+sign_check}) as file:
+                        return file.read()
             if async_:
-                async def read_range_bytes_or_hash(sign_check: str, /) -> bytes:
-                    file: Any
-                    if is_path:
-                        from aiofile import async_open
-                        start, end = map(int, sign_check.split("-"))
-                        async with async_open(path, "rb") as file:
-                            file.seek(start)
-                            return await file.read(end - start + 1)
-                    else:
-                        file = await to_thread(
-                            urlopen, 
-                            path, 
-                            headers={"Range": "bytes="+sign_check}, 
-                        )
-                        with file:
-                            return await to_thread(file.read)
-            else:
-                def read_range_bytes_or_hash(sign_check: str, /) -> bytes:
-                    if is_path:
-                        start, end = map(int, sign_check.split("-"))
-                        with open(path, "rb") as file:
-                            file.seek(start)
-                            return file.read(end - start + 1)
-                    else:
-                        with urlopen(path, headers={"Range": "bytes="+sign_check}) as file:
-                            return file.read()
+                read_range_bytes_or_hash = ensure_async(read_range_bytes_or_hash, threaded=True)
             resp = yield upload_file_init(
                 filename=filename, 
                 filesize=filesize, 
                 filesha1=filesha1, 
-                read_range_bytes_or_hash=read_range_bytes_or_hash, # type: ignore
+                read_range_bytes_or_hash=read_range_bytes_or_hash, 
                 pid=pid, 
-                async_=async_, # type: ignore
+                async_=async_, 
                 **request_kwargs, 
             )
             if use_open_api:
@@ -728,7 +710,7 @@ def multipart_upload_init(
 
 
 def multipart_upload_url(
-    client: str | P115Client | P115OpenClient | dict, 
+    client: str | PathLike | P115Client | P115OpenClient | dict, 
     upload_data: dict, 
     part_number: int = 1, 
     domain: str = ALIYUN_DOMAIN, 
@@ -747,7 +729,7 @@ def multipart_upload_url(
     if isinstance(client, dict):
         token = client
     else:
-        if isinstance(client, str):
+        if isinstance(client, (str, PathLike)):
             client = P115Client(client, check_for_relogin=True)
         token = client.upload_token
     return oss_multipart_upload_url(
@@ -762,7 +744,7 @@ def multipart_upload_url(
 
 @overload
 def multipart_upload_complete(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     upload_data: dict, 
     domain: str = ALIYUN_DOMAIN, 
     *, 
@@ -772,7 +754,7 @@ def multipart_upload_complete(
     ...
 @overload
 def multipart_upload_complete(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     upload_data: dict, 
     domain: str = ALIYUN_DOMAIN, 
     *, 
@@ -781,7 +763,7 @@ def multipart_upload_complete(
 ) -> Coroutine[Any, Any, dict]:
     ...
 def multipart_upload_complete(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     upload_data: dict, 
     domain: str = ALIYUN_DOMAIN, 
     *, 
@@ -847,7 +829,7 @@ def multipart_upload_complete(
     object = upload_data["object"]
     upload_id = upload_data["upload_id"]
     url = f"http://{bucket}.{domain}/{object}"
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     def gen_step():
         token = client.upload_token

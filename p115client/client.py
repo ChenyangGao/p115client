@@ -5228,16 +5228,7 @@ class P115OpenClient(ClientRequestMixin):
                 path = fsdecode(file)
                 if not filename:
                     filename = ospath.basename(path)
-                if async_:
-                    async def request():
-                        from aiofile import async_open
-                        async with async_open(path, "rb") as file:
-                            setattr(file, "fileno", file.file.fileno)
-                            setattr(file, "seekable", lambda: True)
-                            return await do_upload(file)
-                    return request
-                else:
-                    return do_upload(open(path, "rb"))
+                return do_upload(open(path, "rb"))
             else:
                 if need_calc_filesha1:
                     if async_:
@@ -22443,16 +22434,7 @@ class P115Client(P115OpenClient):
                 path = fsdecode(file)
                 if not filename:
                     filename = ospath.basename(path)
-                if async_:
-                    async def request():
-                        from aiofile import async_open
-                        async with async_open(path, "rb") as file:
-                            setattr(file, "fileno", file.file.fileno)
-                            setattr(file, "seekable", lambda: True)
-                            return await do_upload(file)
-                    return request
-                else:
-                    return do_upload(open(path, "rb"))
+                return do_upload(open(path, "rb"))
             else:
                 if need_calc_filesha1:
                     if async_:

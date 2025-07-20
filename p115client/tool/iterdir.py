@@ -40,6 +40,7 @@ from functools import partial
 from itertools import batched, cycle
 from math import inf
 from operator import itemgetter
+from os import PathLike
 from string import hexdigits
 from time import sleep, time
 from types import EllipsisType
@@ -258,7 +259,7 @@ def cache_loading[T](
 # TODO: 支持 open
 @overload
 def get_path_to_cid(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     root_id: None | int | str = None, 
     escape: None | bool | Callable[[str], str] = True, 
@@ -272,7 +273,7 @@ def get_path_to_cid(
     ...
 @overload
 def get_path_to_cid(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     root_id: None | int | str = None, 
     escape: None | bool | Callable[[str], str] = True, 
@@ -285,7 +286,7 @@ def get_path_to_cid(
 ) -> Coroutine[Any, Any, str]:
     ...
 def get_path_to_cid(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     root_id: None | int | str = None, 
     escape: None | bool | Callable[[str], str] = True, 
@@ -316,7 +317,7 @@ def get_path_to_cid(
 
     :return: 目录对应的绝对路径或相对路径
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if isinstance(escape, bool):
         if escape:
@@ -378,7 +379,7 @@ def get_path_to_cid(
 
 @overload
 def get_file_count(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "web", 
@@ -390,7 +391,7 @@ def get_file_count(
     ...
 @overload
 def get_file_count(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "web", 
@@ -401,7 +402,7 @@ def get_file_count(
 ) -> Coroutine[Any, Any, int]:
     ...
 def get_file_count(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "web", 
@@ -422,7 +423,7 @@ def get_file_count(
 
     :return: 目录内的文件总数（不包括目录）
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
@@ -498,7 +499,7 @@ def get_file_count(
 # TODO: 支持 open
 @overload
 def get_ancestors(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     attr: int | str | dict, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "web", 
@@ -509,7 +510,7 @@ def get_ancestors(
     ...
 @overload
 def get_ancestors(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     attr: int | str | dict, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "web", 
@@ -519,7 +520,7 @@ def get_ancestors(
 ) -> Coroutine[Any, Any, list[dict]]:
     ...
 def get_ancestors(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     attr: int | str | dict, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "web", 
@@ -546,7 +547,7 @@ def get_ancestors(
                 "name": str, # 名字
             }
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
@@ -701,7 +702,7 @@ def get_ancestors(
 # TODO: 支持 open
 @overload
 def get_ancestors_to_cid(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str, 
     refresh: bool = False, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
@@ -713,7 +714,7 @@ def get_ancestors_to_cid(
     ...
 @overload
 def get_ancestors_to_cid(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str, 
     refresh: bool = False, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
@@ -724,7 +725,7 @@ def get_ancestors_to_cid(
 ) -> Coroutine[Any, Any, list[dict]]:
     ...
 def get_ancestors_to_cid(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str, 
     refresh: bool = False, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
@@ -753,7 +754,7 @@ def get_ancestors_to_cid(
                 "name": str, # 名字
             }
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
@@ -806,7 +807,7 @@ def get_ancestors_to_cid(
 # TODO: 立即支持几种形式，分隔符可以是 / 和 > 或 " > "
 @overload
 def get_id_to_path(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     path: str | Sequence[str], 
     parent_id: int = 0, 
     ensure_file: None | bool = None, 
@@ -822,7 +823,7 @@ def get_id_to_path(
     ...
 @overload
 def get_id_to_path(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     path: str | Sequence[str], 
     parent_id: int = 0, 
     ensure_file: None | bool = None, 
@@ -837,7 +838,7 @@ def get_id_to_path(
 ) -> Coroutine[Any, Any, int]:
     ...
 def get_id_to_path(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     path: str | Sequence[str], 
     parent_id: int = 0, 
     ensure_file: None | bool = None, 
@@ -871,7 +872,7 @@ def get_id_to_path(
 
     :return: 文件或目录的 id
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
@@ -1005,7 +1006,7 @@ def get_id_to_path(
 
 @overload
 def get_id_to_sha1(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     sha1: str, 
     app: str = "", 
     *, 
@@ -1015,7 +1016,7 @@ def get_id_to_sha1(
     ...
 @overload
 def get_id_to_sha1(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     sha1: str, 
     app: str = "", 
     *, 
@@ -1024,7 +1025,7 @@ def get_id_to_sha1(
 ) -> Coroutine[Any, Any, P115ID]:
     ...
 def get_id_to_sha1(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     sha1: str, 
     app: str = "", 
     *, 
@@ -1043,7 +1044,7 @@ def get_id_to_sha1(
     """
     if len(sha1) != 40 or sha1.strip(hexdigits):
         raise ValueError(f"bad sha1: {sha1!r}")
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     def gen_step():
         file_sha1 = sha1.upper()
@@ -1071,7 +1072,7 @@ def get_id_to_sha1(
 
 @overload
 def share_get_id_to_path(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     share_code: str, 
     receive_code: str = "", 
     path: str | Sequence[str] = "", 
@@ -1087,7 +1088,7 @@ def share_get_id_to_path(
     ...
 @overload
 def share_get_id_to_path(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     share_code: str, 
     receive_code: str = "", 
     path: str | Sequence[str] = "", 
@@ -1102,7 +1103,7 @@ def share_get_id_to_path(
 ) -> Coroutine[Any, Any, int]:
     ...
 def share_get_id_to_path(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     share_code: str, 
     receive_code: str = "", 
     path: str | Sequence[str] = "", 
@@ -1136,7 +1137,7 @@ def share_get_id_to_path(
 
     :return: 文件或目录的 id
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     def gen_step():
         nonlocal ensure_file, parent_id, id_to_dirnode
@@ -1254,7 +1255,7 @@ def share_get_id_to_path(
 
 @overload
 def ensure_attr_path[D: dict](
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     attrs: Iterable[D], 
     with_ancestors: bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
@@ -1267,7 +1268,7 @@ def ensure_attr_path[D: dict](
     ...
 @overload
 def ensure_attr_path[D: dict](
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     attrs: Iterable[D] | AsyncIterable[D], 
     with_ancestors: bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
@@ -1279,7 +1280,7 @@ def ensure_attr_path[D: dict](
 ) -> AsyncIterator[D]:
     ...
 def ensure_attr_path[D: dict](
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     attrs: Iterable[D] | AsyncIterable[D], 
     with_ancestors: bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
@@ -1311,7 +1312,7 @@ def ensure_attr_path[D: dict](
 
     :return: 迭代器
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
@@ -1405,7 +1406,7 @@ def ensure_attr_path[D: dict](
 
 @overload
 def ensure_attr_path_using_star_event[D: dict](
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     attrs: Iterable[D], 
     with_ancestors: bool = False, 
     life_event_cooldown: int | float = 0.5, 
@@ -1419,7 +1420,7 @@ def ensure_attr_path_using_star_event[D: dict](
     ...
 @overload
 def ensure_attr_path_using_star_event[D: dict](
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     attrs: Iterable[D] | AsyncIterable[D], 
     with_ancestors: bool = False, 
     life_event_cooldown: int | float = 0.5, 
@@ -1432,7 +1433,7 @@ def ensure_attr_path_using_star_event[D: dict](
 ) -> AsyncIterator[D]:
     ...
 def ensure_attr_path_using_star_event[D: dict](
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     attrs: Iterable[D] | AsyncIterable[D], 
     with_ancestors: bool = False, 
     life_event_cooldown: int | float = 0.5, 
@@ -1463,7 +1464,7 @@ def ensure_attr_path_using_star_event[D: dict](
 
     :return: 返回这一组文件信息
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
@@ -1573,7 +1574,7 @@ def ensure_attr_path_using_star_event[D: dict](
 
 @overload
 def _iter_fs_files(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     payload: int | str | dict = 0, 
     page_size: int = 0, 
     first_page_size: int = 0, 
@@ -1593,7 +1594,7 @@ def _iter_fs_files(
     ...
 @overload
 def _iter_fs_files(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     payload: int | str | dict = 0, 
     page_size: int = 0, 
     first_page_size: int = 0, 
@@ -1612,7 +1613,7 @@ def _iter_fs_files(
 ) -> AsyncIterator[dict]:
     ...
 def _iter_fs_files(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     payload: int | str | dict = 0, 
     page_size: int = 0, 
     first_page_size: int = 0, 
@@ -1653,7 +1654,7 @@ def _iter_fs_files(
 
     :return: 迭代器，返回此目录内的文件信息（文件和目录）
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if isinstance(payload, (int, str)):
         payload = {"cid": to_id(payload)}
@@ -1756,7 +1757,7 @@ def _iter_fs_files(
 
 @overload
 def iterdir(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     cid: int | str = 0, 
     page_size: int = 0, 
     first_page_size: int = 0, 
@@ -1778,7 +1779,7 @@ def iterdir(
     ...
 @overload
 def iterdir(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     cid: int | str = 0, 
     page_size: int = 0, 
     first_page_size: int = 0, 
@@ -1799,7 +1800,7 @@ def iterdir(
 ) -> AsyncIterator[dict]:
     ...
 def iterdir(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     cid: int | str = 0, 
     page_size: int = 0, 
     first_page_size: int = 0, 
@@ -1876,7 +1877,7 @@ def iterdir(
 
 @overload
 def iter_stared_dirs(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     page_size: int = 0, 
     first_page_size: int = 0, 
     order: Literal["file_name", "file_size", "file_type", "user_utime", "user_ptime", "user_otime"] = "user_ptime", 
@@ -1894,7 +1895,7 @@ def iter_stared_dirs(
     ...
 @overload
 def iter_stared_dirs(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     page_size: int = 0, 
     first_page_size: int = 0, 
     order: Literal["file_name", "file_size", "file_type", "user_utime", "user_ptime", "user_otime"] = "user_ptime", 
@@ -1911,7 +1912,7 @@ def iter_stared_dirs(
 ) -> AsyncIterator[dict]:
     ...
 def iter_stared_dirs(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     page_size: int = 0, 
     first_page_size: int = 0, 
     order: Literal["file_name", "file_size", "file_type", "user_utime", "user_ptime", "user_otime"] = "user_ptime", 
@@ -1974,7 +1975,7 @@ def iter_stared_dirs(
 
 @overload
 def iter_dirs(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "android", 
@@ -1986,7 +1987,7 @@ def iter_dirs(
     ...
 @overload
 def iter_dirs(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "android", 
@@ -1997,7 +1998,7 @@ def iter_dirs(
 ) -> AsyncIterator[dict]:
     ...
 def iter_dirs(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "android", 
@@ -2033,7 +2034,7 @@ def iter_dirs(
 
 @overload
 def iter_dirs_with_path(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     with_ancestors: bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
@@ -2047,7 +2048,7 @@ def iter_dirs_with_path(
     ...
 @overload
 def iter_dirs_with_path(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     with_ancestors: bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
@@ -2060,7 +2061,7 @@ def iter_dirs_with_path(
 ) -> AsyncIterator[dict]:
     ...
 def iter_dirs_with_path(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     with_ancestors: bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
@@ -2092,7 +2093,7 @@ def iter_dirs_with_path(
     :return: 迭代器，返回此目录内的（仅目录）文件信息
     """
     from .download import iter_download_nodes
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
@@ -2110,7 +2111,7 @@ def iter_dirs_with_path(
             **request_kwargs, 
         ))
         add_top = _make_top_adder(to_id(cid), id_to_dirnode)
-        return YieldFrom(do_map(add_top, ensure_attr_path(
+        yield YieldFrom(do_map(add_top, ensure_attr_path(
             client, 
             attrs, 
             with_ancestors=with_ancestors, 
@@ -2125,7 +2126,7 @@ def iter_dirs_with_path(
 
 @overload
 def iter_files(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     cid: int | str = 0, 
     page_size: int = 0, 
     first_page_size: int = 0, 
@@ -2147,7 +2148,7 @@ def iter_files(
     ...
 @overload
 def iter_files(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     cid: int | str = 0, 
     page_size: int = 0, 
     first_page_size: int = 0, 
@@ -2168,7 +2169,7 @@ def iter_files(
 ) -> AsyncIterator[dict]:
     ...
 def iter_files(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     cid: int | str = 0, 
     page_size: int = 0, 
     first_page_size: int = 0, 
@@ -2257,7 +2258,7 @@ def iter_files(
 
 @overload
 def iter_files_with_path(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     page_size: int = 0, 
     suffix: str = "", 
@@ -2281,7 +2282,7 @@ def iter_files_with_path(
     ...
 @overload
 def iter_files_with_path(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     page_size: int = 0, 
     suffix: str = "", 
@@ -2304,7 +2305,7 @@ def iter_files_with_path(
 ) -> AsyncIterator[dict]:
     ...
 def iter_files_with_path(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     page_size: int = 0, 
     suffix: str = "", 
@@ -2376,7 +2377,7 @@ def iter_files_with_path(
     suffix = suffix.strip(".")
     if not (type or suffix):
         raise ValueError("please set the non-zero value of suffix or type")
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if isinstance(escape, bool):
         if escape:
@@ -2534,7 +2535,7 @@ def iter_files_with_path(
 
 @overload
 def iter_files_with_path_skim(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     with_ancestors: bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
@@ -2549,7 +2550,7 @@ def iter_files_with_path_skim(
     ...
 @overload
 def iter_files_with_path_skim(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     with_ancestors: bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
@@ -2563,7 +2564,7 @@ def iter_files_with_path_skim(
 ) -> AsyncIterator[dict]:
     ...
 def iter_files_with_path_skim(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     with_ancestors: bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
@@ -2597,7 +2598,7 @@ def iter_files_with_path_skim(
     :return: 迭代器，返回此目录内的（所有文件）文件信息
     """
     from .download import iter_download_nodes
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if isinstance(escape, bool):
         if escape:
@@ -2767,7 +2768,7 @@ def iter_files_with_path_skim(
 
 @overload
 def traverse_tree(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "android", 
@@ -2779,7 +2780,7 @@ def traverse_tree(
     ...
 @overload
 def traverse_tree(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "android", 
@@ -2790,7 +2791,7 @@ def traverse_tree(
 ) -> AsyncIterator[dict]:
     ...
 def traverse_tree(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "android", 
@@ -2811,7 +2812,7 @@ def traverse_tree(
 
     :return: 迭代器，返回此目录内的文件或目录节点的信息
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
@@ -2858,7 +2859,7 @@ def traverse_tree(
 
 @overload
 def traverse_tree_with_path(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     with_ancestors: bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
@@ -2872,7 +2873,7 @@ def traverse_tree_with_path(
     ...
 @overload
 def traverse_tree_with_path(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     with_ancestors: bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
@@ -2885,7 +2886,7 @@ def traverse_tree_with_path(
 ) -> AsyncIterator[dict]:
     ...
 def traverse_tree_with_path(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     with_ancestors: bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
@@ -2916,7 +2917,7 @@ def traverse_tree_with_path(
 
     :return: 迭代器，返回此目录内的文件或目录节点的信息
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
@@ -2973,7 +2974,7 @@ def traverse_tree_with_path(
 
 @overload
 def iter_nodes(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     ignore_deleted: bool = False, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
@@ -2986,7 +2987,7 @@ def iter_nodes(
     ...
 @overload
 def iter_nodes(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     ignore_deleted: bool = False, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
@@ -2998,7 +2999,7 @@ def iter_nodes(
 ) -> AsyncIterator[dict]:
     ...
 def iter_nodes(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     ignore_deleted: bool = False, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
@@ -3024,7 +3025,7 @@ def iter_nodes(
 
     :return: 迭代器，产生详细的信息
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
@@ -3061,7 +3062,7 @@ def iter_nodes(
 
 @overload
 def iter_nodes_skim(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     batch_size: int = 50_000, 
     max_workers: None | int = 1, 
@@ -3072,7 +3073,7 @@ def iter_nodes_skim(
     ...
 @overload
 def iter_nodes_skim(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     batch_size: int = 50_000, 
     max_workers: None | int = 1, 
@@ -3082,7 +3083,7 @@ def iter_nodes_skim(
 ) -> AsyncIterator[dict]:
     ...
 def iter_nodes_skim(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     batch_size: int = 50_000, 
     max_workers: None | int = 1, 
@@ -3101,7 +3102,7 @@ def iter_nodes_skim(
 
     :return: 迭代器，获取节点的简略信息
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     def get_nodes(resp: dict, /) -> Sequence[dict]:
         if resp.get("error") == "文件不存在":
@@ -3126,7 +3127,7 @@ def iter_nodes_skim(
 
 @overload
 def iter_nodes_by_pickcode(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     pickcodes: Iterable[str | int], 
     ignore_deleted: None | bool = False, 
     normalize_attr: None | Callable[[dict], dict] = None, 
@@ -3139,7 +3140,7 @@ def iter_nodes_by_pickcode(
     ...
 @overload
 def iter_nodes_by_pickcode(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     pickcodes: Iterable[str | int], 
     ignore_deleted: None | bool = False, 
     normalize_attr: None | Callable[[dict], dict] = None, 
@@ -3151,7 +3152,7 @@ def iter_nodes_by_pickcode(
 ) -> AsyncIterator[dict]:
     ...
 def iter_nodes_by_pickcode(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     pickcodes: Iterable[str | int], 
     ignore_deleted: None | bool = False, 
     normalize_attr: None | Callable[[dict], dict] = None, 
@@ -3177,7 +3178,7 @@ def iter_nodes_by_pickcode(
 
     :return: 迭代器，产生详细的信息
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
@@ -3225,7 +3226,7 @@ def iter_nodes_by_pickcode(
 
 @overload
 def iter_nodes_using_update(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     ignore_deleted: None | bool = False, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
@@ -3237,7 +3238,7 @@ def iter_nodes_using_update(
     ...
 @overload
 def iter_nodes_using_update(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     ignore_deleted: None | bool = False, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
@@ -3248,7 +3249,7 @@ def iter_nodes_using_update(
 ) -> AsyncIterator[dict]:
     ...
 def iter_nodes_using_update(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     ignore_deleted: None | bool = False, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
@@ -3272,7 +3273,7 @@ def iter_nodes_using_update(
 
     :return: 迭代器，产生详细的信息
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
@@ -3308,7 +3309,7 @@ def iter_nodes_using_update(
 
 @overload
 def iter_nodes_using_info(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     ids: Iterable[int | str], 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     max_workers: None | int = 1, 
@@ -3320,7 +3321,7 @@ def iter_nodes_using_info(
     ...
 @overload
 def iter_nodes_using_info(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     ids: Iterable[int | str], 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     max_workers: None | int = 1, 
@@ -3331,7 +3332,7 @@ def iter_nodes_using_info(
 ) -> AsyncIterator[dict]:
     ...
 def iter_nodes_using_info(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     ids: Iterable[int | str], 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     max_workers: None | int = 1, 
@@ -3355,7 +3356,7 @@ def iter_nodes_using_info(
 
     :return: 迭代器，产生详细的信息
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
@@ -3418,7 +3419,7 @@ def iter_nodes_using_info(
 # TODO: 是否能批量推送 "browse_audio" 或 "browse_video" 事件？
 @overload
 def iter_nodes_using_event(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     type: Literal["doc", "img"] = "img", 
     normalize_attr: None | bool | Callable[[dict], dict] = True, 
@@ -3432,7 +3433,7 @@ def iter_nodes_using_event(
     ...
 @overload
 def iter_nodes_using_event(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     type: Literal["doc", "img"] = "img", 
     normalize_attr: None | bool | Callable[[dict], dict] = True, 
@@ -3445,7 +3446,7 @@ def iter_nodes_using_event(
 ) -> AsyncIterator[dict]:
     ...
 def iter_nodes_using_event(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     type: Literal["doc", "img"] = "img", 
     normalize_attr: None | bool | Callable[[dict], dict] = True, 
@@ -3493,7 +3494,7 @@ def iter_nodes_using_event(
                 "type": int, 
             }
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
@@ -3572,7 +3573,7 @@ def iter_nodes_using_event(
 
 @overload
 def iter_dir_nodes_using_star(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     raise_for_changed_count: bool = False, 
@@ -3587,7 +3588,7 @@ def iter_dir_nodes_using_star(
     ...
 @overload
 def iter_dir_nodes_using_star(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     raise_for_changed_count: bool = False, 
@@ -3601,7 +3602,7 @@ def iter_dir_nodes_using_star(
 ) -> AsyncIterator[dict]:
     ...
 def iter_dir_nodes_using_star(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     raise_for_changed_count: bool = False, 
@@ -3634,7 +3635,7 @@ def iter_dir_nodes_using_star(
 
     :return: 迭代器，产生详细的信息
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     def gen_step():
         nonlocal ids
@@ -3677,7 +3678,7 @@ def iter_dir_nodes_using_star(
 
 @overload
 def iter_parents(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int], 
     max_workers: None | int = None, 
     *, 
@@ -3687,7 +3688,7 @@ def iter_parents(
     ...
 @overload
 def iter_parents(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int] | AsyncIterable[int], 
     max_workers: None | int = None, 
     *, 
@@ -3696,7 +3697,7 @@ def iter_parents(
 ) -> AsyncIterator[tuple[int, tuple[str, str, str]]]:
     ...
 def iter_parents(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int] | AsyncIterable[int], 
     max_workers: None | int = None, 
     *, 
@@ -3713,7 +3714,7 @@ def iter_parents(
 
     :return: 迭代器，产生 id 和 最近 3 级目录名的元组的 2 元组
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     def fix_overflow(t: tuple[str, ...], /) -> tuple[str, ...]:
         try:
@@ -3770,7 +3771,7 @@ def iter_parents(
 
 @overload
 def iter_files_shortcut(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     max_workers: None | int = None, 
@@ -3784,7 +3785,7 @@ def iter_files_shortcut(
     ...
 @overload
 def iter_files_shortcut(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     max_workers: None | int = None, 
@@ -3797,7 +3798,7 @@ def iter_files_shortcut(
 ) -> AsyncIterator[dict]:
     ...
 def iter_files_shortcut(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     max_workers: None | int = None, 
@@ -3855,7 +3856,7 @@ def iter_files_shortcut(
 
 @overload
 def iter_dupfiles[K](
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     key: Callable[[dict], K] = itemgetter("sha1", "size"), 
     keep_first: None | bool | Callable[[dict], SupportsLT] = None, 
@@ -3871,7 +3872,7 @@ def iter_dupfiles[K](
     ...
 @overload
 def iter_dupfiles[K](
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     key: Callable[[dict], K] = itemgetter("sha1", "size"), 
     keep_first: None | bool | Callable[[dict], SupportsLT] = None, 
@@ -3886,7 +3887,7 @@ def iter_dupfiles[K](
 ) -> AsyncIterator[tuple[K, dict]]:
     ...
 def iter_dupfiles[K](
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     key: Callable[[dict], K] = itemgetter("sha1", "size"), 
     keep_first: None | bool | Callable[[dict], SupportsLT] = None, 
@@ -3940,7 +3941,7 @@ def iter_dupfiles[K](
 
 @overload
 def iter_media_files(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     page_size: int = 8192, 
     type: Literal[0, 1, 2, 3, 4, 5, 6, 7, 99] = 0, 
@@ -3955,7 +3956,7 @@ def iter_media_files(
     ...
 @overload
 def iter_media_files(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     page_size: int = 8192, 
     type: Literal[0, 1, 2, 3, 4, 5, 6, 7, 99] = 0, 
@@ -3969,7 +3970,7 @@ def iter_media_files(
 ) -> AsyncIterator[dict]:
     ...
 def iter_media_files(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     page_size: int = 8192, 
     type: Literal[0, 1, 2, 3, 4, 5, 6, 7, 99] = 0, 
@@ -4025,7 +4026,7 @@ def iter_media_files(
         attr["id"] = attr["file_id"]
         attr["name"] = attr["file_name"]
         return attr
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if page_size <= 0:
         page_size = 8192
@@ -4070,7 +4071,7 @@ def iter_media_files(
 
 @overload
 def search_iter(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     search_value: str = ".", 
     cid: int | str = 0, 
     suffix: str = "", 
@@ -4086,7 +4087,7 @@ def search_iter(
     ...
 @overload
 def search_iter(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     search_value: str = ".", 
     cid: int | str = 0, 
     suffix: str = "", 
@@ -4101,7 +4102,7 @@ def search_iter(
 ) -> AsyncIterator[dict]:
     ...
 def search_iter(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     search_value: str = ".", 
     cid: int | str = 0, 
     suffix: str = "", 
@@ -4143,7 +4144,7 @@ def search_iter(
 
     :return: 返回文件信息，如果没有，则是 None
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if not isinstance(client, P115Client) or app == "open":
         fs_search: Callable = client.fs_search_open
@@ -4188,7 +4189,7 @@ def search_iter(
 
 @overload
 def share_iterdir(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     share_code: str, 
     receive_code: str = "", 
     cid: int = 0, 
@@ -4204,7 +4205,7 @@ def share_iterdir(
     ...
 @overload
 def share_iterdir(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     share_code: str, 
     receive_code: str = "", 
     cid: int = 0, 
@@ -4219,7 +4220,7 @@ def share_iterdir(
 ) -> AsyncIterator[dict]:
     ...
 def share_iterdir(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     share_code: str, 
     receive_code: str = "", 
     cid: int = 0, 
@@ -4256,7 +4257,7 @@ def share_iterdir(
 
     :return: 迭代器，被打上星标的目录信息
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if page_size <= 0:
         page_size = 10_000
@@ -4313,7 +4314,7 @@ def share_iterdir(
 
 @overload
 def share_iter_files(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     share_code: str, 
     receive_code: str = "", 
     cid: int = 0, 
@@ -4325,7 +4326,7 @@ def share_iter_files(
     ...
 @overload
 def share_iter_files(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     share_code: str, 
     receive_code: str = "", 
     cid: int = 0, 
@@ -4336,7 +4337,7 @@ def share_iter_files(
 ) -> AsyncIterator[dict]:
     ...
 def share_iter_files(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     share_code: str, 
     receive_code: str = "", 
     cid: int = 0, 
@@ -4366,7 +4367,7 @@ def share_iter_files(
                 "path": str, 
             }
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     def gen_step():
         nonlocal id_to_dirnode
@@ -4421,7 +4422,7 @@ def share_iter_files(
 
 @overload
 def share_search_iter(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     share_code: str, 
     receive_code: str = "", 
     search_value: str = ".", 
@@ -4438,7 +4439,7 @@ def share_search_iter(
     ...
 @overload
 def share_search_iter(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     share_code: str, 
     receive_code: str = "", 
     search_value: str = ".", 
@@ -4454,7 +4455,7 @@ def share_search_iter(
 ) -> AsyncIterator[dict]:
     ...
 def share_search_iter(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     share_code: str, 
     receive_code: str = "", 
     search_value: str = ".", 
@@ -4495,7 +4496,7 @@ def share_search_iter(
 
     :return: 返回文件信息，如果没有，则是 None
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if offset < 0:
         offset = 0
@@ -4548,7 +4549,7 @@ def share_search_iter(
 # TODO: 可以在拉取的同时，检测其它待拉取目录大小，但需要设定冷却时间（例如一秒最多 10 次查询）
 @overload
 def traverse_files(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int = 0, 
     page_size: int = 0, 
     suffix: str = "", 
@@ -4572,7 +4573,7 @@ def traverse_files(
     ...
 @overload
 def traverse_files(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int = 0, 
     page_size: int = 0, 
     suffix: str = "", 
@@ -4595,7 +4596,7 @@ def traverse_files(
 ) -> AsyncIterator[dict]:
     ...
 def traverse_files(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int = 0, 
     page_size: int = 0, 
     suffix: str = "", 
@@ -4660,7 +4661,7 @@ def traverse_files(
         raise ValueError("please set the non-zero value of suffix or type")
     if suffix:
         suffix = "." + suffix.lower()
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]

@@ -3,34 +3,39 @@
 
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
 __all__ = [
-    "batch_get_url", "iter_url_batches", "iter_files_with_url", 
-    "iter_images_with_url", "iter_subtitles_with_url", "iter_subtitle_batches", "make_strm", 
+    "batch_get_url", "iter_url_batches", "iter_files_with_url", "iter_images_with_url", 
+    "iter_subtitles_with_url", "iter_subtitle_batches", "make_db", "make_strm", 
     "iter_download_nodes", "iter_download_files", "get_remaining_open_count", 
 ]
 __doc__ = "这个模块提供了一些和下载有关的函数"
 
 from asyncio import create_task, to_thread, Queue as AsyncQueue, TaskGroup
+from collections import defaultdict
 from collections.abc import (
     AsyncIterator, Callable, Coroutine, Iterable, Iterator, MutableMapping, 
 )
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from datetime import datetime
 from functools import partial
-from glob import iglob
 from itertools import batched, chain, count, cycle
-from os import fsdecode, makedirs, remove, PathLike
+from math import inf
+from os import fsdecode, makedirs, remove, rmdir, scandir, DirEntry, PathLike
 from os.path import abspath, dirname, join as joinpath, normpath, splitext
 from queue import SimpleQueue
-from shutil import rmtree
+from sqlite3 import connect, Connection, Cursor
+from sys import exc_info
 from threading import Lock
 from time import time
 from typing import cast, overload, Any, Literal
 from types import EllipsisType
+from urllib.parse import urlsplit
 from urllib.request import urlopen, Request
 from uuid import uuid4
 from warnings import warn
 
 from asynctools import async_chain
-from concurrenttools import run_as_thread, thread_batch, async_batch
+from concurrenttools import run_as_thread
 from encode_uri import encode_uri_component_loose
 from iterutils import (
     as_gen_step, chunked, run_gen_step, run_gen_step_iter, through, 
@@ -44,15 +49,15 @@ from p115client.exception import P115Warning
 from p115pickcode import to_id
 
 from .iterdir import (
-    get_path_to_cid, iterdir, iter_files, iter_files_with_path, 
-    unescape_115_charref, posix_escape_name, DirNode, ID_TO_DIRNODE_CACHE, 
+    iterdir, iter_files, iter_files_shortcut, unescape_115_charref, 
+    posix_escape_name, DirNode, ID_TO_DIRNODE_CACHE, 
 )
 from .util import reduce_image_url_layers
 
 
 @overload
 def batch_get_url(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     pickcode: int | str | Iterable[int | str], 
     user_agent: str = "", 
     app: str = "android", 
@@ -63,7 +68,7 @@ def batch_get_url(
     ...
 @overload
 def batch_get_url(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     pickcode: int | str | Iterable[int | str], 
     user_agent: str = "", 
     app: str = "android", 
@@ -73,7 +78,7 @@ def batch_get_url(
 ) -> Coroutine[Any, Any, dict[int, P115URL]]:
     ...
 def batch_get_url(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     pickcode: int | str | Iterable[int | str], 
     user_agent: str = "", 
     app: str = "android", 
@@ -92,7 +97,7 @@ def batch_get_url(
 
     :return: 字典，key 是文件 id，value 是下载链接，自动忽略所有无效项目
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if headers := request_kwargs.get("headers"):
         request_kwargs["headers"] = dict(headers, **{"user-agent": user_agent})
@@ -132,7 +137,7 @@ def batch_get_url(
 
 @overload
 def iter_url_batches(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     pickcodes: Iterator[int | str], 
     user_agent: str = "", 
     batch_size: int = 10, 
@@ -144,7 +149,7 @@ def iter_url_batches(
     ...
 @overload
 def iter_url_batches(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     pickcodes: Iterator[int | str], 
     user_agent: str = "", 
     batch_size: int = 10, 
@@ -155,7 +160,7 @@ def iter_url_batches(
 ) -> AsyncIterator[P115URL]:
     ...
 def iter_url_batches(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     pickcodes: Iterator[int | str], 
     user_agent: str = "", 
     batch_size: int = 10, 
@@ -181,7 +186,7 @@ def iter_url_batches(
 
     :return: 字典，key 是文件 id，value 是下载链接，自动忽略所有无效项目
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if headers := request_kwargs.get("headers"):
         request_kwargs["headers"] = dict(headers, **{"user-agent": user_agent})
@@ -222,7 +227,7 @@ def iter_url_batches(
 
 @overload
 def iter_files_with_url(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     cid: int | str = 0, 
     suffixes: None | str | Iterable[str] = None, 
     type: Literal[1, 2, 3, 4, 5, 6, 7, 99] = 99, 
@@ -243,7 +248,7 @@ def iter_files_with_url(
     ...
 @overload
 def iter_files_with_url(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     cid: int | str = 0, 
     suffixes: None | str | Iterable[str] = None, 
     type: Literal[1, 2, 3, 4, 5, 6, 7, 99] = 99, 
@@ -263,7 +268,7 @@ def iter_files_with_url(
 ) -> AsyncIterator[dict]:
     ...
 def iter_files_with_url(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     cid: int | str = 0, 
     suffixes: None | str | Iterable[str] = None, 
     type: Literal[1, 2, 3, 4, 5, 6, 7, 99] = 99, 
@@ -318,7 +323,7 @@ def iter_files_with_url(
 
     :return: 迭代器，产生文件信息，并增加一个 "url" 作为下载链接
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     params = dict(
         cur=cur, 
@@ -398,7 +403,7 @@ def iter_files_with_url(
 
 @overload
 def iter_images_with_url(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     cid: int | str = 0, 
     suffixes: None | str | Iterable[str] = None, 
     cur: Literal[0, 1] = 0, 
@@ -417,7 +422,7 @@ def iter_images_with_url(
     ...
 @overload
 def iter_images_with_url(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     cid: int | str = 0, 
     suffixes: None | str | Iterable[str] = None, 
     cur: Literal[0, 1] = 0, 
@@ -435,7 +440,7 @@ def iter_images_with_url(
 ) -> AsyncIterator[dict]:
     ...
 def iter_images_with_url(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     cid: int | str = 0, 
     suffixes: None | str | Iterable[str] = None, 
     cur: Literal[0, 1] = 0, 
@@ -479,7 +484,7 @@ def iter_images_with_url(
 
     :return: 迭代器，产生文件信息，并增加一个 "url" 作为下载链接
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     params = dict(
         cur=cur, 
@@ -557,7 +562,7 @@ def iter_images_with_url(
 
 @overload
 def iter_subtitles_with_url(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     cid: int | str = 0, 
     suffixes: str | Iterable[str] = (".srt", ".ass", ".ssa"), 
     cur: Literal[0, 1] = 0, 
@@ -576,7 +581,7 @@ def iter_subtitles_with_url(
     ...
 @overload
 def iter_subtitles_with_url(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     cid: int | str = 0, 
     suffixes: str | Iterable[str] = (".srt", ".ass", ".ssa"), 
     cur: Literal[0, 1] = 0, 
@@ -594,7 +599,7 @@ def iter_subtitles_with_url(
 ) -> AsyncIterator[dict]:
     ...
 def iter_subtitles_with_url(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     cid: int | str = 0, 
     suffixes: str | Iterable[str] = (".srt", ".ass", ".ssa"), 
     cur: Literal[0, 1] = 0, 
@@ -643,7 +648,7 @@ def iter_subtitles_with_url(
 
     :return: 迭代器，产生文件信息，并增加一个 "url" 作为下载链接
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if not isinstance(client, P115Client) or app == "open":
         get_url: Callable[..., P115URL] = client.download_url_open
@@ -763,7 +768,7 @@ def iter_subtitles_with_url(
 
 @overload
 def iter_subtitle_batches(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     file_ids: Iterable[int | str], 
     batch_size: int = 1_000, 
     app: str = "web", 
@@ -774,7 +779,7 @@ def iter_subtitle_batches(
     ...
 @overload
 def iter_subtitle_batches(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     file_ids: Iterable[int | str], 
     batch_size: int = 1_000, 
     app: str = "web", 
@@ -784,7 +789,7 @@ def iter_subtitle_batches(
 ) -> AsyncIterator[dict]:
     ...
 def iter_subtitle_batches(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     file_ids: Iterable[int | str], 
     batch_size: int = 1_000, 
     app: str = "web", 
@@ -808,7 +813,7 @@ def iter_subtitle_batches(
 
     :return: 迭代器，产生文件信息，并增加一个 "url" 作为下载链接，文件信息中的 file_id 是复制所得的文件信息，不是原来文件的 id
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if batch_size <= 0:
         batch_size = 1_000
@@ -871,30 +876,228 @@ def iter_subtitle_batches(
     return run_gen_step_iter(gen_step, async_)
 
 
-# TODO: 要支持 open 接口
-# TODO: 后续还可用 iter_download_nodes 接口，来更快地拉取数据
-# TODO: 增加一个方法：make_db
+@overload
+def make_db(
+    client: str | PathLike | P115Client, 
+    cid: int | str = 0, 
+    dbfile: str | PathLike | Connection | Cursor = "115-file-tree.db", 
+    clean: bool = True, 
+    replace: bool = True, 
+    with_path: bool = True, 
+    batch_size: int = 3_000, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    app: str = "android", 
+    max_workers: None | int = None, 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> dict:
+    ...
+@overload
+def make_db(
+    client: str | PathLike | P115Client, 
+    cid: int | str = 0, 
+    dbfile: str | PathLike | Connection | Cursor = "115-file-tree.db", 
+    clean: bool = True, 
+    replace: bool = True, 
+    with_path: bool = True, 
+    batch_size: int = 3_000, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    app: str = "android", 
+    max_workers: None | int = None, 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> Coroutine[Any, Any, dict]:
+    ...
+def make_db(
+    client: str | PathLike | P115Client, 
+    cid: int | str = 0, 
+    dbfile: str | PathLike | Connection | Cursor = "115-file-tree.db", 
+    clean: bool = True, 
+    replace: bool = True, 
+    with_path: bool = True, 
+    batch_size: int = 3_000, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    app: str = "android", 
+    max_workers: None | int = None, 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+) -> dict | Coroutine[Any, Any, dict]:
+    """拉取目录树，保存到数据库
+
+    :param client: 115 客户端或 cookies
+    :param cid: 目录 id 或 pickcode
+    :param dbfile: 数据库路径或连接
+    :param clean: 是否清理旧数据
+    :param replace: 遇到相同 id 时是否替换数据
+    :param with_path: 拉取数据时是否需要 "path" 字段
+    :param batch_size: 每批写入数据库的最多条数
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``DirNode(name, parent_id)`` 命名元组的字典
+    :param app: 使用指定 app（设备）的接口
+    :param max_workers: 最大并发数，用户拉取目录树，但写入数据库仍然是单线程的（经过测试如此效率更高）
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+    """
+    if isinstance(client, (str, PathLike)):
+        client = P115Client(client, check_for_relogin=True)
+    init_sql = """\
+PRAGMA journal_mode = WAL;
+-- 创建表
+CREATE TABLE IF NOT EXISTS data (
+    id INTEGER NOT NULL PRIMARY KEY,   -- id
+    parent_id INTEGER NOT NULL ,       -- 所在的目录 id
+    user_id INTEGER NOT NULL,          -- 用户 id
+    name TEXT NOT NULL,                -- 名字
+    sha1 TEXT NOT NULL DEFAULT '',     -- 文件的 sha1 散列值
+    size INTEGER NOT NULL DEFAULT 0,   -- 文件大小
+    pickcode TEXT NOT NULL DEFAULT '', -- 提取码
+    is_dir INTEGER NOT NULL DEFAULT 0, -- 是否目录，值总是 0
+    path TEXT NOT NULL DEFAULT '',     -- 路径
+    top_id INTEGER NOT NULL DEFAULT 0, -- 最近一次拉取时顶层目录的 id
+    extra BLOB DEFAULT NULL,           -- 其它信息
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- 创建时间
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- 更新时间
+);
+-- 创建索引
+CREATE INDEX IF NOT EXISTS idx_data_sha1_size ON data(sha1, size);
+CREATE INDEX IF NOT EXISTS idx_data_uid ON data(user_id);
+CREATE INDEX IF NOT EXISTS idx_data_pid ON data(parent_id);
+CREATE INDEX IF NOT EXISTS idx_data_tid ON data(top_id);
+CREATE INDEX IF NOT EXISTS idx_data_name ON data(name);
+CREATE INDEX IF NOT EXISTS idx_data_path ON data(path);
+CREATE INDEX IF NOT EXISTS idx_data_utime ON data(updated_at);
+-- 创建更新时触发器
+CREATE TRIGGER IF NOT EXISTS trg_data_update
+AFTER UPDATE ON data 
+FOR EACH ROW 
+BEGIN
+    UPDATE data SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;"""
+    clean_sql = """\
+WITH ids(id) AS (
+    SELECT id FROM data WHERE parent_id = :top_id AND updated_at < :start_t
+    UNION ALL
+    SELECT data.id FROM ids JOIN data ON (ids.id = data.parent_id) WHERE updated_at < :start_t
+)
+DELETE FROM data WHERE id in (
+    SELECT id FROM ids
+    UNION ALL
+    SELECT id FROM data WHERE top_id = :top_id AND updated_at < :start_t
+);"""
+    cid = to_id(cid)
+    user_id = client.user_id
+    def write_records(cur: Cursor, records: tuple[dict], /):
+        if replace:
+            if with_path:
+                sql = """\
+INSERT INTO data (id, parent_id, user_id, name, sha1, size, pickcode, is_dir, top_id, path)
+ON CONFLICT (id) DO UPDATE SET id = old.id;"""
+            else:
+                sql = """\
+INSERT INTO data (id, parent_id, user_id, name, sha1, size, pickcode, is_dir, top_id)
+ON CONFLICT (id) DO UPDATE SET id = old.id;"""
+        elif with_path:
+            sql = """\
+INSERT OR REPLACE INTO data (id, parent_id, user_id, name, sha1, size, pickcode, is_dir, top_id, path)
+VALUES (:id, :parent_id, :user_id, :name, :sha1, :size, :pickcode, :is_dir, :top_id, :path);"""
+        else:
+            sql = """\
+INSERT OR REPLACE INTO data (id, parent_id, user_id, name, sha1, size, pickcode, is_dir, top_id)
+VALUES (:id, :parent_id, :user_id, :name, :sha1, :size, :pickcode, :is_dir, :top_id);"""
+        for record in records:
+            record["user_id"] = user_id
+            record["top_id"] = cid
+        cur.executemany(sql, records)
+    traverse_tree: Callable
+    if with_path:
+        from .iterdir import traverse_tree_with_path as traverse_tree
+    else:
+        from .iterdir import traverse_tree
+    def gen_step():
+        if isinstance(dbfile, (Connection, Cursor)):
+            will_close = False
+            con = dbfile
+            if isinstance(con, Cursor):
+                cur = con
+                con = con.connection
+        else:
+            will_close = True
+            con = connect(
+                dbfile, 
+                uri=isinstance(dbfile, str) and dbfile.startswith("file:"), 
+                check_same_thread=False, 
+                timeout=inf, 
+            )
+            cur = con.cursor()
+        nupsert = 0
+        nremove = 0
+        try:
+            cur.executescript(init_sql)
+            start_t = time()
+            with with_iter_next(chunked(traverse_tree(
+                client, 
+                cid, 
+                id_to_dirnode=id_to_dirnode, 
+                app=app, 
+                max_workers=max_workers, 
+                async_=async_, 
+                **request_kwargs, 
+            ), batch_size)) as get_next:
+                while True:
+                    records = yield get_next()
+                    if async_:
+                        yield to_thread(write_records, cur, records)
+                    else:
+                        write_records(cur, records)
+                    nupsert += len(records)
+            if clean:
+                clean_start_t = time()
+                cur.execute(clean_sql, {"top_id": cid, "start_t": start_t})
+                nremove = cur.rowcount
+            if async_:
+                yield to_thread(con.commit)
+            else:
+                con.commit()
+        except:
+            con.rollback()
+            raise
+        finally:
+            if will_close:
+                con.close()
+        stop_t = time()
+        result = {
+            "total": nupsert + nremove, 
+            "count_upsert": nupsert, 
+            "count_remove": nremove, 
+            "start_time": start_t, 
+            "start_time_str": str(datetime.fromtimestamp(start_t)), 
+            "stop_time": stop_t, 
+            "stop_time_str": str(datetime.fromtimestamp(stop_t)), 
+            "elapsed_secconds": stop_t - start_t, 
+        }
+        if clean:
+            result["elapsed_secconds_of_cleaning"] = stop_t - clean_start_t
+        return result
+    return run_gen_step(gen_step, async_)
+
+
 @overload
 def make_strm(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     save_dir: bytes | str | PathLike = ".", 
-    origin: str = "http://localhost:8000", 
-    update: bool = False, 
-    discard: bool = True, 
-    use_abspath: bool = True, 
-    with_root: bool = False, 
-    with_tree: bool = True, 
+    base_url: str = "", 
+    with_root: None | bool = None, 
     without_suffix: bool = True, 
-    complete_url: bool = True, 
-    suffix: str = "", 
-    type: Literal[1, 2, 3, 4, 5, 6, 7, 99] = 4, 
-    max_workers: None | int = None, 
+    clean: bool = True, 
+    replace: bool = True, 
+    predicate: None | Literal[1, 2, 3, 4, 5, 6, 7] | str | tuple[str, ...] | Callable[[dict], bool] = 4, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     path_already: bool = False, 
     app: str = "android", 
-    fs_files_cooldown: int | float = 0.5, 
-    fs_files_max_workers: None | int = None, 
+    max_workers: None | int = None, 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -902,260 +1105,285 @@ def make_strm(
     ...
 @overload
 def make_strm(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     save_dir: bytes | str | PathLike = ".", 
-    origin: str = "http://localhost:8000", 
-    update: bool = False, 
-    discard: bool = True, 
-    use_abspath: bool = True, 
-    with_root: bool = False, 
-    with_tree: bool = True, 
+    base_url: str = "", 
+    with_root: None | bool = None, 
     without_suffix: bool = True, 
-    complete_url: bool = True, 
-    suffix: str = "", 
-    type: Literal[1, 2, 3, 4, 5, 6, 7, 99] = 4, 
-    max_workers: None | int = None, 
+    clean: bool = True, 
+    replace: bool = True, 
+    predicate: None | Literal[1, 2, 3, 4, 5, 6, 7] | str | tuple[str, ...] | Callable[[dict], bool] = 4, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     path_already: bool = False, 
     app: str = "android", 
-    fs_files_cooldown: int | float = 0.5, 
-    fs_files_max_workers: None | int = None, 
+    max_workers: None | int = None, 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
 ) -> Coroutine[Any, Any, dict]:
     ...
 def make_strm(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     save_dir: bytes | str | PathLike = ".", 
-    origin: str = "http://localhost:8000", 
-    update: bool = False, 
-    discard: bool = True, 
-    use_abspath: bool = True, 
-    with_root: bool = False, 
-    with_tree: bool = True, 
+    base_url: str = "", 
+    with_root: None | bool = None, 
     without_suffix: bool = True, 
-    complete_url: bool = True, 
-    suffix: str = "", 
-    type: Literal[1, 2, 3, 4, 5, 6, 7, 99] = 4, 
-    max_workers: None | int = None, 
+    clean: bool = True, 
+    replace: bool = True, 
+    predicate: None | Literal[1, 2, 3, 4, 5, 6, 7] | str | tuple[str, ...] | Callable[[dict], bool] = 4, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     path_already: bool = False, 
     app: str = "android", 
-    fs_files_cooldown: int | float = 0.5, 
-    fs_files_max_workers: None | int = None, 
+    max_workers: None | int = None, 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
 ) -> dict | Coroutine[Any, Any, dict]:
-    """生成 strm 保存到本地
+    """拉取目录树，保存到 .strm 文件
 
     :param client: 115 客户端或 cookies
     :param cid: 目录 id 或 pickcode
     :param save_dir: 本地的保存目录，默认是当前工作目录
-    :param origin: strm 文件的 `HTTP 源 <https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Origin>`_
-    :param update: 是否更新 strm 文件，如果为 False，则跳过已存在的路径
-    :param discard: 是否清理 strm 文件，如果为 True，则删除未取得的路径（不在本次的路径集合内）
-    :param use_abspath: 是否使用相对路径
+    :param base_url: STRM 链接（或者说 302 服务）的基地址
+    :param with_root: 是否保留根
 
-        - 如果为 True，则使用 115 的完整路径
-        - 如果为 False，则使用从 `cid` 的目录开始的相对路径
+        - 如果为 True，则在 ``save_dir`` 保留从根目录 / 开始的目录结构
+        - 如果为 False，则在 ``save_dir`` 保留从拉取目录开始的目录结构
+        - 如果为 None，则在 ``save_dir`` 下创建一个和 ``cid`` 目录名字相同的目录作为 ``save_dir``，然后保留从拉取目录开始的目录结构
 
-    :param with_root: 仅在 use_abspath 为 False 时生效。如果为 True，则在 `save_dir` 下创建一个和 `cid` 目录名字相同的目录，作为实际的 `save_dir`
-    :param with_tree: 如果为 False，则所有文件直接保存到 `save_dir` 下，不构建多级的目录结构
-    :param without_suffix: 是否去除原来的扩展名。如果为 False，则直接用 ".strm" 拼接到原来的路径后面；如果为 True，则去掉原来的扩展名后再拼接
-    :param complete_url: 是否需要完整的 url
+    :param without_suffix: 是否去除原来的扩展名
 
-        - 如果为 False, 格式为 ff"{origin}?pickcode={attr['pickcode']}"
-        - 如果为 True,  格式为 f"{origin}/{attr['name']}?pickcode={attr['pickcode']}&id={attr['id']}&sha1={attr['sha1']}&size={attr['size']}"
+        - 如果为 True，则去掉原来的扩展名后再拼接
+        - 如果为 False，则直接用 ".strm" 拼接到原来的路径后面
 
-    :param suffix: 后缀名（优先级高于 type）
-    :param type: 文件类型
+    :param clean: 是否清理 ``save_dir``，如果为 True，则删除所有不包含本次更新所涉及到的 .strm 文件和相应目录
+    :param replace: 遇到路径下有 .strm 文件时是否替换
+    :param predicate: 断言，断言为真的文件才会生成 .strm 文件
 
-        - 1: 文档
-        - 2: 图片
-        - 3: 音频
-        - 4: 视频
-        - 5: 压缩包
-        - 6: 应用
-        - 7: 书籍
-        - 99: 仅文件
+        - 如果为 None，则不进行筛选
+        - 如果为整数，则筛选某一类型的文件
+
+            - 1: 文档
+            - 2: 图片
+            - 3: 音频
+            - 4: 视频
+            - 5: 压缩包
+            - 6: 应用
+            - 7: 书籍
+
+        - 如果是 str 或元组，则是后缀或一组后缀，筛选这些后缀的文件
+        - 如果是 Callable，则逐个对获取到的文件信息调用它，返回值为 True 才保留
  
-    :param max_workers: 最大并发数，主要用于限制同时打开的文件数
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
-    :param path_already: 如果为 True，则说明 id_to_dirnode 中已经具备构建路径所需要的目录节点，所以不会再去拉取目录节点的信息
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``DirNode(name, parent_id)`` 命名元组的字典
+    :param path_already: 如果为 True，则说明 ``id_to_dirnode`` 中已经具备构建路径所需要的目录节点，所以不会再去拉取目录节点的信息
     :param app: 使用指定 app（设备）的接口
-    :param fs_files_cooldown: `fs_files` 接口调用的冷却时间，大于 0，则使用此时间间隔执行并发
-    :param fs_files_max_workers: `fs_files` 接口调用的最大并发数
+    :param max_workers: 最大并发数，用户拉取目录树，但写入本地文件仍然是单线程的（经过测试如此效率更高）
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     user_id = client.user_id
-    origin = origin.rstrip("/")
-    savedir = abspath(fsdecode(save_dir))
-    makedirs(savedir, exist_ok=True)
-    mode = "wb" if update else "xb"
-    abspath_prefix_length = 1
-    upserted: list[str] = []
-    ignored: list[str] = []
-    removed: list[str] = []
-    append = list.append
-    add    = set.add
-    if discard:
+    base_url = base_url.rstrip("/")
+    if base_url.startswith("//"):
+        base_url = "http:" + base_url
+        is_url = True
+    else:
+        is_url = bool(urlsplit(base_url).scheme)
+    save_dir = abspath(fsdecode(save_dir))
+    mode = "w" if replace else "x"
+    prefix_length = -1
+    upserts: list[str] = []
+    ignores: list[str] = []
+    removes: list[str] = []
+    errors: list[OSError] = []
+    count_errors: dict[str, int] = defaultdict(int)
+    push = list.append
+    oserror_flag = False
+    @contextmanager
+    def collect_oserror():
+        nonlocal oserror_flag
+        oserror_flag = False
+        try:
+            yield 
+        except OSError as e:
+            oserror_flag = True
+            push(errors, e)
+            count_errors[type(e).__qualname__] += 1
+    if clean:
         seen: set[str] = set()
-        seen_add = seen.add
-        existing: set[str] = set()
-        def do_discard():
-            if not seen:
-                rmtree(savedir)
-                makedirs(savedir, exist_ok=True)
+        add_to_seen = seen.add
+        def do_clean():
+            nonlocal save_dir
+            save_dir = cast(str, save_dir)
+            with collect_oserror():
+                stack = [scandir(save_dir)]
+            if oserror_flag:
                 return
-            dirs: set[str] = {""}
-            for path in seen:
-                while path := dirname(path):
-                    add(dirs, path)
-            removed_dirs: set[str] = set()
-            for path in existing - seen:
-                d = dirname(path)
-                if d in dirs:
-                    path = joinpath(savedir, path)
-                    remove(path)
-                elif d not in removed_dirs:
-                    while True:
-                        add(removed_dirs, d)
-                        pdir = dirname(d)
-                        if not pdir or pdir in dirs:
-                            rmtree(joinpath(savedir, d))
-                            break
-                        elif pdir in removed_dirs:
-                            break
-                        d = pdir
-                append(removed, path)
+            if not stack: return
+            ancestors: list[str | PathLike] = [save_dir]
+            caches: list[list[DirEntry]] = [[]]
+            is_dir = DirEntry.is_dir
+            t = i = 0
+            b = 1
+            while i >= 0:
+                cache = caches[i]
+                for entry in stack[i]:
+                    if is_dir(entry, follow_symlinks=False):
+                        i += 1
+                        with collect_oserror():
+                            try:
+                                scanit = scandir(entry)
+                                stack[i] = scanit
+                                ancestors[i] = entry
+                                caches[i] = []
+                            except IndexError:
+                                push(stack, scanit)
+                                push(ancestors, entry)
+                                push(caches, [])
+                        if oserror_flag:
+                            t |= b
+                            continue
+                        b <<= 1
+                        break
+                    path = entry.path
+                    if path in seen:
+                        t |= b
+                    elif path.endswith(".strm"):
+                        with collect_oserror():
+                            remove(entry)
+                            push(removes, path)
+                    else:
+                        push(cache, entry)
+                else:
+                    pred = t & b
+                    if not pred:
+                        for entry in cache:
+                            with collect_oserror():
+                                remove(entry)
+                                push(removes, entry.path)
+                        with collect_oserror():
+                            rmdir(ancestors[i])
+                    t &= ~b
+                    i -= 1
+                    b >>= 1
+                    if pred:
+                        t |= b
     def normalize_path(attr: dict, /) -> str:
-        if with_tree:
-            path = attr["path"][abspath_prefix_length:]
-        else:
-            path = attr["name"]
+        nonlocal prefix_length, save_dir, clean
+        if prefix_length < 0:
+            if cid:
+                prefix_length = sum(len(a["name"]) + 1 for a in attr["top_ancestors"]) - 1
+                if with_root:
+                    save_dir = joinpath(save_dir, *(a["name"] for a in attr["top_ancestors"][1:]))
+                elif with_root is None:
+                    save_dir = joinpath(save_dir, attr["top_ancestors"][-1]["name"])
+            else:
+                prefix_length = 0
+            try:
+                rmdir(save_dir)
+                clean = False
+            except FileNotFoundError:
+                clean = False
+            except OSError:
+                pass
+        path: str = attr["path"]
+        if prefix_length:
+            path = path[prefix_length:]
         if without_suffix:
             path = splitext(path)[0]
-        relpath = normpath(path) + ".strm"
-        if discard:
-            seen_add(relpath)
-        return joinpath(savedir, relpath)
-    write_url: Callable
-    if async_:
-        from aiofile import async_open
-        async def write_url(path: str, url: bytes, /):
-            async with async_open(path, mode) as f:
-                await f.write(url)
-    else:
-        def write_url(path: str, url: bytes, /):
-            with open(path, mode) as f:
-                f.write(url)
-    def save(attr: dict, /):
-        path = normalize_path(attr)
-        if complete_url:
-            name = encode_uri_component_loose(attr["name"])
-            url = f"{origin}/{name}?user_id={user_id}&pickcode={attr['pickcode']}&id={attr['id']}&sha1={attr['sha1']}&size={attr['size']}"
-            urlb = bytes(url, "utf-8")
+        path = joinpath(cast(str, save_dir), normpath("." + path + ".strm"))
+        if clean:
+            add_to_seen(path)
+        return path
+    params: dict = {
+        "cid": cid, 
+        "max_workers": max_workers, 
+        "with_path": True, 
+        "id_to_dirnode": id_to_dirnode, 
+        "path_already": path_already, 
+    }
+    if isinstance(predicate, (int, str)):
+        params["is_skim"] = False
+        if isinstance(predicate, int):
+            params["type"] = predicate
         else:
-            url = f"{origin}?user_id={user_id}&pickcode={attr['pickcode']}"
-            urlb = bytes(url, "ascii")
-        try:
-            yield write_url(path, urlb)
-        except FileNotFoundError:
-            makedirs(dirname(path), exist_ok=True)
-            yield write_url(path, urlb)
-        except OSError:
-            append(ignored, path)
-            return
-        append(upserted, path)
+            params["suffix"] = predicate
+        predicate = None
+    elif isinstance(predicate, tuple):
+        suffixes = predicate
+        predicate = lambda attr: attr["name"].endswith(suffixes)
     cid = to_id(cid)
     def gen_step():
-        nonlocal abspath_prefix_length, savedir
-        start_t = time()
-        if cid:
-            if use_abspath or with_tree:
-                root = yield get_path_to_cid(
-                    client, 
-                    cid, 
-                    escape=posix_escape_name, 
-                    refresh=True, 
-                    async_=async_, # type: ignore
-                    **request_kwargs, 
-                )
-                abspath_prefix_length = len(root) + 1
-                if use_abspath:
-                    savedir += normpath(root)
-                elif with_root:
-                    name = root.rpartition("/")[-1]
-                    savedir = joinpath(savedir, name)
-            elif with_root:
-                resp = yield client.fs_file_skim(
-                    cid, 
-                    async_=async_, # type: ignore
-                    **request_kwargs
-                )
-                check_response(resp)
-                name = posix_escape_name(unescape_115_charref(resp["data"][0]["file_name"]))
-                savedir = joinpath(savedir, name)
-        if discard:
-            strm_files = iglob("**/*.strm", root_dir=savedir, recursive=True)
-            if async_:
-                task: Any = create_task(to_thread(existing.update, strm_files))
-            else:
-                task = run_as_thread(existing.update, strm_files)
-        params: dict[str, Any] = {}
-        if use_abspath is not None:
-            params["path_already"] = path_already
-        yield (async_batch if async_ else thread_batch)(
-            lambda attr: run_gen_step(save(attr), async_), 
-            (iter_files if use_abspath is None else iter_files_with_path)(
-                client, 
-                cid, 
-                order="file_name", 
-                suffix=suffix, 
-                type=type, 
-                normalize_attr=normalize_attr_simple, 
-                escape=posix_escape_name, 
-                with_ancestors=False, 
-                id_to_dirnode=id_to_dirnode, 
-                cooldown=fs_files_cooldown, 
-                max_workers=fs_files_max_workers, 
-                app=app, 
-                async_=async_, # type: ignore
-                **params, # type: ignore
-                **request_kwargs, 
-            ), 
-            max_workers=max_workers, 
+        files: Iterator[dict] | AsyncIterator[dict] = iter_files_shortcut(
+            client, 
+            **params, 
+            app=app, 
+            async_=async_, 
+            **request_kwargs, 
         )
-        if discard:
+        if predicate is not None:
+            from iterutils import filter
+            files = filter(predicate, files)
+        start_t = time()
+        with with_iter_next(files) as get_next:
+            while True:
+                attr = yield get_next()
+                path = attr["path"]
+                if is_url:
+                    url = f"{base_url}/{encode_uri_component_loose(path, quote_slash=False)}?user_id={user_id}&id={attr['id']}&pickcode={attr['pickcode']}&&sha1={attr['sha1']}&size={attr['size']}"
+                else:
+                    url = base_url + path
+                path = normalize_path(attr)
+                with collect_oserror():
+                    try:
+                        file = open(path, mode, encoding="utf-8")
+                    except FileNotFoundError:
+                        makedirs(dirname(path), exist_ok=True)
+                        file = open(path, mode, encoding="utf-8")
+                    except FileExistsError:
+                        push(ignores, path)
+                        continue
+                if oserror_flag:
+                    push(ignores, path)
+                    continue
+                with file:
+                    file.write(url)
+                    push(upserts, path)
+        if clean:
+            clean_start_t = time()
             if async_:
-                yield task
-                yield to_thread(do_discard)
+                yield to_thread(do_clean)
             else:
-                task.result()
-                do_discard()
-        return {
-            "cost": time() - start_t, 
-            "total": len(upserted) + len(ignored) + len(removed), 
-            "count_upsert": len(upserted), 
-            "count_ignore": len(ignored), 
-            "count_remove": len(removed), 
-            "upsert": upserted, 
-            "ignore": ignored, 
-            "remove": removed, 
+                do_clean()
+        stop_t = time()
+        result = {
+            "upserts": upserts, 
+            "ignores": ignores, 
+            "removes": removes, 
+            "errors": errors, 
+            "total": len(upserts) + len(ignores) + len(removes), 
+            "count_upserts": len(upserts), 
+            "count_ignores": len(ignores), 
+            "count_removes": len(removes), 
+            "count_errors": count_errors, 
+            "start_time": start_t, 
+            "start_time_str": str(datetime.fromtimestamp(start_t)), 
+            "stop_time": stop_t, 
+            "stop_time_str": str(datetime.fromtimestamp(stop_t)), 
+            "elapsed_secconds": stop_t - start_t, 
         }
+        if clean:
+            result["elapsed_secconds_of_cleaning"] = stop_t - clean_start_t
+        return result
     return run_gen_step(gen_step, async_)
 
 
 @overload
 def iter_download_nodes(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     pickcode: str | int = "", 
     files: bool = True, 
     ensure_name: bool = False, 
@@ -1169,7 +1397,7 @@ def iter_download_nodes(
     ...
 @overload
 def iter_download_nodes(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     pickcode: str | int = "", 
     files: bool = True, 
     ensure_name: bool = False, 
@@ -1182,7 +1410,7 @@ def iter_download_nodes(
 ) -> AsyncIterator[dict]:
     ...
 def iter_download_nodes(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     pickcode: str | int = "", 
     files: bool = True, 
     ensure_name: bool = False, 
@@ -1207,7 +1435,7 @@ def iter_download_nodes(
 
     :return: 迭代器，产生文件或者目录的简略信息
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     get_base_url = cycle(("http://proapi.115.com", "https://proapi.115.com")).__next__
     if async_:
@@ -1224,45 +1452,47 @@ def iter_download_nodes(
     file_skim = client.fs_file_skim
     need_yield = files and ensure_name
     def normalize_attrs(attrs: list[dict], /):
-        if files:
-            for i, info in enumerate(attrs):
-                attrs[i] = {
-                    "is_dir": False, 
-                    "id": to_id(info["pc"]), 
-                    "pickcode": info["pc"], 
-                    "parent_id": int(info["pid"]), 
-                    "size": info["fs"], 
-                }
-        else:
-            for i, info in enumerate(attrs):
-                attrs[i] = {
-                    "is_dir": True, 
-                    "id": int(info["fid"]), 
-                    "name": info["fn"], 
-                    "parent_id": int(info["pid"]), 
-                }
-            if id_to_dirnode is not ... and id_to_dirnode is not None:
-                for attr in attrs:
-                    id_to_dirnode[attr["id"]] = DirNode(attr["name"], attr["parent_id"])
+        if attrs:
+            if files:
+                for i, info in enumerate(attrs):
+                    attrs[i] = {
+                        "is_dir": False, 
+                        "id": to_id(info["pc"]), 
+                        "pickcode": info["pc"], 
+                        "parent_id": int(info["pid"]), 
+                        "size": info["fs"], 
+                    }
+            else:
+                for i, info in enumerate(attrs):
+                    attrs[i] = {
+                        "is_dir": True, 
+                        "id": int(info["fid"]), 
+                        "name": info["fn"], 
+                        "parent_id": int(info["pid"]), 
+                    }
+                if id_to_dirnode is not ... and id_to_dirnode is not None:
+                    for attr in attrs:
+                        id_to_dirnode[attr["id"]] = DirNode(attr["name"], attr["parent_id"])
         return attrs
     if need_yield:
         prepare = normalize_attrs
         @as_gen_step
         def normalize_attrs(attrs: list[dict], /):
-            prepare(attrs)
-            resp = yield file_skim(
-                (a["id"] for a in attrs), 
-                method="POST", 
-                async_=async_, 
-                **request_kwargs, 
-            )
-            if resp.get("error") != "文件不存在":
-                check_response(resp)
-                nodes = {int(a["file_id"]): a for a in resp["data"]}
-                for attr in attrs:
-                    if node := nodes.get(attr["id"]):
-                        attr["sha1"] = node["sha1"]
-                        attr["name"] = unescape_115_charref(node["file_name"])
+            if attrs:
+                prepare(attrs)
+                resp = yield file_skim(
+                    (a["id"] for a in attrs), 
+                    method="POST", 
+                    async_=async_, 
+                    **request_kwargs, 
+                )
+                if resp.get("error") != "文件不存在":
+                    check_response(resp)
+                    nodes = {int(a["file_id"]): a for a in resp["data"]}
+                    for attr in attrs:
+                        if node := nodes.get(attr["id"]):
+                            attr["sha1"] = node["sha1"]
+                            attr["name"] = unescape_115_charref(node["file_name"])
             return attrs
     need_yield = need_yield and async_
     get_nodes = partial(
@@ -1317,7 +1547,7 @@ def iter_download_nodes(
                 yield task_group.__aenter__()
                 create_task = task_group.create_task
                 submit: Callable = lambda f, /, *a, **k: create_task(f(*a, **k))
-                shutdown: Callable = lambda: task_group.__aexit__(None, None, None)
+                shutdown: Callable = lambda: task_group.__aexit__(*exc_info())
             else:
                 executor = ThreadPoolExecutor(max_workers)
                 n = executor._max_workers
@@ -1385,7 +1615,7 @@ def iter_download_nodes(
 
 @overload
 def iter_download_files(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     escape: None | bool | Callable[[str], str] = True, 
@@ -1399,7 +1629,7 @@ def iter_download_files(
     ...
 @overload
 def iter_download_files(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     escape: None | bool | Callable[[str], str] = True, 
@@ -1412,7 +1642,7 @@ def iter_download_files(
 ) -> AsyncIterator[dict]:
     ...
 def iter_download_files(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     cid: int | str = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     escape: None | bool | Callable[[str], str] = True, 
@@ -1446,7 +1676,7 @@ def iter_download_files(
 
     :return: 迭代器，产生文件的简略信息
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
@@ -1597,7 +1827,7 @@ def iter_download_files(
 
 @overload
 def get_remaining_open_count(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     app: str = "android", 
     *, 
     async_: Literal[False] = False, 
@@ -1606,7 +1836,7 @@ def get_remaining_open_count(
     ...
 @overload
 def get_remaining_open_count(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     app: str = "android", 
     *, 
     async_: Literal[True], 
@@ -1614,7 +1844,7 @@ def get_remaining_open_count(
 ) -> Coroutine[Any, Any, int]:
     ...
 def get_remaining_open_count(
-    client: str | P115Client | P115OpenClient, 
+    client: str | PathLike | P115Client | P115OpenClient, 
     app: str = "android", 
     *, 
     async_: Literal[False, True] = False, 
@@ -1632,7 +1862,7 @@ def get_remaining_open_count(
 
     :return: 个数
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if not isinstance(client, P115Client) or app == "open":
         get_url: Callable[..., P115URL] = client.download_url_open

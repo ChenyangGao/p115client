@@ -11,6 +11,7 @@ __doc__ = "这个模块提供了一些和修改文件或目录信息有关的函
 
 from collections.abc import AsyncIterable, Coroutine, Iterable
 from functools import partial
+from os import PathLike
 from typing import overload, Any, Literal
 
 from concurrenttools import conmap
@@ -21,7 +22,7 @@ from p115pickcode import to_id
 
 @overload
 def update_abstract(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     /, 
     method: str, 
@@ -35,7 +36,7 @@ def update_abstract(
     ...
 @overload
 def update_abstract(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     method: str, 
@@ -48,7 +49,7 @@ def update_abstract(
 ) -> Coroutine:
     ...
 def update_abstract(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     method: str, 
@@ -70,7 +71,7 @@ def update_abstract(
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     def gen_step():
         setter = partial(getattr(client, method), async_=async_, **request_kwargs)
@@ -87,7 +88,7 @@ def update_abstract(
 
 @overload
 def update_desc(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     /, 
     desc: str = "", 
@@ -101,7 +102,7 @@ def update_desc(
     ...
 @overload
 def update_desc(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     desc: str = "", 
@@ -114,7 +115,7 @@ def update_desc(
 ) -> Coroutine:
     ...
 def update_desc(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     desc: str = "", 
@@ -155,7 +156,7 @@ def update_desc(
 
 @overload
 def update_star(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     /, 
     star: bool = True, 
@@ -169,7 +170,7 @@ def update_star(
     ...
 @overload
 def update_star(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     star: bool = True, 
@@ -182,7 +183,7 @@ def update_star(
 ) -> Coroutine:
     ...
 def update_star(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     star: bool = True, 
@@ -207,7 +208,7 @@ def update_star(
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if not isinstance(client, P115Client) or app == "open":
         method = "fs_star_set_open"
@@ -230,7 +231,7 @@ def update_star(
 
 @overload
 def update_label(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     /, 
     label: int | str = 1, 
@@ -244,7 +245,7 @@ def update_label(
     ...
 @overload
 def update_label(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     label: int | str = 1, 
@@ -257,7 +258,7 @@ def update_label(
 ) -> Coroutine:
     ...
 def update_label(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     label: int | str = 1, 
@@ -298,7 +299,7 @@ def update_label(
 
 @overload
 def update_score(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     /, 
     score: int = 0, 
@@ -311,7 +312,7 @@ def update_score(
     ...
 @overload
 def update_score(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     score: int = 0, 
@@ -323,7 +324,7 @@ def update_score(
 ) -> Coroutine:
     ...
 def update_score(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     score: int = 0, 
@@ -357,7 +358,7 @@ def update_score(
 
 @overload
 def update_top(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     /, 
     top: bool = True, 
@@ -370,7 +371,7 @@ def update_top(
     ...
 @overload
 def update_top(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     top: bool = True, 
@@ -382,7 +383,7 @@ def update_top(
 ) -> Coroutine:
     ...
 def update_top(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     top: bool = True, 
@@ -416,7 +417,7 @@ def update_top(
 
 @overload
 def update_show_play_long(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     /, 
     show: bool = True, 
@@ -430,7 +431,7 @@ def update_show_play_long(
     ...
 @overload
 def update_show_play_long(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     show: bool = True, 
@@ -443,7 +444,7 @@ def update_show_play_long(
 ) -> Coroutine:
     ...
 def update_show_play_long(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     show: bool = True, 
@@ -484,7 +485,7 @@ def update_show_play_long(
 
 @overload
 def update_category_shortcut(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     /, 
     set: bool = True, 
@@ -497,7 +498,7 @@ def update_category_shortcut(
     ...
 @overload
 def update_category_shortcut(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     set: bool = True, 
@@ -509,7 +510,7 @@ def update_category_shortcut(
 ) -> Coroutine:
     ...
 def update_category_shortcut(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     set: bool = True, 
@@ -543,7 +544,7 @@ def update_category_shortcut(
 
 @overload
 def batch_unstar(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     /, 
     batch_size: int = 10_000, 
     ensure_file: None | bool = None, 
@@ -556,7 +557,7 @@ def batch_unstar(
     ...
 @overload
 def batch_unstar(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     /, 
     batch_size: int = 10_000, 
     ensure_file: None | bool = None, 
@@ -568,7 +569,7 @@ def batch_unstar(
 ) -> Coroutine:
     ...
 def batch_unstar(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     /, 
     batch_size: int = 10_000, 
     ensure_file: None | bool = None, 
@@ -593,7 +594,7 @@ def batch_unstar(
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     def get_id(info: dict, /) -> int:
         for k in ("file_id", "category_id", "fid", "cid"):
@@ -628,7 +629,7 @@ def batch_unstar(
 
 @overload
 def post_event(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     /, 
     type: Literal["doc", "img"] = "doc", 
@@ -642,7 +643,7 @@ def post_event(
     ...
 @overload
 def post_event(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     type: Literal["doc", "img"] = "doc", 
@@ -655,7 +656,7 @@ def post_event(
 ) -> Coroutine:
     ...
 def post_event(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     type: Literal["doc", "img"] = "doc", 
@@ -684,7 +685,7 @@ def post_event(
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if type == "doc":
         post = client.life_behavior_doc_post_app

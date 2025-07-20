@@ -12,6 +12,7 @@ from asyncio import sleep as async_sleep
 from collections.abc import AsyncIterator, Container, Iterator
 from functools import partial
 from itertools import cycle
+from os import PathLike
 from time import time, sleep
 from typing import overload, Final, Literal
 
@@ -33,7 +34,7 @@ HISTORY_TYPE_TO_NAME: Final = {v: k for k, v in HISTORY_NAME_TO_TYPE.items()}
 
 @overload
 def iter_history_once(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     from_time: int | float = 0, 
     from_id: int = 0, 
     type: int | str = 0, 
@@ -48,7 +49,7 @@ def iter_history_once(
     ...
 @overload
 def iter_history_once(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     from_time: int | float = 0, 
     from_id: int = 0, 
     type: int | str = 0, 
@@ -62,7 +63,7 @@ def iter_history_once(
 ) -> AsyncIterator[dict]:
     ...
 def iter_history_once(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     from_time: int | float = 0, 
     from_id: int = 0, 
     type: int | str = 0, 
@@ -100,7 +101,7 @@ def iter_history_once(
 
     :return: 迭代器，产生 115 的历史记录数据字典
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     if app in ("", "web", "desktop", "harmony"):
         history_list = partial(client.fs_history_list, **request_kwargs)
@@ -144,7 +145,7 @@ def iter_history_once(
 
 @overload
 def iter_history(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     from_time: int | float = 0, 
     from_id: int = 0, 
     type: int | str = 0, 
@@ -159,7 +160,7 @@ def iter_history(
     ...
 @overload
 def iter_history(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     from_time: int | float = 0, 
     from_id: int = 0, 
     type: int | str = 0, 
@@ -173,7 +174,7 @@ def iter_history(
 ) -> AsyncIterator[dict]:
     ...
 def iter_history(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     from_time: int | float = 0, 
     from_id: int = 0, 
     type: int | str = 0, 
@@ -211,7 +212,7 @@ def iter_history(
 
     :return: 迭代器，产生 115 的历史记录数据字典
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     def gen_step():
         nonlocal from_time, from_id
@@ -251,7 +252,7 @@ def iter_history(
 
 @overload
 def iter_history_list(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     from_time: int | float = 0, 
     from_id: int = 0, 
     type: int | str = 0, 
@@ -265,7 +266,7 @@ def iter_history_list(
     ...
 @overload
 def iter_history_list(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     from_time: int | float = 0, 
     from_id: int = 0, 
     type: int | str = 0, 
@@ -278,7 +279,7 @@ def iter_history_list(
 ) -> AsyncIterator[dict]:
     ...
 def iter_history_list(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     from_time: int | float = 0, 
     from_id: int = 0, 
     type: int | str = 0, 
@@ -314,7 +315,7 @@ def iter_history_list(
 
     :return: 迭代器，产生 115 的历史记录数据字典
     """
-    if isinstance(client, str):
+    if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     def gen_step():
         nonlocal from_time, from_id

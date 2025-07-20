@@ -331,7 +331,7 @@ def parse_export_dir_as_patht_iter(
 
 @overload
 def export_dir(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     export_file_ids: int | str | Iterable[int | str], 
     target_pid: int | str = 0, 
     layer_limit: int = 0, 
@@ -342,7 +342,7 @@ def export_dir(
     ...
 @overload
 def export_dir(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     export_file_ids: int | str | Iterable[int | str], 
     target_pid: int | str = 0, 
     layer_limit: int = 0, 
@@ -352,7 +352,7 @@ def export_dir(
 ) -> Coroutine[Any, Any, int]:
     ...
 def export_dir(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     export_file_ids: int | str | Iterable[int | str], 
     target_pid: int | str = 0, 
     layer_limit: int = 0, 
@@ -393,7 +393,7 @@ def export_dir(
 
 @overload
 def export_dir_result(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     export_id: int | str, 
     timeout: None | int | float = None, 
     check_interval: int | float = 1, 
@@ -404,7 +404,7 @@ def export_dir_result(
     ...
 @overload
 def export_dir_result(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     export_id: int | str, 
     timeout: None | int | float = None, 
     check_interval: int | float = 1, 
@@ -414,7 +414,7 @@ def export_dir_result(
 ) -> Coroutine[Any, Any, dict]:
     ...
 def export_dir_result(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     export_id: int | str, 
     timeout: None | int | float = None, 
     check_interval: int | float = 1, 
@@ -473,7 +473,7 @@ def export_dir_result(
 
 @overload
 def export_dir_parse_iter(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     export_file_ids: int | str | Iterable[int | str] = 0, 
     export_id: int | str = 0, 
     target_pid: int | str = 0, 
@@ -491,7 +491,7 @@ def export_dir_parse_iter(
     ...
 @overload
 def export_dir_parse_iter(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     export_file_ids: int | str | Iterable[int | str] = 0, 
     export_id: int | str = 0, 
     target_pid: int | str = 0, 
@@ -508,7 +508,7 @@ def export_dir_parse_iter(
 ) -> AsyncIterator:
     ...
 def export_dir_parse_iter(
-    client: str | P115Client, 
+    client: str | PathLike | P115Client, 
     export_file_ids: int | str | Iterable[int | str] = 0, 
     export_id: int | str = 0, 
     target_pid: int | str = 0, 
