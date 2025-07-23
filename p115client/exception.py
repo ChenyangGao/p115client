@@ -61,6 +61,11 @@ class AuthenticationError(P115OSError):
     """
 
 
+class AccessError(P115OSError):
+    """当不可访问时抛出
+    """
+
+
 class BusyOSError(P115OSError):
     """当操作繁忙时抛出（115 网盘的复制、移动、删除、还原只允许最多一个操作进行中）
     """

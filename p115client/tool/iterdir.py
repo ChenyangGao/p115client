@@ -189,12 +189,15 @@ def _update_resp_ancestors(
 def _make_top_adder(
     top_id: int, 
     id_to_dirnode: MutableMapping[int, tuple[str, int] | DirNode], 
+    escape: None | bool | Callable[[str], str] = True, 
 ) -> Callable:
     top_ancestors: list[dict]
     if not top_id:
         top_ancestors = [{"id": 0, "parent_id": 0, "name": ""}]
+        top_path = "/"
+        top_prefix_len = 1
     def add_top[T: MutableMapping](attr: T, /) -> T:
-        nonlocal top_ancestors
+        nonlocal escape, top_ancestors, top_path, top_prefix_len
         try:
             top_ancestors
         except NameError:
@@ -208,8 +211,21 @@ def _make_top_adder(
             if not tid:
                 add_ancestor({"id": 0, "parent_id": 0, "name": ""})
             top_ancestors.reverse()
-        attr["top_id"] = top_id
+            if escape is None:
+                top_path = "/".join(a["name"] for a in top_ancestors)
+            else:
+                if isinstance(escape, bool):
+                    if escape:
+                        from posixpatht import escape
+                    else:
+                        escape = posix_escape_name
+                top_path = "/".join(escape(a["name"]) for a in top_ancestors)
+            top_prefix_len = len(top_path) + 1
+        attr["top_id"]        = top_id
         attr["top_ancestors"] = top_ancestors
+        attr["top_path"]      = top_path
+        if "path" in attr:
+            attr["relpath"] = attr["path"][top_prefix_len:]
         return attr
     return add_top
 
@@ -1397,7 +1413,10 @@ def ensure_attr_path[D: dict](
                     info = resp["paths"][0]
                     if pid := int(info["file_id"]):
                         dangling_id_to_name[pid] = info["file_name"]
-                attr["path"] = get_path(attr)
+                attr["path"] = path = get_path(attr)
+                if "top_path" in attr:
+                    top_path = attr["top_path"]
+                    attr["relpath"] = path[(1 if top_path == "/" else len(top_path) + 1):]
                 if with_ancestors:
                     attr["ancestors"] = get_ancestors(id, attr)
                 yield Yield(attr)
@@ -1565,7 +1584,10 @@ def ensure_attr_path_using_star_event[D: dict](
                 pids = {ppid for pid in pids if (ppid := id_to_dirnode[pid][1])}
             del find_ids, pids, add_pid
             for attr in cache:
-                attr["path"] = get_path(attr)
+                attr["path"] = path = get_path(attr)
+                if "top_path" in attr:
+                    top_path = attr["top_path"]
+                    attr["relpath"] = path[(1 if top_path == "/" else len(top_path) + 1):]
                 if with_ancestors:
                     attr["ancestors"] = get_ancestors(attr["id"], attr)
                 yield Yield(attr)
@@ -1584,6 +1606,7 @@ def _iter_fs_files(
     raise_for_changed_count: bool = False, 
     ensure_file: None | bool = None, 
     hold_top: bool = True, 
+    escape: None | bool | Callable[[str], str] = True, 
     app: str = "android", 
     cooldown: int | float = 0, 
     max_workers: None | int = None, 
@@ -1604,6 +1627,7 @@ def _iter_fs_files(
     raise_for_changed_count: bool = False, 
     ensure_file: None | bool = None, 
     hold_top: bool = True, 
+    escape: None | bool | Callable[[str], str] = True, 
     app: str = "android", 
     cooldown: int | float = 0, 
     max_workers: None | int = None, 
@@ -1623,6 +1647,7 @@ def _iter_fs_files(
     raise_for_changed_count: bool = False, 
     ensure_file: None | bool = None, 
     hold_top: bool = True, 
+    escape: None | bool | Callable[[str], str] = True, 
     app: str = "android", 
     cooldown: int | float = 0, 
     max_workers: None | int = None, 
@@ -1636,6 +1661,7 @@ def _iter_fs_files(
     :param payload: 请求参数（字典）或 id 或 pickcode
     :param page_size: 分页大小
     :param first_page_size: 首次拉取的分页大小，如果 <= 0，则和 `page_size` 相同
+    :param with_dirname: 是否要包含父目录的名字
     :param normalize_attr: 把数据进行转换处理，使之便于阅读
     :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
     :param raise_for_changed_count: 分批拉取时，发现总数发生变化后，是否报错
@@ -1645,7 +1671,14 @@ def _iter_fs_files(
         - False: 必须是目录
         - None: 可以是目录或文件
 
-    :param hold_top: 保留顶层目录信息，返回字段增加 "top_id", "top_ancestors"
+    :param hold_top: 保留顶层目录信息，返回字段增加 "top_id", "top_ancestors", "top_path"
+    :param escape: 对文件名进行转义
+
+        - 如果为 None，则不处理；否则，这个函数用来对文件名中某些符号进行转义，例如 "/" 等
+        - 如果为 True，则使用 `posixpatht.escape`，会对文件名中 "/"，或单独出现的 "." 和 ".." 用 "\\" 进行转义
+        - 如果为 False，则使用 `posix_escape_name` 函数对名字进行转义，会把文件名中的 "/" 转换为 "|"
+        - 如果为 Callable，则用你所提供的调用，以或者转义后的名字
+
     :param app: 使用指定 app（设备）的接口
     :param cooldown: 冷却时间，大于 0，则使用此时间间隔执行并发
     :param max_workers: 最大并发数，如果为 None 或 <= 0，则自动确定
@@ -1674,6 +1707,12 @@ def _iter_fs_files(
         payload.pop("type", None)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
+    if isinstance(escape, bool):
+        if escape:
+            from posixpatht import escape
+        else:
+            escape = posix_escape_name
+    escape = cast(None | Callable[[str], str], escape)
     request_kwargs.update(
         app=app, 
         page_size=page_size, 
@@ -1733,7 +1772,12 @@ def _iter_fs_files(
             while True:
                 resp = yield get_next()
                 _update_resp_ancestors(resp, id_to_dirnode)
-                ancestors = resp["ancestors"]
+                if hold_top:
+                    top_ancestors = resp["ancestors"]
+                    if escape is None:
+                        top_path = "/".join(a["name"] for a in top_ancestors)
+                    else:
+                        top_path = "/".join(escape(a["name"]) for a in top_ancestors)
                 for info in resp["data"]:
                     if normalize_attr is None:
                         attr: dict | OverviewAttr = _overview_attr(info)
@@ -1749,8 +1793,9 @@ def _iter_fs_files(
                     if with_dirname:
                         info["dirname"] = pid_to_name[attr["parent_id"]]
                     if hold_top:
-                        info["top_id"] = top_id
-                        info["top_ancestors"] = ancestors
+                        info["top_id"]        = top_id
+                        info["top_ancestors"] = top_ancestors
+                        info["top_path"]      = top_path
                     yield Yield(info)
     return run_gen_step_iter(gen_step, async_)
 
@@ -2083,7 +2128,7 @@ def iter_dirs_with_path(
         - 如果为 True，则使用 `posixpatht.escape`，会对文件名中 "/"，或单独出现的 "." 和 ".." 用 "\\" 进行转义
         - 如果为 False，则使用 `posix_escape_name` 函数对名字进行转义，会把文件名中的 "/" 转换为 "|"
         - 如果为 Callable，则用你所提供的调用，以或者转义后的名字
-    
+
     :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
     :param app: 使用指定 app（设备）的接口
     :param max_workers: 最大并发数，如果为 None 或 <= 0，则自动确定
@@ -2099,6 +2144,12 @@ def iter_dirs_with_path(
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
     elif id_to_dirnode is ...:
         id_to_dirnode = {}
+    if isinstance(escape, bool):
+        if escape:
+            from posixpatht import escape
+        else:
+            escape = posix_escape_name
+    escape = cast(None | Callable[[str], str], escape)
     def gen_step():
         attrs = yield collect(iter_download_nodes(
             client, 
@@ -2110,7 +2161,7 @@ def iter_dirs_with_path(
             async_=async_, # type: ignore
             **request_kwargs, 
         ))
-        add_top = _make_top_adder(to_id(cid), id_to_dirnode)
+        add_top = _make_top_adder(to_id(cid), id_to_dirnode, escape)
         yield YieldFrom(do_map(add_top, ensure_attr_path(
             client, 
             attrs, 
@@ -2422,11 +2473,17 @@ def iter_files_with_path(
         else:
             dirname = id_to_path[pid] = get_path(id_to_dirnode[pid]) + "/"
         return dirname + name
+    top_prefix_len = 0
     def update_path(attr: dict, /) -> dict:
+        nonlocal top_prefix_len
         try:
             if with_ancestors:
                 attr["ancestors"] = get_ancestors(attr["id"], attr)
-            attr["path"] = get_path(attr)
+            attr["path"] = path = get_path(attr)
+            if not top_prefix_len:
+                top_path = attr["top_path"]
+                top_prefix_len = 1 if top_path == "/" else len(top_path) + 1
+            attr["relpath"] = path[top_prefix_len:]
         except KeyError:
             pass
         return attr
@@ -2447,15 +2504,15 @@ def iter_files_with_path(
             max_workers=max_workers, 
             app=app, 
             cooldown=cooldown, 
+            escape=escape, 
             async_=async_, # type: ignore
             **request_kwargs, 
         ))
     else:
-        _path_already: None | bool = None if path_already else False
         from .download import iter_download_nodes
         def set_path_already(*_):
-            nonlocal _path_already
-            _path_already = True
+            nonlocal path_already
+            path_already = True
         @as_gen_step
         def fetch_dirs(id: int | str, /):
             if id:
@@ -2481,7 +2538,6 @@ def iter_files_with_path(
                         attr = yield get_next()
                         yield fetch_dirs(attr["pickcode"])
         def gen_step():
-            nonlocal _path_already
             cache: list[dict] = []
             add_to_cache = cache.append
             if not path_already:
@@ -2510,18 +2566,11 @@ def iter_files_with_path(
             )) as get_next:
                 while True:
                     attr = yield get_next()
-                    if _path_already is None:
-                        yield Yield(update_path(attr))
-                    elif _path_already:
-                        if async_:
-                            yield task
-                        else:
-                            task.result()
+                    if path_already:
                         if cache:
                             yield YieldFrom(map(update_path, cache))
                             cache.clear()
                         yield Yield(update_path(attr))
-                        _path_already = None
                     else:
                         add_to_cache(attr)
             if cache:
@@ -2643,18 +2692,39 @@ def iter_files_with_path_skim(
         else:
             dirname = id_to_path[pid] = get_path(id_to_dirnode[pid]) + "/"
         return dirname + name
+    top_id: int
+    top_ancestors: list[dict]
+    top_path: str
+    top_prefix_len: int
     def update_path(attr: dict, /) -> dict:
-        attr["top_id"] = top_id
+        attr["top_id"]        = top_id
         attr["top_ancestors"] = top_ancestors
+        attr["top_path"]      = top_path
         try:
             if with_ancestors:
                 attr["ancestors"] = get_ancestors(attr["id"], attr)
-            attr["path"] = get_path(attr)
+            attr["path"] = path = get_path(attr)
+            attr["relpath"] = path[top_prefix_len:]
         except KeyError:
             pass
         return attr
     cid = to_id(cid)
     if path_already:
+        top_ancestors = []
+        add_ancestor = top_ancestors.append
+        tid = top_id
+        while tid and tid in id_to_dirnode:
+            name, pid = id_to_dirnode[tid]
+            add_ancestor({"id": tid, "parent_id": pid, "name": name})
+            tid = pid
+        if not tid:
+            add_ancestor({"id": 0, "parent_id": 0, "name": ""})
+        top_ancestors.reverse()
+        if escape is None:
+            top_path = "/".join(a["name"] for a in top_ancestors)
+        else:
+            top_path = "/".join(escape(a["name"]) for a in top_ancestors)
+        top_prefix_len = 1 if top_path == "/" else len(top_path) + 1
         return do_map(update_path, iter_download_nodes(
             client, 
             cid, 
@@ -2666,28 +2736,17 @@ def iter_files_with_path_skim(
             **request_kwargs, 
         ))
     else:
-        _path_already: None | bool = None if path_already else False
         def set_path_already(*_):
-            nonlocal _path_already
-            _path_already = True
+            nonlocal path_already
+            path_already = True
         top_id = cid
         if not cid:
             top_ancestors = [{"id": 0, "parent_id": 0, "name": ""}]
-        else:
-            top_ancestors = []
-            if id_to_dirnode:
-                add_ancestor = top_ancestors.append
-                tid = top_id
-                while tid and tid in id_to_dirnode:
-                    name, pid = id_to_dirnode[tid]
-                    add_ancestor({"id": tid, "parent_id": pid, "name": name})
-                    tid = pid
-                if not tid:
-                    add_ancestor({"id": 0, "parent_id": 0, "name": ""})
-                top_ancestors.reverse()
+            top_path = "/"
+            top_prefix_len = 1
         @as_gen_step
         def fetch_dirs(id: int | str, /):
-            nonlocal top_ancestors
+            nonlocal top_ancestors, top_path, top_prefix_len
             if id:
                 if cid:
                     do_next: Callable = anext if async_ else next
@@ -2696,10 +2755,13 @@ def iter_files_with_path_skim(
                         to_id(id), 
                         page_size=1, 
                         id_to_dirnode=id_to_dirnode, 
+                        escape=escape, 
                         async_=async_, 
                         **request_kwargs, 
                     ))
                     top_ancestors = attr["top_ancestors"]
+                    top_path = attr["top_path"]
+                    top_prefix_len = 1 if top_path == "/" else len(top_path) + 1
                 yield through(iter_download_nodes(
                     client, 
                     client.to_pickcode(id), 
@@ -2722,7 +2784,6 @@ def iter_files_with_path_skim(
                         attr = yield get_next()
                         yield fetch_dirs(attr["pickcode"])
         def gen_step():
-            nonlocal _path_already
             cache: list[dict] = []
             add_to_cache = cache.append
             if not path_already:
@@ -2743,18 +2804,11 @@ def iter_files_with_path_skim(
             )) as get_next:
                 while True:
                     attr = yield get_next()
-                    if _path_already is None:
-                        yield Yield(update_path(attr))
-                    elif _path_already:
-                        if async_:
-                            yield task
-                        else:
-                            task.result()
+                    if path_already:
                         if cache:
                             yield YieldFrom(map(update_path, cache))
                             cache.clear()
                         yield Yield(update_path(attr))
-                        _path_already = None
                     else:
                         add_to_cache(attr)
             if cache:
@@ -2923,6 +2977,12 @@ def traverse_tree_with_path(
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
     elif id_to_dirnode is ...:
         id_to_dirnode = {}
+    if isinstance(escape, bool):
+        if escape:
+            from posixpatht import escape
+        else:
+            escape = posix_escape_name
+    escape = cast(None | Callable[[str], str], escape)
     from .download import iter_download_nodes
     to_pickcode = client.to_pickcode
     def fulfill_dir_node(attr: dict, /) -> dict:
@@ -2958,7 +3018,7 @@ def traverse_tree_with_path(
             yield task
         else:
             task.result()
-        add_top = _make_top_adder(to_id(cid), id_to_dirnode)
+        add_top = _make_top_adder(to_id(cid), id_to_dirnode, escape)
         yield YieldFrom(do_map(add_top, ensure_attr_path(
             client, 
             chain(cache, files), # type: ignore

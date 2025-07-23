@@ -10,7 +10,7 @@ from itertools import pairwise
 from random import randrange
 
 from .const import G_key_l, CRC_SALT, RSA_PUBKEY_PAIR
-from .common import Buffer, RSA_encrypt, gen_key, from_bytes, to_bytes, xor, generate_ecdh_pair
+from .common import RSA_encrypt, gen_key, from_bytes, to_bytes, xor, generate_ecdh_pair
 
 
 class P115RSACipher:

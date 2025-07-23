@@ -38,14 +38,14 @@ from asynctools import async_chain
 from concurrenttools import run_as_thread
 from encode_uri import encode_uri_component_loose
 from iterutils import (
-    as_gen_step, chunked, run_gen_step, run_gen_step_iter, through, 
-    with_iter_next, Yield, YieldFrom, 
+    as_gen_step, chunked, map as do_map, run_gen_step, run_gen_step_iter, 
+    through, with_iter_next, Yield, YieldFrom, 
 )
 from p115client import (
     check_response, normalize_attr, normalize_attr_simple, P115Client, 
     P115OpenClient, P115URL, 
 )
-from p115client.exception import P115Warning
+from p115client.exception import AccessError, P115Warning
 from p115pickcode import to_id
 
 from .iterdir import (
@@ -55,6 +55,8 @@ from .iterdir import (
 from .util import reduce_image_url_layers
 
 
+# TODO: 之后加上并发拉取，以加快速度
+# TODO: 为了避免拉了太多赶不上用，用队列来收集结果，队列长度有限，这样可以在队列满的时候阻塞工作者
 @overload
 def batch_get_url(
     client: str | PathLike | P115Client | P115OpenClient, 
@@ -108,31 +110,10 @@ def batch_get_url(
     elif not isinstance(pickcode, str):
         pickcode = ",".join(map(client.to_pickcode, pickcode))
     if not isinstance(client, P115Client) or app == "open":
-        get_download_url: Callable = client.download_url_info_open
+        get_download_urls: Callable = client.download_urls_open
     else:
-        get_download_url = partial(client.download_url_app, app=app)
-    def gen_step():
-        resp = yield get_download_url(pickcode, async_=async_, **request_kwargs)
-        if not resp["state"]:
-            if resp.get("errno") != 50003:
-                check_response(resp)
-            return {}
-        headers = resp["headers"]
-        return {
-            int(id): P115URL(
-                info["url"]["url"], 
-                id=int(id), 
-                pickcode=info["pick_code"], 
-                name=info["file_name"], 
-                size=int(info["file_size"]), 
-                sha1=info["sha1"], 
-                is_dir=False,
-                headers=headers, 
-            )
-            for id, info in resp["data"].items()
-            if info["url"]
-        }
-    return run_gen_step(gen_step, async_)
+        get_download_urls = client.download_urls
+    return get_download_urls(pickcode, async_=async_, **request_kwargs)
 
 
 @overload
@@ -192,36 +173,32 @@ def iter_url_batches(
         request_kwargs["headers"] = dict(headers, **{"user-agent": user_agent})
     else:
         request_kwargs["headers"] = {"user-agent": user_agent}
-    if not isinstance(client, P115Client) or app == "open":
-        get_download_url: Callable = client.download_url_info_open
-    else:
-        get_download_url = partial(client.download_url_app, app=app)
     if batch_size <= 0:
         batch_size = 1
     def gen_step():
-        for pcs in batched(map(client.to_pickcode, pickcodes), batch_size):
-            resp = yield get_download_url(
-                ",".join(pcs), 
-                async_=async_, 
-                **request_kwargs, 
-            )
-            if not resp["state"]:
-                if resp.get("errno") != 50003:
-                    check_response(resp)
-                continue
-            headers = resp["headers"]
-            for id, info in resp["data"].items():
-                if url_info := info["url"]:
-                    yield Yield(P115URL(
-                        url_info["url"], 
-                        id=int(id), 
-                        pickcode=info["pick_code"], 
-                        name=info["file_name"], 
-                        size=int(info["file_size"]), 
-                        sha1=info["sha1"], 
-                        is_dir=False,
-                        headers=headers, 
-                    ))
+        if batch_size == 1:
+            if not isinstance(client, P115Client) or app == "open":
+                get_download_url: Callable = client.download_url_open
+            else:
+                get_download_url = partial(client.download_url, app=app)
+            for pickcode in map(client.to_pickcode, pickcodes):
+                yield Yield(get_download_url(
+                    pickcode, 
+                    async_=async_, 
+                    **request_kwargs, 
+                ))
+        else:
+            if not isinstance(client, P115Client) or app == "open":
+                get_download_urls: Callable = client.download_urls_open
+            else:
+                get_download_urls = client.download_urls
+            for pcs in batched(map(client.to_pickcode, pickcodes), batch_size):
+                if urls := (yield get_download_urls(
+                    ",".join(pcs), 
+                    async_=async_, 
+                    **request_kwargs, 
+                )):
+                    yield YieldFrom(urls.values())
     return run_gen_step_iter(gen_step, async_)
 
 
@@ -965,8 +942,8 @@ CREATE TABLE IF NOT EXISTS data (
     path TEXT NOT NULL DEFAULT '',     -- 路径
     top_id INTEGER NOT NULL DEFAULT 0, -- 最近一次拉取时顶层目录的 id
     extra BLOB DEFAULT NULL,           -- 其它信息
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- 创建时间
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- 更新时间
+    created_at TIMESTAMP DEFAULT (STRFTIME('%s', 'now')), -- 创建时间
+    updated_at TIMESTAMP DEFAULT (STRFTIME('%s', 'now')) -- 更新时间
 );
 
 -- 创建索引（一些索引需要时候自己加）
@@ -992,7 +969,7 @@ CREATE TABLE IF NOT EXISTS event (
     path0 TEXT NOT NULL DEFAULT "",    -- 更新前的路径
     path1 TEXT NOT NULL DEFAULT "",    -- 更新后的路径
     event TEXT NOT NULL DEFAULT "",    -- 事件名
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP -- 创建时间
+    created_at DATETIME DEFAULT (STRFTIME('%s', 'now')) -- 创建时间
 );
 
 -- data 表发生新增
@@ -1021,7 +998,7 @@ CREATE TRIGGER trg_data_update
 AFTER UPDATE ON data
 FOR EACH ROW
 BEGIN
-    UPDATE data SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+    UPDATE data SET updated_at = STRFTIME('%s', 'now') WHERE id = NEW.id;
     INSERT INTO event(id, is_dir, pid0, pid1, name0, name1, path0, path1, event)
     SELECT
         OLD.id, OLD.is_dir, OLD.parent_id, NEW.parent_id, OLD.name, NEW.name, OLD.path, NEW.path, 
@@ -1042,7 +1019,7 @@ CREATE TRIGGER trg_data_update
 AFTER UPDATE ON data
 FOR EACH ROW
 BEGIN
-    UPDATE data SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+    UPDATE data SET updated_at = STRFTIME('%s', 'now') WHERE id = NEW.id;
 END;"""
     clean_sql = """\
 DELETE FROM data WHERE id in (
@@ -1125,7 +1102,7 @@ ON CONFLICT (id) DO UPDATE SET id = excluded.id;"""
                     nupsert += len(records)
             if clean:
                 clean_start_t = time()
-                cur.execute(clean_sql, {"top_id": cid, "start_t": start_t})
+                cur.execute(clean_sql, {"top_id": cid, "start_t": int(start_t)})
                 nremove = cur.rowcount
             if async_:
                 yield to_thread(con.commit)
@@ -1146,10 +1123,10 @@ ON CONFLICT (id) DO UPDATE SET id = excluded.id;"""
             "start_time_str": str(datetime.fromtimestamp(start_t)), 
             "stop_time": stop_t, 
             "stop_time_str": str(datetime.fromtimestamp(stop_t)), 
-            "elapsed_secconds": stop_t - start_t, 
+            "elapsed_seconds": stop_t - start_t, 
         }
         if clean:
-            result["elapsed_secconds_of_cleaning"] = stop_t - clean_start_t
+            result["elapsed_seconds_of_cleaning"] = stop_t - clean_start_t
         return result
     return run_gen_step(gen_step, async_)
 
@@ -1446,10 +1423,10 @@ def make_strm(
             "start_time_str": str(datetime.fromtimestamp(start_t)), 
             "stop_time": stop_t, 
             "stop_time_str": str(datetime.fromtimestamp(stop_t)), 
-            "elapsed_secconds": stop_t - start_t, 
+            "elapsed_seconds": stop_t - start_t, 
         }
         if clean:
-            result["elapsed_secconds_of_cleaning"] = stop_t - clean_start_t
+            result["elapsed_seconds_of_cleaning"] = stop_t - clean_start_t
         return result
     return run_gen_step(gen_step, async_)
 
@@ -1693,6 +1670,9 @@ def iter_download_files(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     escape: None | bool | Callable[[str], str] = True, 
     with_ancestors: bool = True, 
+    with_url: bool = False, 
+    path_already: bool = False, 
+    user_agent: None | str = None, 
     max_workers: None | int = None, 
     app: str = "android", 
     *, 
@@ -1707,6 +1687,9 @@ def iter_download_files(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     escape: None | bool | Callable[[str], str] = True, 
     with_ancestors: bool = True, 
+    with_url: bool = False, 
+    path_already: bool = False, 
+    user_agent: None | str = None, 
     max_workers: None | int = None, 
     app: str = "android", 
     *, 
@@ -1720,6 +1703,9 @@ def iter_download_files(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     escape: None | bool | Callable[[str], str] = True, 
     with_ancestors: bool = True, 
+    with_url: bool = False, 
+    path_already: bool = False, 
+    user_agent: None | str = None, 
     max_workers: None | int = None, 
     app: str = "android", 
     *, 
@@ -1733,6 +1719,7 @@ def iter_download_files(
 
     :param client: 115 客户端或 cookies
     :param cid: 目录 id 或 pickcode
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
     :param escape: 对文件名进行转义
 
         - 如果为 None，则不处理；否则，这个函数用来对文件名中某些符号进行转义，例如 "/" 等
@@ -1741,7 +1728,13 @@ def iter_download_files(
         - 如果为 Callable，则用你所提供的调用，以或者转义后的名字
 
     :param with_ancestors: 文件信息中是否要包含 "ancestors"
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
+    :param with_url: 文件信息中是否要包含 "url" 字段。
+
+        .. caution::
+            要求但如果实际上不包含 "url" 字段，则说明获取失败，文件可能违规了
+
+    :param path_already: 如果为 True，则说明 id_to_dirnode 中已经具备构建路径所需要的目录节点，所以不会再去拉取目录节点的信息
+    :param user_agent: 如果不为 None，则作为获取下载链接时，请求头 "user-agent" 的值
     :param max_workers: 最大并发数，如果为 None 或 <= 0，则自动确定
     :param app: 使用指定 app（设备）的接口
     :param async_: 是否异步
@@ -1793,108 +1786,172 @@ def iter_download_files(
         else:
             dirname = id_to_path[pid] = get_path(id_to_dirnode[pid]) + "/"
         return dirname + name
-    def norm_attr(attr: dict, /) -> dict:
+    top_id = to_id(cid)
+    root_ancestors = [{"id": 0, "parent_id": 0, "name": ""}]
+    def norm_attr(attr: dict, /):
+        attr["top_id"] = top_id
         pid = attr["parent_id"]
-        pnode = id_to_dirnode[pid]
-        if with_ancestors:
-            attr["dir_ancestors"] = get_ancestors(pid, pnode)
-        attr["dirname"] = get_path(pnode)
-        return attr
-    ancestors_loaded: None | bool = False
-    @as_gen_step
-    def load_ancestors(pickcode: str, /):
-        nonlocal ancestors_loaded
-        try:
-            yield through(iter_download_nodes(
-                client, 
-                pickcode, 
-                files=False, 
-                id_to_dirnode=id_to_dirnode, 
-                max_workers=max_workers, 
-                app=app, 
-                async_=async_, 
-                **request_kwargs, 
-            ))
-        finally:
-            ancestors_loaded = True
-    def gen_step(pickcode: str, /):
-        nonlocal ancestors_loaded
-        if pickcode:
-            if cid:
-                from .iterdir import _iter_fs_files
-                do_next: Callable = anext if async_ else next
-                yield do_next(_iter_fs_files(
-                    client, 
-                    to_id(cid), 
-                    page_size=1, 
-                    id_to_dirnode=id_to_dirnode, 
-                    async_=async_, 
-                    **request_kwargs, 
-                ))
+        if pid:
+            pnode = id_to_dirnode[pid]
+            if with_ancestors:
+                attr["dir_ancestors"] = get_ancestors(pid, pnode)
+            attr["dirname"] = get_path(pnode)
+        else:
+            if with_ancestors:
+                attr["dir_ancestors"] = root_ancestors
+            attr["dirname"] = "/"
+        if with_url:
             if async_:
-                task: Any = create_task(load_ancestors(pickcode))
+                async def set_url():
+                    try:
+                        url = attr["url"] = await client.download_url(
+                            attr["pickcode"], 
+                            user_agent=user_agent, 
+                            app="android", 
+                            async_=True, 
+                            **request_kwargs, 
+                        )
+                        attr["name"] = url["name"]
+                    except AccessError as e:
+                        warn(f"file is inaccessible: {e!r}")
+                    return attr
+                return set_url()
             else:
-                task = run_as_thread(load_ancestors, pickcode)
-            cache: list[dict] = []
-            add_to_cache = cache.append
-            with with_iter_next(iter_download_nodes(
+                try:
+                    url = attr["url"] = client.download_url(
+                        attr["pickcode"], 
+                        user_agent=user_agent, 
+                        app="android", 
+                        **request_kwargs, 
+                    )
+                    attr["name"] = url["name"]
+                except AccessError as e:
+                    warn(f"file is inaccessible: {e!r}")
+        return attr
+    if path_already:
+        if cid:
+            return do_map(norm_attr, iter_download_nodes(
                 client, 
-                pickcode, 
+                client.to_pickcode(cid), 
                 files=True, 
                 max_workers=max_workers, 
                 app=app, 
                 async_=async_, 
                 **request_kwargs, 
-            )) as get_next:
-                while True:
-                    attr = yield get_next()
-                    if ancestors_loaded is None:
-                        yield Yield(norm_attr(attr))
-                    elif ancestors_loaded:
-                        yield YieldFrom(map(norm_attr, cache))
-                        cache.clear()
-                        if async_:
-                            yield task
-                        else:
-                            task.result()
-                        ancestors_loaded = None
-                    else:
-                        add_to_cache(attr)
-            if cache:
-                if async_:
-                    yield task
-                else:
-                    task.result()
-                yield YieldFrom(map(norm_attr, cache))
+            ))
         else:
-            defaults = {
-                "dir_ancestors": [{"id": 0, "parent_id": 0, "name": ""}],
-                "dirname": "/",
-            }
-            pickcodes: list[str] = []
-            add_pickcode = pickcodes.append
-            with with_iter_next(iterdir(
-                client, 
-                id_to_dirnode=id_to_dirnode, 
-                app=app, 
-                raise_for_changed_count=True, 
-                async_=async_, 
-                **request_kwargs, 
-            )) as get_next:
-                while True:
-                    attr = yield get_next()
-                    if attr["is_dir"]:
-                        add_pickcode(attr["pickcode"])
+            def gen_step(pickcode: str, /):
+                pickcodes: list[str] = []
+                add_pickcode = pickcodes.append
+                with with_iter_next(iterdir(
+                    client, 
+                    id_to_dirnode=id_to_dirnode, 
+                    app=app, 
+                    raise_for_changed_count=True, 
+                    async_=async_, 
+                    **request_kwargs, 
+                )) as get_next:
+                    while True:
+                        attr = yield get_next()
+                        if attr["is_dir"]:
+                            add_pickcode(attr["pickcode"])
+                        else:
+                            attr = {
+                                "parent_id": attr["parent_id"], 
+                                "pickcode": attr["pickcode"], 
+                                "size": attr["size"], 
+                            }
+                            yield Yield(norm_attr(attr))
+                for pickcode in pickcodes:
+                    yield YieldFrom(run_gen_step_iter(gen_step(pickcode), async_))
+            return run_gen_step_iter(gen_step(client.to_pickcode(cid)), async_)
+    else:
+        ancestors_loaded: bool = False
+        @as_gen_step
+        def load_ancestors(pickcode: str, /):
+            nonlocal ancestors_loaded
+            try:
+                yield through(iter_download_nodes(
+                    client, 
+                    pickcode, 
+                    files=False, 
+                    id_to_dirnode=id_to_dirnode, 
+                    max_workers=max_workers, 
+                    app=app, 
+                    async_=async_, 
+                    **request_kwargs, 
+                ))
+            finally:
+                ancestors_loaded = True
+        def gen_step(pickcode: str, /):
+            nonlocal ancestors_loaded
+            if pickcode:
+                if cid:
+                    from .iterdir import _iter_fs_files
+                    do_next: Callable = anext if async_ else next
+                    yield do_next(_iter_fs_files(
+                        client, 
+                        to_id(cid), 
+                        page_size=1, 
+                        id_to_dirnode=id_to_dirnode, 
+                        async_=async_, 
+                        **request_kwargs, 
+                    ))
+                if async_:
+                    task: Any = create_task(load_ancestors(pickcode))
+                else:
+                    task = run_as_thread(load_ancestors, pickcode)
+                cache: list[dict] = []
+                add_to_cache = cache.append
+                with with_iter_next(iter_download_nodes(
+                    client, 
+                    pickcode, 
+                    files=True, 
+                    max_workers=max_workers, 
+                    app=app, 
+                    async_=async_, 
+                    **request_kwargs, 
+                )) as get_next:
+                    while True:
+                        attr = yield get_next()
+                        if ancestors_loaded:
+                            if cache:
+                                yield YieldFrom(do_map(norm_attr, cache))
+                                cache.clear()
+                            yield Yield(norm_attr(attr))
+                        else:
+                            add_to_cache(attr)
+                if cache:
+                    if async_:
+                        yield task
                     else:
-                        yield Yield({
-                            "parent_id": attr["parent_id"], 
-                            "pickcode": attr["pickcode"], 
-                            "size": attr["size"], 
-                            **defaults, 
-                        })
-            for pickcode in pickcodes:
-                yield YieldFrom(run_gen_step_iter(gen_step(pickcode), async_))
-                ancestors_loaded = False
+                        task.result()
+                    yield YieldFrom(do_map(norm_attr, cache))
+            else:
+                pickcodes: list[str] = []
+                add_pickcode = pickcodes.append
+                with with_iter_next(iterdir(
+                    client, 
+                    id_to_dirnode=id_to_dirnode, 
+                    app=app, 
+                    raise_for_changed_count=True, 
+                    async_=async_, 
+                    **request_kwargs, 
+                )) as get_next:
+                    while True:
+                        attr = yield get_next()
+                        if attr["is_dir"]:
+                            add_pickcode(attr["pickcode"])
+                        else:
+                            attr = {
+                                "parent_id": attr["parent_id"], 
+                                "pickcode": attr["pickcode"], 
+                                "size": attr["size"], 
+                            }
+                            yield Yield(norm_attr(attr))
+                for pickcode in pickcodes:
+                    yield YieldFrom(run_gen_step_iter(gen_step(pickcode), async_))
+                    ancestors_loaded = False
     return run_gen_step_iter(gen_step(client.to_pickcode(cid)), async_)
 
 
