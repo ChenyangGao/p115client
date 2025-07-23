@@ -1669,7 +1669,7 @@ def iter_download_files(
     cid: int | str = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     escape: None | bool | Callable[[str], str] = True, 
-    with_ancestors: bool = True, 
+    with_ancestors: bool = False, 
     with_url: bool = False, 
     path_already: bool = False, 
     user_agent: None | str = None, 
@@ -1686,7 +1686,7 @@ def iter_download_files(
     cid: int | str = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     escape: None | bool | Callable[[str], str] = True, 
-    with_ancestors: bool = True, 
+    with_ancestors: bool = False, 
     with_url: bool = False, 
     path_already: bool = False, 
     user_agent: None | str = None, 
@@ -1702,7 +1702,7 @@ def iter_download_files(
     cid: int | str = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     escape: None | bool | Callable[[str], str] = True, 
-    with_ancestors: bool = True, 
+    with_ancestors: bool = False, 
     with_url: bool = False, 
     path_already: bool = False, 
     user_agent: None | str = None, 
@@ -1787,9 +1787,19 @@ def iter_download_files(
             dirname = id_to_path[pid] = get_path(id_to_dirnode[pid]) + "/"
         return dirname + name
     top_id = to_id(cid)
+    top_path: str = ""
+    top_ancestors: list[dict]
     root_ancestors = [{"id": 0, "parent_id": 0, "name": ""}]
+    def update_attr_from_url(attr: dict, url: P115URL, /):
+        name = attr["name"] = url["name"]
+        if escape is not None:
+            name = escape(name)
+        dirname = attr["dirname"]
+        if dirname != "/":
+            dirname += "/"
+        attr["path"] = dirname + name
     def norm_attr(attr: dict, /):
-        attr["top_id"] = top_id
+        nonlocal top_path, top_ancestors
         pid = attr["parent_id"]
         if pid:
             pnode = id_to_dirnode[pid]
@@ -1800,6 +1810,14 @@ def iter_download_files(
             if with_ancestors:
                 attr["dir_ancestors"] = root_ancestors
             attr["dirname"] = "/"
+        if not top_path:
+            top_path = get_path(id_to_dirnode[top_id])
+            if with_ancestors:
+                top_ancestors = get_ancestors(top_id, id_to_dirnode[top_id])
+        attr["top_id"] = top_id
+        attr["top_path"] = top_path
+        if with_ancestors:
+            attr["top_ancestors"] = top_ancestors
         if with_url:
             if async_:
                 async def set_url():
@@ -1811,7 +1829,7 @@ def iter_download_files(
                             async_=True, 
                             **request_kwargs, 
                         )
-                        attr["name"] = url["name"]
+                        update_attr_from_url(attr, url)
                     except AccessError as e:
                         warn(f"file is inaccessible: {e!r}")
                     return attr
@@ -1824,7 +1842,7 @@ def iter_download_files(
                         app="android", 
                         **request_kwargs, 
                     )
-                    attr["name"] = url["name"]
+                    update_attr_from_url(attr, url)
                 except AccessError as e:
                     warn(f"file is inaccessible: {e!r}")
         return attr
