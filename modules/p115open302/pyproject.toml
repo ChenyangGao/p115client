@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "p115open302"
-version = "0.0.4"
+version = "0.0.4.2"
 description = "115 open 302 backend."
 authors = ["ChenyangGao <wosiwujm@gmail.com>"]
 license = "MIT"
@@ -30,8 +30,8 @@ python = "^3.12"
 blacksheep = "*"
 cachedict = ">=0.0.3"
 orjson = "*"
-p115client = ">=0.0.5.14"
-p115pickcode = ">=0.0.4"
+p115client = ">=0.0.5.15.13"
+p115pickcode = ">=0.0.5.4"
 pyyaml = "*"
 rich = "*"
 uvicorn = "*"
