@@ -11,13 +11,14 @@ __doc__ = """\
     │                                                                              │
     │                      \x1b[32mlicense     \x1b[4;34mhttps://www.gnu.org/licenses/gpl-3.0.txt\x1b[0m    │
     │                                                                              │
-    │                      \x1b[32mversion     \x1b[1;36m0.1.0\x1b[0m                                       │
+    │                      \x1b[32mversion     \x1b[1;36m0.2.0\x1b[0m                                       │
     │                                                                              │
     ╰──────────────────────────────────────────────────────────────────────────────╯
 
-> 网盘文件支持用 \x1b[3;36mpickcode\x1b[0m、\x1b[3;36mid\x1b[0m、\x1b[3;36msha1\x1b[0m 或 \x1b[3;36mname\x1b[0m 查询
-> 分享文件支持用 \x1b[3;36mid\x1b[0m 或 \x1b[3;36mname\x1b[0m 查询
-> 支持参数 \x1b[3;36mrefresh\x1b[0m，用于搜索名字时忽略缓存（强制刷新）
+> 网盘文件支持用 \x1b[3;36mid\x1b[0m、\x1b[3;36mpickcode\x1b[0m、\x1b[3;36msha1\x1b[0m、\x1b[3;36mname\x1b[0m 或 \x1b[3;36mpath\x1b[0m 查询（\x1b[1;3;31m此顺序即优先级从高到低\x1b[0m）
+> 分享文件支持用 \x1b[3;36mid\x1b[0m、\x1b[3;36mname\x1b[0m 或 \x1b[3;36mpath\x1b[0m 查询（\x1b[1;3;31m此顺序即优先级从高到低\x1b[0m）
+> 支持参数 \x1b[3;36mrefresh\x1b[0m，用于搜索 \x1b[3;36msha1\x1b[0m、\x1b[3;36mname\x1b[0m 或 \x1b[3;36mpath\x1b[0m 时忽略缓存（\x1b[1;3;31m强制刷新\x1b[0m）
+> 支持参数 \x1b[3;36msize\x1b[0m，用于搜索 \x1b[3;36msha1\x1b[0m 或 \x1b[3;36mname\x1b[0m 时，要求文件大小等于此值
 > 支持参数 \x1b[3;36mapp\x1b[0m，用于指定从此设备的接口获取下载链接
 
 🌰 携带 sign
@@ -29,56 +30,76 @@ __doc__ = """\
 
 其中
 - \x1b[3;36mtoken\x1b[0m 就是命令行所传入的令牌
-- \x1b[3;36mt\x1b[0m 为过期时间点（默认值为 0，即永不过期）
-- \x1b[3;36mvalue\x1b[0m 就是值，像这样的链接，优先级顺序为 \x1b[3;36mpickcode\x1b[0m > \x1b[3;36mid\x1b[0m > \x1b[3;36msha1\x1b[0m > \x1b[3;36mname\x1b[0m > \x1b[3;36mname2\x1b[0m
+- \x1b[3;36mt\x1b[0m 为过期时间点（\x1b[1;3;31m默认值为 0，即永不过期\x1b[0m）
+- \x1b[3;36mvalue\x1b[0m 就是值，像这样的链接，优先级顺序为 \x1b[3;36mpickcode\x1b[0m > \x1b[3;36mid\x1b[0m > \x1b[3;36msha1\x1b[0m > \x1b[3;36mname\x1b[0m > \x1b[3;36mpath\x1b[0m > \x1b[3;36mname2\x1b[0m
 
-    \x1b[4;34mhttp://localhost:8000/{\x1b[1;3;36mname2\x1b[0m\x1b[4;34m}?id={\x1b[1;3;36mid\x1b[0m\x1b[4;34m}&name={\x1b[1;3;36mname\x1b[0m\x1b[4;34m}&sha1={\x1b[1;3;36msha1\x1b[0m\x1b[4;34m}&pickcode={\x1b[1;3;36mpickcode\x1b[0m\x1b[4;34m}\x1b[0m
+    \x1b[4;34mhttp://localhost:8000/{\x1b[1;3;36mname2\x1b[0m\x1b[4;34m}?id={\x1b[1;3;36mid\x1b[0m\x1b[4;34m}&pickcode={\x1b[1;3;36mpickcode\x1b[0m\x1b[4;34m}&sha1={\x1b[1;3;36msha1\x1b[0m\x1b[4;34m}&name={\x1b[1;3;36mname\x1b[0m\x1b[4;34m}&path={\x1b[1;3;36mpath\x1b[0m\x1b[4;34m}\x1b[0m
 
 🌰 查询示例：
 
-    0. 查询 \x1b[3;36mpickcode\x1b[0m
-        \x1b[4;34mhttp://localhost:8000?ecjq9ichcb40lzlvx\x1b[0m
-        \x1b[4;34mhttp://localhost:8000/ecjq9ichcb40lzlvx\x1b[0m
-        \x1b[4;34mhttp://localhost:8000?pickcode=ecjq9ichcb40lzlvx\x1b[0m
-    1. 带（任意）名字查询 \x1b[3;36mpickcode\x1b[0m
-        \x1b[4;34mhttp://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?ecjq9ichcb40lzlvx\x1b[0m
-        \x1b[4;34mhttp://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?pickcode=ecjq9ichcb40lzlvx\x1b[0m
-        \x1b[4;34mhttp://localhost:8000/ecjq9ichcb40lzlvx/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv\x1b[0m
-    2. 查询 \x1b[3;36mid\x1b[0m
+    1. 查询 \x1b[3;36mid\x1b[0m
         \x1b[4;34mhttp://localhost:8000?2691590992858971545\x1b[0m
         \x1b[4;34mhttp://localhost:8000/2691590992858971545\x1b[0m
         \x1b[4;34mhttp://localhost:8000?id=2691590992858971545\x1b[0m
-    3. 带（任意）名字查询 \x1b[3;36mid\x1b[0m
+    2. 带（任意）名字查询 \x1b[3;36mid\x1b[0m
         \x1b[4;34mhttp://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?2691590992858971545\x1b[0m
         \x1b[4;34mhttp://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?id=2691590992858971545\x1b[0m
         \x1b[4;34mhttp://localhost:8000/2691590992858971545/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv\x1b[0m
-    4. 查询 \x1b[3;36msha1\x1b[0m
+    3. 查询 \x1b[3;36mpickcode\x1b[0m
+        \x1b[4;34mhttp://localhost:8000?ecjq9ichcb40lzlvx\x1b[0m
+        \x1b[4;34mhttp://localhost:8000/ecjq9ichcb40lzlvx\x1b[0m
+        \x1b[4;34mhttp://localhost:8000?pickcode=ecjq9ichcb40lzlvx\x1b[0m
+    4. 带（任意）名字查询 \x1b[3;36mpickcode\x1b[0m
+        \x1b[4;34mhttp://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?ecjq9ichcb40lzlvx\x1b[0m
+        \x1b[4;34mhttp://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?pickcode=ecjq9ichcb40lzlvx\x1b[0m
+        \x1b[4;34mhttp://localhost:8000/ecjq9ichcb40lzlvx/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv\x1b[0m
+    5. 查询 \x1b[3;36msha1\x1b[0m
         \x1b[4;34mhttp://localhost:8000?E7FAA0BE343AF2DA8915F2B694295C8E4C91E691\x1b[0m
         \x1b[4;34mhttp://localhost:8000/E7FAA0BE343AF2DA8915F2B694295C8E4C91E691\x1b[0m
         \x1b[4;34mhttp://localhost:8000?sha1=E7FAA0BE343AF2DA8915F2B694295C8E4C91E691\x1b[0m
-    5. 带（任意）名字查询 \x1b[3;36msha1\x1b[0m
+    6. 带（任意）名字查询 \x1b[3;36msha1\x1b[0m
         \x1b[4;34mhttp://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?E7FAA0BE343AF2DA8915F2B694295C8E4C91E691\x1b[0m
         \x1b[4;34mhttp://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?sha1=E7FAA0BE343AF2DA8915F2B694295C8E4C91E691\x1b[0m
         \x1b[4;34mhttp://localhost:8000/E7FAA0BE343AF2DA8915F2B694295C8E4C91E691/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv\x1b[0m
-    6. 查询 \x1b[3;36mname\x1b[0m（直接以路径作为 \x1b[3;36mname\x1b[0m，且不要有 \x1b[3;36mpickcode\x1b[0m、\x1b[3;36mid\x1b[0m、\x1b[3;36msha1\x1b[0m 或 \x1b[3;36mname\x1b[0m）
+    7. 查询 \x1b[3;36mname\x1b[0m（如果直接以路径作为 \x1b[3;36mname\x1b[0m，则不要有 \x1b[3;36mpickcode\x1b[0m、\x1b[3;36mid\x1b[0m、\x1b[3;36msha1\x1b[0m、\x1b[3;36mname\x1b[0m 或 \x1b[3;36mpath\x1b[0m）
         \x1b[4;34mhttp://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv\x1b[0m
         \x1b[4;34mhttp://localhost:8000?Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv\x1b[0m
         \x1b[4;34mhttp://localhost:8000?name=Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv\x1b[0m
-    7. 查询分享文件（如果是你自己的分享，则无须提供密码 \x1b[3;36mreceive_code\x1b[0m）
+    8. 查询 \x1b[3;36mpath\x1b[0m（如果直接以路径作为 \x1b[3;36mpath\x1b[0m，则不要有 \x1b[3;36mpickcode\x1b[0m、\x1b[3;36mid\x1b[0m、\x1b[3;36msha1\x1b[0m、\x1b[3;36mname\x1b[0m 或 \x1b[3;36mpath\x1b[0m，在根目录下要以 \x1b[1m>\x1b[0m 或 \x1b[1m/\x1b[0m 开头，如果整个路径中不含 \x1b[1m>\x1b[0m 或 \x1b[1m/\x1b[0m，则会视为 \x1b[3;36mname\x1b[0m）
+        \x1b[4;34mhttp://localhost:8000/电影/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv\x1b[0m
+        \x1b[4;34mhttp://localhost:8000//电影/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv\x1b[0m
+        \x1b[4;34mhttp://localhost:8000?/电影/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv\x1b[0m
+        \x1b[4;34mhttp://localhost:8000?path=/电影/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv\x1b[0m
+    9. 查询分享文件（必须有 \x1b[3;36mshare_code\x1b[0m，如果是你自己的分享，则可省略 \x1b[3;36mreceive_code\x1b[0m）
         \x1b[4;34mhttp://localhost:8000?share_code=sw68md23w8m&receive_code=q353&id=2580033742990999218\x1b[0m
         \x1b[4;34mhttp://localhost:8000?share_code=sw68md23w8m&id=2580033742990999218\x1b[0m
-    8. 带（任意）名字查询分享文件（如果是你自己的分享，则无须提供密码 \x1b[3;36mreceive_code\x1b[0m）
+    10. 带（任意）名字查询分享文件（必须有 \x1b[3;36mshare_code\x1b[0m，如果是你自己的分享，则可省略 \x1b[3;36mreceive_code\x1b[0m）
         \x1b[4;34mhttp://localhost:8000/Cosmos.S01E01.1080p.AMZN.WEB-DL.DD+5.1.H.264-iKA.mkv?share_code=sw68md23w8m&receive_code=q353&id=2580033742990999218\x1b[0m
         \x1b[4;34mhttp://localhost:8000/Cosmos.S01E01.1080p.AMZN.WEB-DL.DD+5.1.H.264-iKA.mkv?share_code=sw68md23w8m&id=2580033742990999218\x1b[0m
-    9. 用 \x1b[3;36mname\x1b[0m 查询分享文件（直接以路径作为 \x1b[3;36mname\x1b[0m，且不要有 \x1b[3;36mid\x1b[0m 查询参数。如果是你自己的分享，则无须提供密码 \x1b[3;36mreceive_code\x1b[0m）
+    11. 用 \x1b[3;36mname\x1b[0m 查询分享文件（直接以路径作为 \x1b[3;36mname\x1b[0m，且不要有 \x1b[3;36mid\x1b[0m 查询参数。必须有 \x1b[3;36mshare_code\x1b[0m，如果是你自己的分享，则可省略 \x1b[3;36mreceive_code\x1b[0m）
         \x1b[4;34mhttp://localhost:8000/Cosmos.S01E01.1080p.AMZN.WEB-DL.DD+5.1.H.264-iKA.mkv?share_code=sw68md23w8m&receive_code=q353\x1b[0m
         \x1b[4;34mhttp://localhost:8000/Cosmos.S01E01.1080p.AMZN.WEB-DL.DD+5.1.H.264-iKA.mkv?share_code=sw68md23w8m\x1b[0m
         \x1b[4;34mhttp://localhost:8000?name=Cosmos.S01E01.1080p.AMZN.WEB-DL.DD%2B5.1.H.264-iKA.mkv&share_code=sw68md23w8m&receive_code=q353\x1b[0m
         \x1b[4;34mhttp://localhost:8000?name=Cosmos.S01E01.1080p.AMZN.WEB-DL.DD%2B5.1.H.264-iKA.mkv&share_code=sw68md23w8m\x1b[0m
+    12. 用 \x1b[3;36mpath\x1b[0m 查询分享文件（直接以路径作为 \x1b[3;36mpath\x1b[0m，且不要有 \x1b[3;36mid\x1b[0m 查询参数，在根目录下要以 \x1b[1m>\x1b[0m 或 \x1b[1m/\x1b[0m 开头，如果整个路径中不含 \x1b[1m>\x1b[0m 或 \x1b[1m/\x1b[0m，则会视为 \x1b[3;36mname\x1b[0m。必须有 \x1b[3;36mshare_code\x1b[0m，如果是你自己的分享，则可省略 \x1b[3;36mreceive_code\x1b[0m）
+        \x1b[4;34mhttp://localhost:8000/盗火纪录片/06286 [国家地理] 宇宙时空之旅：未知世界 ／ Cosmos Possible Worlds/Cosmos.Possible.Worlds.S01.1080p.AMZN.WEBRip.DDP5.1.x264-iKA[rartv]/Cosmos.S01E01.1080p.AMZN.WEB-DL.DD+5.1.H.264-iKA.mkv?share_code=sw68md23w8m&receive_code=q353\x1b[0m
+        \x1b[4;34mhttp://localhost:8000/盗火纪录片/06286 [国家地理] 宇宙时空之旅：未知世界 ／ Cosmos Possible Worlds/Cosmos.Possible.Worlds.S01.1080p.AMZN.WEBRip.DDP5.1.x264-iKA[rartv]/Cosmos.S01E01.1080p.AMZN.WEB-DL.DD+5.1.H.264-iKA.mkv?share_code=sw68md23w8m\x1b[0m
+        \x1b[4;34mhttp://localhost:8000?path=/盗火纪录片/06286 [国家地理] 宇宙时空之旅：未知世界 ／ Cosmos Possible Worlds/Cosmos.Possible.Worlds.S01.1080p.AMZN.WEBRip.DDP5.1.x264-iKA[rartv]/Cosmos.S01E01.1080p.AMZN.WEB-DL.DD%2B5.1.H.264-iKA.mkv&share_code=sw68md23w8m&receive_code=q353\x1b[0m
+        \x1b[4;34mhttp://localhost:8000?path=/盗火纪录片/06286 [国家地理] 宇宙时空之旅：未知世界 ／ Cosmos Possible Worlds/Cosmos.Possible.Worlds.S01.1080p.AMZN.WEBRip.DDP5.1.x264-iKA[rartv]/Cosmos.S01E01.1080p.AMZN.WEB-DL.DD%2B5.1.H.264-iKA.mkv&share_code=sw68md23w8m\x1b[0m
 
-再推荐一个命令行使用，用于执行 HTTP 请求的工具，类似 \x1b[1;3mwget\x1b[0m
+🌰 视频相关操作：
 
-    \x1b[4m\x1b[34mhttps://pypi.org/project/httpie/\x1b[0m
+当你提供 \x1b[3;36mmethod\x1b[0m 参数时，通常就意味着你需要操作的目标是视频，此参数的值分别如下：
+
+    1. \x1b[1m"subs"\x1b[0m、\x1b[1m"subtitle"\x1b[0m 或 \x1b[1m"subtitles"\x1b[0m，获取目标文件的内嵌字幕和与它同一目录下的字幕，返回这些字幕的信息和下载链接，结果是一个 JSON
+    2. \x1b[1m"tran"\x1b[0m 或 \x1b[1m"transcode"\x1b[0m，获取目标文件的转码信息和在线播放地址，结果是一个 JSON
+    3. \x1b[1m"m3u8"\x1b[0m，获取在线播放地址，会执行 302 重定向，另外接受参数：
+        1. \x1b[3;36maudio_track\x1b[0m，接受 1 个整数，以切换不同音轨，这个数字是数组下标（从 \x1b[1;36m0\x1b[0m 开始），请先查询 \x1b[1m"tran"\x1b[0m 或 \x1b[1m"transcode"\x1b[0m 方法，然后看 key 为 \x1b[1m"multitrack_list"\x1b[0m 的数组
+        2. \x1b[3;36mdefinition\x1b[0m，接受 1 个整数，以切换不同画质：\x1b[1;36m1\x1b[0m:标清 \x1b[1;36m2\x1b[0m:高清 \x1b[1;36m3\x1b[0m:超清 \x1b[1;36m4\x1b[0m:1080P \x1b[1;36m5\x1b[0m:4k \x1b[1;36m100\x1b[0m:原画
+    4. \x1b[1m"hist"\x1b[0m 或 \x1b[1m"history"\x1b[0m，获取或设置视频播放进度。当你没有 \x1b[3;36mtime\x1b[0m 和 \x1b[3;36mwatch_end\x1b[0m 查询参数时，会获取视频播放进度，否则会进行设置。结果是一个 JSON
+        - \x1b[3;36mtime\x1b[0m，接受 1 个整数，视频播放进度时长，单位是：秒
+        - \x1b[3;36mwatch_end\x1b[0m，接受 \x1b[1;36m0\x1b[0m 或者 \x1b[1;36m1\x1b[0m，视频是否播放播放完毕，默认为 \x1b[1;36m0\x1b[0m，\x1b[1;36m1\x1b[0m 表示播放完毕
+    5. \x1b[1m"info"\x1b[0m，获取文件信息，结果是一个 JSON
 """
 
 from argparse import ArgumentParser, Namespace, RawTextHelpFormatter

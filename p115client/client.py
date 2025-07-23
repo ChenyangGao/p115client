@@ -995,15 +995,14 @@ def normalize_attr_app2[D: dict[str, Any]](
         attr["parent_id"] = int(info["parent_id"])
         attr["name"] = info["file_name"]
     else:
-        is_dir = "file_id" not in info
-        if is_dir:
-            attr["id"] = int(info["file_id"])
-            attr["parent_id"] = int(info["category_id"])
-            attr["name"] = info["file_name"]
-        else:
+        if is_dir := "file_id" not in info:
             attr["id"] = int(info["category_id"])
             attr["parent_id"] = int(info["parent_id"])
             attr["name"] = info["category_name"]
+        else:
+            attr["id"] = int(info["file_id"])
+            attr["parent_id"] = int(info["category_id"])
+            attr["name"] = info["file_name"]
     attr["is_dir"] = is_dir
     attr["sha1"] = info.get("sha1") or info.get("file_sha1") or ""
     attr["size"] = int(info.get("file_size") or 0)
@@ -11193,111 +11192,6 @@ class P115Client(P115OpenClient):
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
-    def fs_files_history(
-        self, 
-        payload: str | dict, 
-        /, 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[False] = False, 
-        **request_kwargs, 
-    ) -> dict:
-        ...
-    @overload
-    def fs_files_history(
-        self, 
-        payload: str | dict, 
-        /, 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[True], 
-        **request_kwargs, 
-    ) -> Coroutine[Any, Any, dict]:
-        ...
-    def fs_files_history(
-        self, 
-        payload: str | dict, 
-        /, 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[False, True] = False, 
-        **request_kwargs, 
-    ) -> dict | Coroutine[Any, Any, dict]:
-        """获取文件的观看历史，主要用于视频
-
-        GET https://webapi.115.com/files/history
-
-        :payload:
-            - pick_code: str
-            - fetch: str = "one"
-            - category: int = <default>
-            - share_id: int | str = <default>
-        """
-        api = complete_webapi("/files/history", base_url=base_url)
-        if isinstance(payload, str):
-            payload = {"fetch": "one", "pick_code": payload}
-        else:
-            payload = {"fetch": "one", **payload}
-        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
-
-    fs_video_history = fs_files_history
-
-    @overload
-    def fs_files_history_set(
-        self, 
-        payload: str | dict, 
-        /, 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[False] = False, 
-        **request_kwargs, 
-    ) -> dict:
-        ...
-    @overload
-    def fs_files_history_set(
-        self, 
-        payload: str | dict, 
-        /, 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[True], 
-        **request_kwargs, 
-    ) -> Coroutine[Any, Any, dict]:
-        ...
-    def fs_files_history_set(
-        self, 
-        payload: str | dict, 
-        /, 
-        base_url: bool | str | Callable[[], str] = False, 
-        *, 
-        async_: Literal[False, True] = False, 
-        **request_kwargs, 
-    ) -> dict | Coroutine[Any, Any, dict]:
-        """更新文件的观看历史，主要用于视频
-
-        POST https://webapi.115.com/files/history
-
-        :payload:
-            - pick_code: str     💡 文件的提取码
-            - op: str = "update" 💡 操作类型，具体有哪些还需要再研究
-            - category: int = <default>
-            - definition: int = <default> 💡 视频清晰度
-            - share_id: int | str = <default>
-            - time: int = <default> 💡 播放时间点（用来向服务器同步播放进度）
-            - watch_end: int = <default> 💡 视频是否播放播放完毕 0:未完毕 1:完毕
-            - ...（其它未找全的参数）
-        """
-        api = complete_webapi("/files/history", base_url=base_url)
-        if isinstance(payload, str):
-            payload = {"op": "update", "pick_code": payload}
-        else:
-            payload = {"op": "update", **payload}
-        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
-
-    fs_video_history_set = fs_files_history_set
-
-
-    @overload
     def fs_files_image(
         self, 
         payload: int | str | dict, 
@@ -11995,23 +11889,24 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """获取历史记录
+        """获取文件的观看历史，主要用于视频
 
-        GET https://webapi.115.com/history
+        GET https://webapi.115.com/files/history
 
         :payload:
             - pick_code: str
-            - action: str = "get_one" 💡 可用的值："get_one"、"update"、...
-            - category: int = <default>
-            - from: int = <default>
-            - time: int = <default>
+            - fetch: str = "one"
+            - category: int = 1
+            - share_id: int | str = <default>
         """
-        api = complete_webapi("/history", base_url=base_url)
+        api = complete_webapi("/files/history", base_url=base_url)
         if isinstance(payload, str):
-            payload = {"action": "get_one", "pick_code": payload}
+            payload = {"category": 1, "fetch": "one", "pick_code": payload}
         else:
-            payload = {"action": "get_one", **payload}
+            payload = {"category": 1, "fetch": "one", **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    fs_video_history = fs_history
 
     @overload
     def fs_history_app(
@@ -12053,17 +11948,18 @@ class P115Client(P115OpenClient):
 
         :payload:
             - pick_code: str
-            - action: str = "get_one" 💡 可用的值："get_one"、"update"、...
-            - category: int = <default>
-            - from: int = <default>
-            - time: int = <default>
+            - fetch: str = "one"
+            - category: int = 1
+            - share_id: int | str = <default>
         """
         api = complete_proapi("/history", base_url, app)
         if isinstance(payload, str):
-            payload = {"action": "get_one", "pick_code": payload}
+            payload = {"category": 1, "action": "get_one", "pick_code": payload}
         else:
-            payload = {"action": "get_one", **payload}
+            payload = {"category": 1, "action": "get_one", **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    fs_video_history_app = fs_history_app
 
     @overload
     def fs_history_clean(
@@ -12536,6 +12432,117 @@ class P115Client(P115OpenClient):
         else:
             payload = {"limit": 1150, "offset": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def fs_history_set(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def fs_history_set(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def fs_history_set(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """更新文件的观看历史，主要用于视频
+
+        POST https://webapi.115.com/files/history
+
+        :payload:
+            - pick_code: str     💡 文件的提取码
+            - op: str = "update" 💡 操作类型，具体有哪些还需要再研究
+            - category: int = 1
+            - definition: int = <default> 💡 视频清晰度
+            - share_id: int | str = <default>
+            - time: int = <default> 💡 播放时间点（用来向服务器同步播放进度）
+            - watch_end: int = <default> 💡 视频是否播放播放完毕 0:未完毕 1:完毕
+            - ...（其它未找全的参数）
+        """
+        api = complete_webapi("/files/history", base_url=base_url)
+        if isinstance(payload, str):
+            payload = {"category": 1, "op": "update", "pick_code": payload}
+        else:
+            payload = {"category": 1, "op": "update", **payload}
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    fs_video_history_set = fs_history_set
+
+    @overload
+    def fs_history_set_app(
+        self, 
+        payload: str | dict, 
+        /, 
+        app: str = "android", 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def fs_history_set_app(
+        self, 
+        payload: str | dict, 
+        /, 
+        app: str = "android", 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def fs_history_set_app(
+        self, 
+        payload: str | dict, 
+        /, 
+        app: str = "android", 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """更新文件的观看历史，主要用于视频
+
+        POST https://proapi.115.com/android/history
+
+        :payload:
+            - pick_code: str     💡 文件的提取码
+            - op: str = "update" 💡 操作类型，具体有哪些还需要再研究
+            - category: int = 1
+            - definition: int = <default> 💡 视频清晰度
+            - share_id: int | str = <default>
+            - time: int = <default> 💡 播放时间点（用来向服务器同步播放进度）
+            - watch_end: int = <default> 💡 视频是否播放播放完毕 0:未完毕 1:完毕
+            - ...（其它未找全的参数）
+        """
+        api = complete_proapi("/files/hiddenswitch", base_url, app)
+        if isinstance(payload, str):
+            payload = {"category": 1, "op": "update", "pick_code": payload}
+        else:
+            payload = {"category": 1, "op": "update", **payload}
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    fs_video_history_set_app = fs_history_set_app
 
     @overload
     def fs_image(

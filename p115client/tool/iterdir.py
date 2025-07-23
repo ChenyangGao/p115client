@@ -20,6 +20,7 @@ __all__ = [
 ]
 __doc__ = "这个模块提供了一些和目录信息罗列有关的函数"
 
+# TODO: share_* 方法支持参数 app
 # TODO: 路径表示法，应该支持 / 和 > 开头，而不仅仅是 / 开头
 # TODO: get_id* 这类方法，应该放在 attr.py，用来获取某个 id 对应的值（根本还是 get_attr）
 # TODO: 创造函数 get_id, get_parent_id, get_ancestors, get_sha1, get_pickcode, get_path 等，支持多种类型的参数，目前已有的名字太长，需要改造，甚至转为私有，另外这些函数或许可以放到另一个包中，attr.py

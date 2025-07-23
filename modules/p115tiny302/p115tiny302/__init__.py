@@ -2,31 +2,33 @@
 # encoding: utf-8
 
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
-__version__ = (0, 1, 0)
+__version__ = (0, 2, 0)
 __license__ = "GPLv3 <https://www.gnu.org/licenses/gpl-3.0.txt>"
 
 import logging
 
-from collections.abc import Buffer, Mapping
+from collections.abc import Buffer, Callable, Mapping
 from errno import ENOENT
 from functools import partial
 from hashlib import sha1 as calc_sha1
 from http import HTTPStatus
 from re import compile as re_compile
 from string import digits, hexdigits
-from time import time
+from time import time as get_timestamp
 from typing import Final
 from urllib.parse import parse_qsl, quote, unquote, urlsplit, urlunsplit
 
-from blacksheep import json, text, Application, Request, Response, Router
+from blacksheep import json, redirect, text, Application, Request, Response, Router
 from blacksheep.contents import Content
 from blacksheep.server.remotes.forwarding import ForwardedHeadersMiddleware
 from cachedict import LRUDict, TLRUDict, TTLDict
 from orjson import dumps, OPT_INDENT_2, OPT_SORT_KEYS
+from posixpatht import normpath, joins
 from p115client import (
     check_response, normalize_attr, P115Client, P115ID, P115URL, P115OSError, 
 )
-from p115pickcode import id_to_pickcode, pickcode_to_id, is_valid_pickcode
+from p115client.tool import get_id_to_path, share_get_id_to_path
+from p115pickcode import is_valid_pickcode
 from rich.box import ROUNDED
 from rich.console import Console
 from rich.highlighter import JSONHighlighter
@@ -36,6 +38,7 @@ from uvicorn.config import LOGGING_CONFIG
 
 
 CRE_name_search: Final = re_compile("[^&=]+(?=&|$)").match
+CRE_def_sub: Final = re_compile(r"(?<=definition=)\d+").sub
 LOGGING_CONFIG["formatters"]["default"]["fmt"] = "[\x1b[1m%(asctime)s\x1b[0m] %(levelprefix)s %(message)s"
 LOGGING_CONFIG["formatters"]["access"]["fmt"] = '[\x1b[1m%(asctime)s\x1b[0m] %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s'
 
@@ -109,8 +112,10 @@ def make_application(
     NAME_TO_ID: LRUDict[str | tuple[str, int], int] = LRUDict(cache_size)
     #: path 对应 id
     PATH_TO_ID: TTLDict[str, int] = TTLDict(cache_size, ttl=3600)
-    #: (share_code, name) 对应 id
-    SHARE_NAME_TO_ID: LRUDict[tuple[str, str], int] = LRUDict(cache_size)
+    #: (share_code, name) 或 (share_code, name, size) 对应 id
+    SHARE_NAME_TO_ID: LRUDict[tuple[str, str] | tuple[str, str, int], int] = LRUDict(cache_size)
+    #: (share_code, path) 对应 id
+    SHARE_PATH_TO_ID: TTLDict[tuple[str, str], int] = TTLDict(cache_size, ttl=3600)
     if cache_url:
         #: (id, user_agent) 对应下载 url
         DOWNLOAD_URL_CACHE: TLRUDict[tuple[int, str], P115URL] = TLRUDict(cache_size)
@@ -150,7 +155,7 @@ def make_application(
 
     @app.middlewares.append
     async def access_log(request: Request, handler) -> Response:
-        start_t = time()
+        start_t = get_timestamp()
         def get_message(response: Response, /) -> str:
             remote_attr = request.scope["client"]
             status = response.status
@@ -160,7 +165,7 @@ def make_application(
                 status_color = 33
             else:
                 status_color = 31
-            message = f'\x1b[5;35m{remote_attr[0]}:{remote_attr[1]}\x1b[0m - "\x1b[1;36m{request.method}\x1b[0m \x1b[1;4;34m{request.url}\x1b[0m \x1b[1mHTTP/{request.scope["http_version"]}\x1b[0m" - \x1b[{status_color}m{status} {HTTPStatus(status).phrase}\x1b[0m - \x1b[32m{(time() - start_t) * 1000:.3f}\x1b[0m \x1b[3mms\x1b[0m'
+            message = f'\x1b[5;35m{remote_attr[0]}:{remote_attr[1]}\x1b[0m - "\x1b[1;36m{request.method}\x1b[0m \x1b[1;4;34m{request.url}\x1b[0m \x1b[1mHTTP/{request.scope["http_version"]}\x1b[0m" - \x1b[{status_color}m{status} {HTTPStatus(status).phrase}\x1b[0m - \x1b[32m{(get_timestamp() - start_t) * 1000:.3f}\x1b[0m \x1b[3mms\x1b[0m'
             if debug:
                 console = Console()
                 with console.capture() as capture:
@@ -210,39 +215,34 @@ def make_application(
         refresh: bool = False, 
         app: str = "", 
     ) -> int:
+        key = sha1 if size < 0 else (sha1, size)
         if not refresh:
-            if size < 0:
-                if id := SHA1_TO_ID.get(sha1):
-                    return id
-            elif id := SHA1_TO_ID.get((sha1, size)):
+            if id := SHA1_TO_ID.get(key):
                 return id
         if size < 0 and not app:
             resp = await client.fs_shasearch(sha1, async_=True)
             check_response(resp)
-            info = resp["data"]
-            id = SHA1_TO_ID[sha1] = int(info["file_id"])
-            return P115ID(id, info)
+            attr = normalize_attr(resp["data"])
+            id = SHA1_TO_ID[key] = attr["id"]
+            return P115ID(id, attr)
+        if app in ("", "web", "desktop", "harmony"):
+            fs_search: Callable = client.fs_search
         else:
-            if app in ("", "web", "desktop", "harmony"):
-                fs_search = client.fs_search
-            else:
-                fs_search = partial(client.fs_search_app, app=app)
-            resp = await fs_search(
-                {"search_value": sha1, "fc": 2, "limit": 16}, 
-                async_=True, 
-            )
-            check_response(resp)
-            for attr in map(normalize_attr, resp["data"]):
+            fs_search = partial(client.fs_search_app, app=app)
+        resp = await fs_search(
+            {"search_value": sha1, "fc": 2, "limit": 16, "show_dir": 0, "type": 99}, 
+            async_=True, 
+        )
+        check_response(resp)
+        if data := resp["data"]:
+            for attr in map(normalize_attr, data):
                 if attr["sha1"] == sha1:
                     if size >= 0 and attr["size"] != size:
                         continue
                     id = attr["id"]
-                    if size < 0:
-                        SHA1_TO_ID[sha1] = id
-                    else:
-                        SHA1_TO_ID[(sha1, size)] = id
+                    SHA1_TO_ID[key] = id
                     return P115ID(id, attr)
-            raise FileNotFoundError(ENOENT, {"sha1": sha1, "size": size, "error": "not found"})
+        raise FileNotFoundError(ENOENT, {"sha1": sha1, "size": size, "error": "not found"})
 
     async def name_to_id(
         name: str, 
@@ -250,18 +250,15 @@ def make_application(
         refresh: bool = False, 
         app: str = "", 
     ) -> int:
+        key = name if size < 0 else (name, size)
         if not refresh:
-            if size < 0:
-                if id := NAME_TO_ID.get(name):
-                    return id
-            elif id := NAME_TO_ID.get((name, size)):
+            if id := NAME_TO_ID.get(key):
                 return id
         if app in ("", "web", "desktop", "harmony"):
-            fs_search = client.fs_search
+            fs_search: Callable = client.fs_search
         else:
             fs_search = partial(client.fs_search_app, app=app)
-        # TODO
-        payload = {"search_value": name, "limit": 1, "type": 99}
+        payload = {"search_value": name, "fc": 2, "limit": 16, "show_dir": 0, "type": 99}
         suffix = name.rpartition(".")[-1]
         if suffix.isalnum():
             payload["suffix"] = suffix
@@ -270,21 +267,45 @@ def make_application(
             payload.pop("suffix")
             resp = await fs_search(payload, async_=True)
         check_response(resp)
-        data = resp["data"]
-        if not data or (info := data[0])["n"] != name:
-            raise FileNotFoundError(ENOENT, name)
-        pickcode = NAME_TO_ID[name] = info["pc"]
-        return pickcode
+        if data := resp["data"]:
+            for attr in map(normalize_attr, data):
+                if attr["name"] == name:
+                    if size >= 0 and attr["size"] != size:
+                        continue
+                    id = attr["id"]
+                    NAME_TO_ID[key] = id
+                    return P115ID(id, attr)
+        raise FileNotFoundError(ENOENT, {"name": name, "size": size, "error": "not found"})
 
     async def path_to_id(
         path: str, 
         refresh: bool = False, 
         app: str = "", 
     ) -> int:
-        # TODO: 路径标准化
+        if ">" in path:
+            path2 = path[2:]
+            if path.startswith("> ") and path2.count(">") == path2.count(" > "):
+                patht = path2.split(" > ")
+            else:
+                patht = path.split(">")
+            path = joins(patht)
+        else:
+            path = normpath(path)
+        if not path.startswith("/"):
+            path = "/" + path
         if not refresh:
             if id := PATH_TO_ID.get(path):
                 return id
+        id = await get_id_to_path(
+            client, 
+            path, 
+            ensure_file=True, 
+            id_to_dirnode=..., 
+            app=app, 
+            async_=True, 
+        )
+        PATH_TO_ID[path] = int(id)
+        return id
 
     async def share_name_to_id(
         name: str, 
@@ -292,16 +313,16 @@ def make_application(
         receive_code: str = "", 
         size: int = -1, 
         refresh: bool = False, 
-        app: str = "", 
     ) -> int:
-        key = (share_code, name)
-        if not refresh and (id := SHARE_NAME_TO_ID.get(key, 0)):
-            return id
+        key = (share_code, name) if size < 0 else (share_code, name, size)
+        if not refresh:
+            if id := SHARE_NAME_TO_ID.get(key):
+                return id
         payload = {
             "share_code": share_code, 
             "receive_code": receive_code, 
             "search_value": name, 
-            "limit": 1, 
+            "limit": 16, 
             "type": 99, 
         }
         suffix = name.rpartition(".")[-1]
@@ -312,34 +333,72 @@ def make_application(
             payload.pop("suffix")
             resp = await client.share_search(payload, async_=True)
         check_response(resp)
-        data = resp["data"]["list"]
-        if not data or (info := data[0])["n"] != name:
-            raise FileNotFoundError(ENOENT, key)
-        id = SHARE_NAME_TO_ID[key] = int(info["fid"])
-        return id
+        if data := resp["data"]["list"]:
+            for attr in map(normalize_attr, data):
+                if attr["name"] == name:
+                    if size >= 0 and attr["size"] != size:
+                        continue
+                    id = attr["id"]
+                    SHARE_NAME_TO_ID[key] = id
+                    return P115ID(id, attr)
+        raise FileNotFoundError(ENOENT, {
+            "share_code": share_code, 
+            "receive_code": receive_code, 
+            "name": name, 
+            "size": size, 
+            "error": "not found", 
+        })
 
     async def share_path_to_id(
         path: str, 
         share_code: str, 
         receive_code: str = "", 
         refresh: bool = False, 
-        app: str = "", 
     ) -> int:
-        ...
+        if ">" in path:
+            path2 = path[2:]
+            if path.startswith("> ") and path2.count(">") == path2.count(" > "):
+                patht = path2.split(" > ")
+            else:
+                patht = path.split(">")
+            path = joins(patht)
+        else:
+            path = normpath(path)
+        if not path.startswith("/"):
+            path = "/" + path
+        key = (share_code, path)
+        if not refresh:
+            if id := SHARE_PATH_TO_ID.get(key):
+                return id
+        id = await share_get_id_to_path(
+            client, 
+            share_code, 
+            receive_code, 
+            path, 
+            ensure_file=True, 
+            app=app, 
+            async_=True, 
+        )
+        SHARE_PATH_TO_ID[key] = int(id)
+        return id
 
     async def get_downurl(
         id: int, 
         user_agent: str = "", 
         app: str = "", 
     ) -> P115URL:
-        if not app:
-            app = "android"
         if (cache_url and (r := DOWNLOAD_URL_CACHE.get((id, user_agent)))
             or (r := DOWNLOAD_URL_CACHE1.get(id))
             or (r := DOWNLOAD_URL_CACHE2.get((id, user_agent)))
         ):
             return r[1]
-        url = await client.download_url(id, headers={"User-Agent": user_agent}, app=app or "android", async_=True)
+        pickcode = client.to_pickcode(id)
+        url = await client.download_url(
+            pickcode, 
+            headers={"user-agent": user_agent}, 
+            app=app or "android", 
+            async_=True, 
+        )
         expire_ts = int(next(v for k, v in parse_qsl(urlsplit(url).query) if k == "t")) - 60 * 5
         if "&c=0&f=&" in url:
             DOWNLOAD_URL_CACHE1[id] = (expire_ts, url)
@@ -349,26 +408,25 @@ def make_application(
             DOWNLOAD_URL_CACHE[(id, user_agent)] = (expire_ts, url)
         return url
 
-    # TODO: 接收码需要缓存
     async def get_share_downurl(
-        file_id: int, 
+        id: int, 
         share_code: str, 
         receive_code: str = "", 
         app: str = "", 
     ) -> P115URL:
-        if r := DOWNLOAD_URL_CACHE1.get((share_code, file_id)):
+        if r := DOWNLOAD_URL_CACHE1.get((share_code, id)):
             return r[1]
-        payload = {"share_code": share_code, "receive_code": receive_code, "file_id": file_id}
+        payload = {"share_code": share_code, "receive_code": receive_code, "file_id": id}
         try:
             url = await client.share_download_url(payload, app=app, async_=True)
         except P115OSError as e:
             if not (e.args[1].get("errno") == 4100008 and CODE_SHARE_TO_RECEIVE.pop(share_code, None)):
                 raise
             receive_code = await get_receive_code(share_code)
-            return await get_share_downurl(file_id, share_code, receive_code, app=app)
+            return await get_share_downurl(id, share_code, receive_code, app=app)
         if "&c=0&f=&" in url:
             expire_ts = int(next(v for k, v in parse_qsl(urlsplit(url).query) if k == "t")) - 60 * 5
-            DOWNLOAD_URL_CACHE1[(share_code, file_id)] = (expire_ts, url)
+            DOWNLOAD_URL_CACHE1[(share_code, id)] = (expire_ts, url)
         return url
 
     async def get_receive_code(share_code: str) -> str:
@@ -383,13 +441,20 @@ def make_application(
     @app.router.route("/<path:name2>", methods=["GET", "HEAD", "POST"])
     async def index(
         request: Request, 
-        share_code: str = "", 
-        receive_code: str = "", 
-        pickcode: str = "", 
         id: int = 0, 
+        pickcode: str = "", 
         sha1: str = "", 
+        path: str = "", 
         name: str = "", 
         name2: str = "", 
+        share_code: str = "", 
+        receive_code: str = "", 
+        size: int = -1, 
+        method: str = "", 
+        time: int = -1, 
+        watch_end: int = -1, 
+        audio_track: int = -1, 
+        definition: int = -1, 
         refresh: bool = False, 
         app: str = "", 
         sign: str = "", 
@@ -400,60 +465,172 @@ def make_application(
                 return None
             if sign != calc_sha1(bytes(f"302@115-{token}-{t}-{value}", "utf-8")).hexdigest():
                 return json({"state": False, "message": "invalid sign"}, 403)
-            elif t > 0 and t <= time():
+            elif t > 0 and t <= get_timestamp():
                 return json({"state": False, "message": "url was expired"}, 401)
-        file_name = name or name2
+        url: str
         if share_code:
-            if resp := check_sign(id if id else file_name):
-                return resp
             if not receive_code:
                 receive_code = await get_receive_code(share_code)
-            elif len(receive_code) != 4:
-                raise ValueError(f"bad receive_code: {receive_code!r}")
-            if not id:
-                if file_name:
-                    id = await share_name_to_id(file_name, share_code, receive_code, refresh=refresh)
+            if id:
+                if resp := check_sign(id):
+                    return resp
+            elif name:
+                if resp := check_sign(name):
+                    return resp
+                id = await share_name_to_id(
+                    name, 
+                    share_code, 
+                    receive_code, 
+                    size=size, 
+                    refresh=refresh, 
+                )
+            elif path:
+                if resp := check_sign(path):
+                    return resp
+                id = await share_path_to_id(
+                    path, 
+                    share_code, 
+                    receive_code, 
+                    refresh=refresh, 
+                )
+            else:
+                remains = ""
+                if match := CRE_name_search(unquote(request.url.query or b"")):
+                    name = match[0]
+                elif (idx := name2.find("/")) > 0:
+                    name, remains = name2[:idx], name2[idx:]
+                else:
+                    name = name2
+                if name:
+                    fullname = name + remains
+                    if resp := check_sign(fullname):
+                        return resp
+                    if not (name.startswith("0") or name.strip(digits)):
+                        id = int(name)
+                else:
+                    fullname = name2
+                    if fullname and (resp := check_sign(fullname)):
+                        return resp
+                if not id and fullname:
+                    if ">" in fullname or "/" in fullname:
+                        id = await share_path_to_id(
+                            fullname, 
+                            share_code, 
+                            receive_code, 
+                            refresh=refresh, 
+                        )
+                    else:
+                        id = await share_name_to_id(
+                            fullname, 
+                            share_code, 
+                            receive_code, 
+                            size=size, 
+                            refresh=refresh, 
+                        )
             if not id:
                 raise FileNotFoundError(ENOENT, f"please specify id or name: share_code={share_code!r}")
             url = await get_share_downurl(id, share_code, receive_code, app=app)
         else:
-            if pickcode:
-                if resp := check_sign(pickcode):
-                    return resp
-                if not (len(pickcode) == 17 and pickcode.isalnum()):
-                    raise ValueError(f"bad pickcode: {pickcode!r}")
-            elif id:
+            if id:
                 if resp := check_sign(id):
                     return resp
-                pickcode = await get_pickcode_to_id(id)
+            elif pickcode:
+                if resp := check_sign(pickcode):
+                    return resp
+                if not is_valid_pickcode(pickcode):
+                    raise ValueError(f"bad pickcode: {pickcode!r}")
+                id = client.to_id(pickcode)
             elif sha1:
                 if resp := check_sign(sha1):
                     return resp
                 if len(sha1) != 40 or sha1.strip(hexdigits):
                     raise ValueError(f"bad sha1: {sha1!r}")
-                pickcode = await sha1_to_id(sha1.upper())
+                id = await sha1_to_id(sha1.upper(), size, refresh=refresh, app=app)
+            elif name:
+                if resp := check_sign(name):
+                    return resp
+                id = await name_to_id(name, size, refresh=refresh, app=app)
+            elif path:
+                if resp := check_sign(path):
+                    return resp
+                id = await path_to_id(path, refresh=refresh, app=app)
             else:
                 remains = ""
                 if match := CRE_name_search(unquote(request.url.query or b"")):
-                    file_name = match[0]
-                elif not name and (idx := file_name.find("/")) > 0:
-                    file_name, remains = file_name[:idx], file_name[idx:]
-                if file_name:
-                    if resp := check_sign(file_name + remains):
+                    name = match[0]
+                elif (idx := name2.find("/")) > 0:
+                    name, remains = name2[:idx], name2[idx:]
+                else:
+                    name = name2
+                if name:
+                    fullname = name + remains
+                    if resp := check_sign(fullname):
                         return resp
-                    if len(file_name) == 17 and file_name.isalnum():
-                        pickcode = file_name.lower()
-                    elif not file_name.strip(digits):
-                        pickcode = await get_pickcode_to_id(int(file_name))
-                    elif len(file_name) == 40 and not file_name.strip(hexdigits):
-                        pickcode = await sha1_to_id(file_name.upper())
+                    if not (name.startswith("0") or name.strip(digits)):
+                        id = int(name)
+                    elif is_valid_pickcode(name):
+                        id = client.to_id(name)
+                    elif len(name) == 40 and not name.strip(hexdigits):
+                        id = await sha1_to_id(name.upper(), size, refresh=refresh, app=app)
+                else:
+                    fullname = name2
+                    if fullname and (resp := check_sign(fullname)):
+                        return resp
+                if not id and fullname:
+                    if ">" in fullname or "/" in fullname:
+                        id = await path_to_id(fullname, refresh=refresh, app=app)
                     else:
-                        pickcode = await name_to_id(file_name + remains, refresh=refresh)
-            if not pickcode:
+                        id = await name_to_id(fullname, size, refresh=refresh, app=app)
+            if not id:
                 raise FileNotFoundError(ENOENT, f"not found: {str(request.url)!r}")
+            pickcode = client.to_pickcode(id)
+            match method:
+                # 视频字幕列表
+                case "subs" | "subtitle" | "subtitles":
+                    resp = await client.fs_video_subtitle(pickcode, async_=True)
+                    check_response(resp)
+                    return json(resp["data"])
+                # 获取视频在线播放地址
+                case "tran" | "transcode" | "m3u8":
+                    resp = await client.fs_video_app(pickcode, async_=True)
+                    check_response(resp)
+                    if method == "m3u8":
+                        try:
+                            url = resp["data"]["video_url"][0]["url"]
+                        except KeyError:
+                            return json(resp, 500)
+                        if audio_track >= 0:
+                            url += f"&audio_track={audio_track}"
+                        if definition >= 0:
+                            url = CRE_def_sub(str(definition), url)
+                        return redirect(url)
+                    return json(resp["data"])
+                # 获取或修改视频播放进度
+                case "hist" | "history":
+                    payload: dict = {}
+                    if time >= 0:
+                        payload["time"] = time
+                    if watch_end >= 0:
+                        payload["watch_end"] = watch_end
+                    if payload:
+                        payload["pick_code"] = pickcode
+                        resp = await client.fs_video_history_set(payload, async_=True)
+                        return json(resp)
+                    else:
+                        resp = await client.fs_video_history(pickcode, async_=True)
+                        check_response(resp)
+                        return json(resp["data"] or {})
+                # 获取文件信息
+                case "info":
+                    if isinstance(id, P115ID):
+                        return json(id.__dict__)
+                    resp = await client.fs_file(id, async_=True)
+                    check_response(resp)
+                    if not resp["data"]:
+                        raise FileNotFoundError(ENOENT, {"id": id, "error": "not found"})
+                    return json(normalize_attr(resp["data"][0]))
             user_agent = (request.get_first_header(b"user-agent") or b"").decode("latin-1")
-            url = await get_downurl(pickcode.lower(), user_agent, app=app)
-
+            url = await get_downurl(id, user_agent, app=app)
         return Response(302, [
             (b"location", bytes(url, "utf-8")), 
             (b"content-Disposition", b'attachment; filename="%s"' % bytes(quote(url["name"], safe=""), "latin-1")), 
@@ -479,5 +656,3 @@ if __name__ == "__main__":
     )
 
 # TODO: 功能需要和 p115nano302 和 p115open302 追平，并支持读写 cookies，支持多用户的 cookies 等
-# TODO: 特别是 p115open302，它有的，这个模块也必须有，并且还要超出
-# TODO: share 也支持 path 查询，使用 p115client 里面的实现，id_to_dirnode 单独在这个模块落实

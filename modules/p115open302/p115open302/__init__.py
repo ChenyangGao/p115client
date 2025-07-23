@@ -23,7 +23,7 @@ from blacksheep.server.remotes.forwarding import ForwardedHeadersMiddleware
 from cachedict import LRUDict, TLRUDict, TTLDict
 from orjson import dumps, OPT_INDENT_2, OPT_SORT_KEYS
 from p115client import check_response, P115OpenClient, P115ID, P115URL
-from p115pickcode import id_to_pickcode, is_valid_pickcode, pickcode_to_id
+from p115pickcode import is_valid_pickcode
 from posixpatht import splits
 from rich.box import ROUNDED
 from rich.console import Console
@@ -205,27 +205,23 @@ def make_application(
         size: int = -1, 
         refresh: bool = False, 
     ) -> int:
+        key = sha1 if size < 0 else (sha1, size)
         if not refresh:
-            if size < 0:
-                if id := SHA1_TO_ID.get(sha1):
-                    return id
-            elif id := SHA1_TO_ID.get((sha1, size)):
+            if id := SHA1_TO_ID.get(key):
                 return id
         resp = await client.fs_search_open(
             {"search_value": sha1, "fc": 2, "limit": 16}, 
             async_=True, 
         )
         check_response(resp)
-        for info in resp["data"]:
-            if info["sha1"] == sha1:
-                if size >= 0 and int(info["file_size"]) != size:
-                    continue
-                id = int(info["file_id"])
-                if size < 0:
-                    SHA1_TO_ID[sha1] = id
-                else:
-                    SHA1_TO_ID[(sha1, size)] = id
-                return P115ID(id, info)
+        if data := resp["data"]:
+            for info in data:
+                if info["sha1"] == sha1:
+                    if size >= 0 and int(info["file_size"]) != size:
+                        continue
+                    id = int(info["file_id"])
+                    SHA1_TO_ID[key] = id
+                    return P115ID(id, info)
         raise FileNotFoundError(ENOENT, {"sha1": sha1, "size": size, "error": "not found"})
 
     async def name_to_id(
@@ -233,28 +229,27 @@ def make_application(
         size: int = -1, 
         refresh: bool = False, 
     ) -> int:
+        key = name if size < 0 else (name, size)
         if not refresh:
-            if size < 0:
-                if id := NAME_TO_ID.get(name):
-                    return id
-            elif id := NAME_TO_ID.get((name, size)):
+            if id := NAME_TO_ID.get(key):
                 return id
         payload = {"search_value": name, "fc": 2, "limit": 16}
         suffix = name.rpartition(".")[-1]
-        if len(suffix) < 5 and suffix.isalnum() and suffix[0].isalpha():
+        if suffix.isalnum():
             payload["suffix"] = suffix
         resp = await client.fs_search_open(payload, async_=True)
+        if get_first(resp, "errno", "errNo") == 20021:
+            payload.pop("suffix")
+            resp = await client.fs_search_open(payload, async_=True)
         check_response(resp)
-        for info in resp["data"]:
-            if info["file_name"] == name:
-                if size >= 0 and int(info["file_size"]) != size:
-                    continue
-                id = int(info["file_id"])
-                if size < 0:
-                    NAME_TO_ID[name] = id
-                else:
-                    NAME_TO_ID[(name, size)] = id
-                return P115ID(id, info)
+        if data := resp["data"]:
+            for info in data:
+                if info["file_name"] == name:
+                    if size >= 0 and int(info["file_size"]) != size:
+                        continue
+                    id = int(info["file_id"])
+                    NAME_TO_ID[key] = id
+                    return P115ID(id, info)
         raise FileNotFoundError(ENOENT, {"name": name, "size": size, "error": "not found"})
 
     async def path_to_id(
@@ -293,7 +288,7 @@ def make_application(
             or (r := DOWNLOAD_URL_CACHE2.get((id, user_agent)))
         ):
             return r[1]
-        pickcode = id_to_pickcode(id, client.pickcode_stable_point)
+        pickcode = client.to_pickcode(id)
         url = await client.download_url_open(
             pickcode, 
             headers={"user-agent": user_agent}, 
@@ -335,6 +330,7 @@ def make_application(
                 return json({"state": False, "message": "invalid sign"}, 403)
             elif t > 0 and t <= get_timestamp():
                 return json({"state": False, "message": "url was expired"}, 401)
+        url: str
         if id:
             if resp := check_sign(id):
                 return resp
@@ -343,7 +339,7 @@ def make_application(
                 return resp
             if not is_valid_pickcode(pickcode):
                 raise ValueError(f"bad pickcode: {pickcode!r}")
-            id = pickcode_to_id(pickcode)
+            id = client.to_id(pickcode)
         elif sha1:
             if resp := check_sign(sha1):
                 return resp
@@ -373,7 +369,7 @@ def make_application(
                 if not (name.startswith("0") or name.strip(digits)):
                     id = int(name)
                 elif is_valid_pickcode(name):
-                    id = pickcode_to_id(name)
+                    id = client.to_id(name)
                 elif len(name) == 40 and not name.strip(hexdigits):
                     id = await sha1_to_id(name.upper(), size, refresh=refresh)
             else:
@@ -387,7 +383,7 @@ def make_application(
                     id = await name_to_id(fullname, size, refresh=refresh)
         if not id:
             raise FileNotFoundError(ENOENT, f"not found: {str(request.url)!r}")
-        pickcode = id_to_pickcode(id, client.pickcode_stable_point)
+        pickcode = client.to_pickcode(id)
         match method:
             # 视频字幕列表
             case "subs" | "subtitle" | "subtitles":
