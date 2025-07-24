@@ -3,16 +3,15 @@
 
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
 __all__ = [
-    "MultipartResumeData", "P115Cookies", "P115DictAttrLikeMixin", "P115DictAttrLike", 
-    "P115ID", "P115StrID", "P115URL", 
+    "DirNode", "MultipartResumeData", "P115Cookies", "P115DictAttrLikeMixin", 
+    "P115DictAttrLike", "P115ID", "P115StrID", "P115URL", 
 ]
 
-from collections.abc import Callable
 from functools import cached_property
 from http.cookiejar import CookieJar
 from re import compile as re_compile
 from types import MappingProxyType
-from typing import Any, Final, NotRequired, Self, TypedDict
+from typing import Any, Final, NamedTuple, NotRequired, Self, TypedDict
 
 from cookietools import cookies_str_to_dict
 from undefined import undefined
@@ -23,12 +22,21 @@ CRE_CID_FORMAT_match: Final = re_compile("[0-9a-f]{32}").fullmatch
 CRE_SEID_FORMAT_match: Final = re_compile("[0-9a-f]{120}").fullmatch
 
 
+class DirNode(NamedTuple):
+    """用来保存某个 id 对应的 name 和 parent_id 的元组
+    """
+    name: str
+    parent_id: int
+
+
 class RequestKeywords(TypedDict):
+    """一个请求函数，至少需要包括的参数
+    """
     url: str
     method: str
     data: Any
     headers: Any
-    parse: Callable
+    parse: Any
 
 
 class MultipartResumeData(TypedDict):

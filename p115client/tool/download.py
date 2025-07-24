@@ -45,12 +45,14 @@ from p115client import (
     check_response, normalize_attr, normalize_attr_simple, P115Client, 
     P115OpenClient, P115URL, 
 )
+from p115client.const import ID_TO_DIRNODE_CACHE
 from p115client.exception import AccessError, P115Warning
+from p115client.type import DirNode
 from p115pickcode import to_id
 
 from .iterdir import (
     iterdir, iter_files, iter_files_shortcut, unescape_115_charref, 
-    posix_escape_name, DirNode, ID_TO_DIRNODE_CACHE, 
+    posix_escape_name, 
 )
 from .util import reduce_image_url_layers
 

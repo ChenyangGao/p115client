@@ -6,11 +6,15 @@ from __future__ import annotations
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
 __all__ = [
     "AVAILABLE_APPS", "APP_TO_SSOENT", "SSOENT_TO_APP", "CLIENT_METHOD_API_MAP", 
-    "CLIENT_API_METHODS_MAP", "CLASS_TO_TYPE", "SUFFIX_TO_TYPE", "errno", 
+    "CLIENT_API_METHODS_MAP", "CLASS_TO_TYPE", "SUFFIX_TO_TYPE", "ID_TO_DIRNODE_CACHE", 
+    "errno", 
 ]
 
+from collections import defaultdict
 from enum import IntEnum
 from typing import Final
+
+from .type import DirNode
 
 
 #: 目前可用的登录设备
@@ -218,6 +222,12 @@ SUFFIX_TO_TYPE: Final[dict[str, int]] = {
     ".mobi": 7, 
     ".prc": 7, 
 }
+
+
+# TODO: 以后会支持把缓存建在任何 key-value 缓存中，比如 sqlite3 数据库
+#: 用于缓存每个用户（根据用户 id 区别）的每个目录 id 到所对应的 (name, parent_id) 的元组的字典的字典
+ID_TO_DIRNODE_CACHE: Final[defaultdict[int | tuple[int, str], dict[int, tuple[str, int] | DirNode]]] = defaultdict(dict)
+
 
 class errno(IntEnum):
     """OSError 的错误码的枚举

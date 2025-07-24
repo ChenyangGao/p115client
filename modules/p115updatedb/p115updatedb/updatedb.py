@@ -392,7 +392,7 @@ def sort(
     """对文件信息数据进行排序，使得如果某个元素是另一个元素的父节点，则后者在前
 
     :param data: 待排序的文件信息列表
-    :param reverse: 是否你需排列
+    :param reverse: 是否逆序排列
 
     :return: 原地排序，返回传入的列表本身
     """

@@ -657,7 +657,10 @@ if __name__ == "__main__":
         access_log=False, 
     )
 
+# TODO: 那个单 js 的文件可以发布到 nodejs 上
+# TODO: 再写一个 rust 版本的，发布到 cargo 上
 # TODO: 优先使用 id 而不是 pickcode
 # TODO: 功能追平 p115open302
 # TODO: 允许把缓存保存到 sqlite 数据库中，以便下次继续使用
 # TODO: 搜索路径时，再提供一个参数，以支持精确匹配，这时就不会使用查询接口了，而是通过罗列目录列表来进行匹配
+# TODO: share 也支持用 path 查询，但是速度会慢一些（要缓存各个节点，这个可能会导致内存占用较高，怎么优化）
