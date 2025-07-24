@@ -38,8 +38,8 @@ from asynctools import async_chain
 from concurrenttools import run_as_thread
 from encode_uri import encode_uri_component_loose
 from iterutils import (
-    as_gen_step, chunked, map as do_map, run_gen_step, run_gen_step_iter, 
-    through, with_iter_next, Yield, YieldFrom, 
+    chunked, map as do_map, run_gen_step, run_gen_step_iter, 
+    through, with_iter_next, Yield, YieldFrom, GenStep, 
 )
 from p115client import (
     check_response, normalize_attr, normalize_attr_simple, P115Client, 
@@ -1528,25 +1528,26 @@ def iter_download_nodes(
         return attrs
     if need_yield:
         prepare = normalize_attrs
-        @as_gen_step
         def normalize_attrs(attrs: list[dict], /):
+            prepare(attrs)
             if attrs:
-                prepare(attrs)
-                resp = yield file_skim(
-                    (a["id"] for a in attrs), 
-                    method="POST", 
-                    async_=async_, 
-                    **request_kwargs, 
-                )
-                if resp.get("error") != "文件不存在":
-                    check_response(resp)
-                    nodes = {int(a["file_id"]): a for a in resp["data"]}
-                    for attr in attrs:
-                        if node := nodes.get(attr["id"]):
-                            attr["sha1"] = node["sha1"]
-                            attr["name"] = unescape_115_charref(node["file_name"])
+                def load_names(attrs, /):
+                    resp = yield file_skim(
+                        (a["id"] for a in attrs), 
+                        method="POST", 
+                        async_=async_, 
+                        **request_kwargs, 
+                    )
+                    if resp.get("error") != "文件不存在":
+                        check_response(resp)
+                        nodes = {int(a["file_id"]): a for a in resp["data"]}
+                        for attr in attrs:
+                            if node := nodes.get(attr["id"]):
+                                attr["sha1"] = node["sha1"]
+                                attr["name"] = unescape_115_charref(node["file_name"])
+                    return attrs
+                return GenStep(load_names(attrs))
             return attrs
-    need_yield = need_yield and async_
     get_nodes = partial(
         method, 
         async_=async_, 
@@ -1572,7 +1573,6 @@ def iter_download_nodes(
         else:
             q = SimpleQueue()
         get, put = q.get, q.put_nowait
-        @as_gen_step
         def request(pickcode: str, /):
             nonlocal max_page
             while True:
@@ -1623,7 +1623,7 @@ def iter_download_nodes(
                             if not n:
                                 put(sentinel)
                 for _ in range(n):
-                    submit(request, pickcode, async_=async_).add_done_callback(countdown)
+                    submit(run_gen_step, request(pickcode), async_).add_done_callback(countdown)
                 while True:
                     ls = yield get()
                     if ls is sentinel:
@@ -1887,22 +1887,20 @@ def iter_download_files(
             return run_gen_step_iter(gen_step(client.to_pickcode(cid)), async_)
     else:
         ancestors_loaded: bool = False
-        @as_gen_step
         def load_ancestors(pickcode: str, /):
+            return through(iter_download_nodes(
+                client, 
+                pickcode, 
+                files=False, 
+                id_to_dirnode=id_to_dirnode, 
+                max_workers=max_workers, 
+                app=app, 
+                async_=async_, 
+                **request_kwargs, 
+            ))
+        def set_ancestors_loaded(*_):
             nonlocal ancestors_loaded
-            try:
-                yield through(iter_download_nodes(
-                    client, 
-                    pickcode, 
-                    files=False, 
-                    id_to_dirnode=id_to_dirnode, 
-                    max_workers=max_workers, 
-                    app=app, 
-                    async_=async_, 
-                    **request_kwargs, 
-                ))
-            finally:
-                ancestors_loaded = True
+            ancestors_loaded = True
         def gen_step(pickcode: str, /):
             nonlocal ancestors_loaded
             if pickcode:
@@ -1921,6 +1919,7 @@ def iter_download_files(
                     task: Any = create_task(load_ancestors(pickcode))
                 else:
                     task = run_as_thread(load_ancestors, pickcode)
+                task.add_done_callback(set_ancestors_loaded)
                 cache: list[dict] = []
                 add_to_cache = cache.append
                 with with_iter_next(iter_download_nodes(

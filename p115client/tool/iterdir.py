@@ -14,7 +14,7 @@ __all__ = [
 ]
 __doc__ = "这个模块提供了一些和目录信息罗列有关的函数"
 
-from asyncio import create_task, sleep as async_sleep, Task
+from asyncio import create_task, gather as async_gather, sleep as async_sleep, Task
 from collections.abc import (
     AsyncIterable, AsyncIterator, Callable, Generator, Iterable, 
     Iterator, Mapping, MutableMapping, Sequence, 
@@ -51,7 +51,6 @@ from p115client.type import DirNode
 from p115pickcode import pickcode_to_id, to_id
 from posixpatht import splitext
 
-from .attr import type_of_attr
 from .edit import update_desc, update_star, post_event
 from .fs_files import (
     is_timeouterror, iter_fs_files, iter_fs_files_threaded, 
@@ -1492,10 +1491,9 @@ def iter_files_with_path(
         def set_path_already(*_):
             nonlocal path_already
             path_already = True
-        @as_gen_step
         def fetch_dirs(id: int | str, /):
             if id:
-                yield through(iter_download_nodes(
+                return through(iter_download_nodes(
                     client, 
                     client.to_pickcode(id), 
                     files=False, 
@@ -1505,17 +1503,17 @@ def iter_files_with_path(
                     **request_kwargs, 
                 ))
             else:
-                with with_iter_next(iterdir(
-                    client, 
-                    ensure_file=False, 
-                    id_to_dirnode=id_to_dirnode, 
-                    app=app, 
-                    async_=async_, 
-                    **request_kwargs, 
-                )) as get_next:
-                    while True:
-                        attr = yield get_next()
-                        yield fetch_dirs(attr["pickcode"])
+                return foreach(
+                    lambda a: fetch_dirs(a["pickcode"]), 
+                    iterdir(
+                        client, 
+                        ensure_file=False, 
+                        id_to_dirnode=id_to_dirnode, 
+                        app=app, 
+                        async_=async_, 
+                        **request_kwargs, 
+                    ), 
+                )
         def gen_step():
             cache: list[dict] = []
             add_to_cache = cache.append
@@ -1715,33 +1713,31 @@ def iter_files_with_path_skim(
             **request_kwargs, 
         ))
     else:
-        def set_path_already(*_):
-            nonlocal path_already
-            path_already = True
         top_id = cid
-        if not cid:
-            top_ancestors = [{"id": 0, "parent_id": 0, "name": ""}]
-            top_path = "/"
-            top_prefix_len = 1
         @as_gen_step
-        def fetch_dirs(id: int | str, /):
+        def update_top(cid: int | str, /):
             nonlocal top_ancestors, top_path, top_prefix_len
+            if cid:
+                do_next: Callable = anext if async_ else next
+                attr = yield do_next(_iter_fs_files(
+                    client, 
+                    to_id(cid), 
+                    page_size=1, 
+                    id_to_dirnode=id_to_dirnode, 
+                    escape=escape, 
+                    async_=async_, 
+                    **request_kwargs, 
+                ))
+                top_ancestors = attr["top_ancestors"]
+                top_path = attr["top_path"]
+                top_prefix_len = 1 if top_path == "/" else len(top_path) + 1
+            else:
+                top_ancestors = [{"id": 0, "parent_id": 0, "name": ""}]
+                top_path = "/"
+                top_prefix_len = 1
+        def fetch_dirs(id: int | str, /):
             if id:
-                if cid:
-                    do_next: Callable = anext if async_ else next
-                    attr = yield do_next(_iter_fs_files(
-                        client, 
-                        to_id(id), 
-                        page_size=1, 
-                        id_to_dirnode=id_to_dirnode, 
-                        escape=escape, 
-                        async_=async_, 
-                        **request_kwargs, 
-                    ))
-                    top_ancestors = attr["top_ancestors"]
-                    top_path = attr["top_path"]
-                    top_prefix_len = 1 if top_path == "/" else len(top_path) + 1
-                yield through(iter_download_nodes(
+                return through(iter_download_nodes(
                     client, 
                     client.to_pickcode(id), 
                     files=False, 
@@ -1751,26 +1747,34 @@ def iter_files_with_path_skim(
                     **request_kwargs, 
                 ))
             else:
-                with with_iter_next(iterdir(
-                    client, 
-                    ensure_file=False, 
-                    id_to_dirnode=id_to_dirnode, 
-                    app=app, 
-                    async_=async_, 
-                    **request_kwargs, 
-                )) as get_next:
-                    while True:
-                        attr = yield get_next()
-                        yield fetch_dirs(attr["pickcode"])
+                return foreach(
+                    lambda a: fetch_dirs(a["pickcode"]), 
+                    iterdir(
+                        client, 
+                        ensure_file=False, 
+                        id_to_dirnode=id_to_dirnode, 
+                        app=app, 
+                        async_=async_, 
+                        **request_kwargs, 
+                    ), 
+                )
+        def set_path_already(*_):
+            nonlocal path_already
+            path_already = True
         def gen_step():
             cache: list[dict] = []
             add_to_cache = cache.append
             if not path_already:
                 if async_:
-                    task: Any = create_task(fetch_dirs(cid))
+                    task: Any = async_gather(update_top(cid), fetch_dirs(cid))
+                    task.add_done_callback(set_path_already)
                 else:
+                    task0 = run_as_thread(update_top, cid)
                     task = run_as_thread(fetch_dirs, cid)
-                task.add_done_callback(set_path_already)
+                    def done_callback(*_):
+                        task0.result()
+                        set_path_already()
+                    task.add_done_callback(done_callback)
             with with_iter_next(iter_download_nodes(
                 client, 
                 cid, 
@@ -2007,7 +2011,7 @@ def iter_files_frament(
     elif id_to_dirnode is ... and (with_ancestors or with_path):
         id_to_dirnode = {}
     auto_splitting_tasks = auto_splitting_tasks and auto_splitting_threshold > 0
-    from .attr import get_file_count
+    from .attr import get_file_count, type_of_attr
     def gen_step():
         nonlocal cid
         if auto_splitting_tasks:
@@ -2834,6 +2838,7 @@ def iter_nodes_using_event(
         event_name = "browse_document"
     else:
         event_name = "browse_image"
+    from .attr import type_of_attr
     def gen_step():
         nonlocal ids
         ts = int(time())
@@ -3056,7 +3061,6 @@ def iter_parents(
             return t[::-1]
     set_names = client.fs_rename_set_names
     reset_names = client.fs_rename_reset_names
-    @as_gen_step
     def get_parents(ids: Sequence[int], /):
         data: dict = {f"file_list[{i}][file_id]": id for i, id in enumerate(ids)}
         resp = yield set_names(data, async_=async_, **request_kwargs)
@@ -3094,7 +3098,7 @@ def iter_parents(
         l3 = (d["file_name"] for d in resp3["data"])
         return ((id, fix_overflow(t)) for id, t in zip(ids, zip(l3, l2, l1)))
     return chain_from_iterable(conmap(
-        get_parents, 
+        lambda ids: run_gen_step(get_parents(ids), async_), 
         chunked(do_filter(None, ids), 1150), 
         max_workers=max_workers, 
         async_=async_, # type: ignore

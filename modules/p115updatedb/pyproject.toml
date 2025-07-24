@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "p115updatedb"
-version = "0.0.12"
+version = "0.0.12.1"
 description = "把 115 网盘的文件列表导出到数据库"
 authors = ["ChenyangGao <wosiwujm@gmail.com>"]
 license = "MIT"
@@ -28,7 +28,7 @@ include = [
 [tool.poetry.dependencies]
 python = "^3.12"
 orjson = "*"
-p115client = ">=0.0.5.15"
+p115client = ">=0.0.5.15.14"
 posixpatht = ">=0.0.4"
 python-concurrenttools = ">=0.1.0"
 python-iterutils = ">=0.2.5.4"
