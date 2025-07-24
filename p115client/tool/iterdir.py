@@ -52,12 +52,9 @@ from p115pickcode import pickcode_to_id, to_id
 from posixpatht import splitext
 
 from .edit import update_desc, update_star, post_event
-from .fs_files import (
-    is_timeouterror, iter_fs_files, iter_fs_files_threaded, 
-    iter_fs_files_asynchronized, 
-)
+from .fs_files import iter_fs_files
 from .life import iter_life_behavior_once, life_show
-from .util import posix_escape_name, share_extract_payload, unescape_115_charref
+from .util import is_timeouterror, posix_escape_name, share_extract_payload, unescape_115_charref
 
 
 @dataclass(frozen=True, unsafe_hash=True)
@@ -586,8 +583,8 @@ def _iter_fs_files(
     hold_top: bool = True, 
     escape: None | bool | Callable[[str], str] = True, 
     app: str = "android", 
-    cooldown: int | float = 0, 
-    max_workers: None | int = None, 
+    cooldown: None | float = None, 
+    max_workers: None | int = 1, 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -607,8 +604,8 @@ def _iter_fs_files(
     hold_top: bool = True, 
     escape: None | bool | Callable[[str], str] = True, 
     app: str = "android", 
-    cooldown: int | float = 0, 
-    max_workers: None | int = None, 
+    cooldown: None | float = None, 
+    max_workers: None | int = 1, 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -627,8 +624,8 @@ def _iter_fs_files(
     hold_top: bool = True, 
     escape: None | bool | Callable[[str], str] = True, 
     app: str = "android", 
-    cooldown: int | float = 0, 
-    max_workers: None | int = None, 
+    cooldown: None | float = None, 
+    max_workers: None | int = 1, 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -658,7 +655,7 @@ def _iter_fs_files(
         - 如果为 Callable，则用你所提供的调用，以或者转义后的名字
 
     :param app: 使用指定 app（设备）的接口
-    :param cooldown: 冷却时间，大于 0，则使用此时间间隔执行并发
+    :param cooldown: 冷却时间，单位为秒。如果为 None，则用默认值（非并发时为 0，并发时为 1）
     :param max_workers: 最大并发数，如果为 None 或 <= 0，则自动确定
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
@@ -691,11 +688,6 @@ def _iter_fs_files(
         else:
             escape = posix_escape_name
     escape = cast(None | Callable[[str], str], escape)
-    request_kwargs.update(
-        app=app, 
-        page_size=page_size, 
-        raise_for_changed_count=raise_for_changed_count, 
-    )
     if not isinstance(client, P115Client):
         with_dirname = False
     if with_dirname:
@@ -721,32 +713,19 @@ def _iter_fs_files(
             )
         request_kwargs["callback"] = callback
     def gen_step():
-        if cooldown <= 0 or max_workers == 1:
-            it = iter_fs_files(
-                client, 
-                payload, 
-                first_page_size=first_page_size, 
-                async_=async_, 
-                **request_kwargs, 
-            )
-        elif async_:
-            it = iter_fs_files_asynchronized(
-                client, 
-                payload, 
-                cooldown=cooldown, 
-                max_workers=max_workers, 
-                **request_kwargs, 
-            )
-        else:
-            it = iter_fs_files_threaded(
-                client, 
-                payload, 
-                cooldown=cooldown, 
-                max_workers=max_workers, 
-                **request_kwargs, 
-            )
         top_id = int(payload.get("cid") or 0)
-        with with_iter_next(it) as get_next:
+        with with_iter_next(iter_fs_files(
+            client, 
+            payload, 
+            page_size=page_size, 
+            first_page_size=first_page_size, 
+            app=app, 
+            raise_for_changed_count=raise_for_changed_count, 
+            cooldown=cooldown, 
+            max_workers=max_workers, 
+            async_=async_, 
+            **request_kwargs, 
+        )) as get_next:
             while True:
                 resp = yield get_next()
                 update_resp_ancestors(resp, id_to_dirnode)
@@ -793,8 +772,8 @@ def iterdir(
     raise_for_changed_count: bool = False, 
     ensure_file: None | bool = None, 
     app: str = "android", 
-    cooldown: int | float = 0, 
-    max_workers: None | int = None, 
+    cooldown: None | float = None, 
+    max_workers: None | int = 1, 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -815,8 +794,8 @@ def iterdir(
     raise_for_changed_count: bool = False, 
     ensure_file: None | bool = None, 
     app: str = "android", 
-    cooldown: int | float = 0, 
-    max_workers: None | int = None, 
+    cooldown: None | float = None, 
+    max_workers: None | int = 1, 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -836,8 +815,8 @@ def iterdir(
     raise_for_changed_count: bool = False, 
     ensure_file: None | bool = None, 
     app: str = "android", 
-    cooldown: int | float = 0, 
-    max_workers: None | int = None, 
+    cooldown: None | float = None, 
+    max_workers: None | int = 1, 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -870,7 +849,7 @@ def iterdir(
         - None: 可以是目录或文件
 
     :param app: 使用指定 app（设备）的接口
-    :param cooldown: 冷却时间，大于 0，则使用此时间间隔执行并发
+    :param cooldown: 冷却时间，单位为秒。如果为 None，则用默认值（非并发时为 0，并发时为 1）
     :param max_workers: 最大并发数，如果为 None 或 <= 0，则自动确定
     :param raise_for_changed_count: 分批拉取时，发现总数发生变化后，是否报错
     :param async_: 是否异步
@@ -909,8 +888,8 @@ def iter_stared_dirs(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     raise_for_changed_count: bool = False, 
     app: str = "android", 
-    cooldown: int | float = 0, 
-    max_workers: None | int = None, 
+    cooldown: None | float = None, 
+    max_workers: None | int = 1, 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -927,8 +906,8 @@ def iter_stared_dirs(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     raise_for_changed_count: bool = False, 
     app: str = "android", 
-    cooldown: int | float = 0, 
-    max_workers: None | int = None, 
+    cooldown: None | float = None, 
+    max_workers: None | int = 1, 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -944,8 +923,8 @@ def iter_stared_dirs(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     raise_for_changed_count: bool = False, 
     app: str = "android", 
-    cooldown: int | float = 0, 
-    max_workers: None | int = None, 
+    cooldown: None | float = None, 
+    max_workers: None | int = 1, 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -969,7 +948,7 @@ def iter_stared_dirs(
     :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
     :param raise_for_changed_count: 分批拉取时，发现总数发生变化后，是否报错
     :param app: 使用指定 app（设备）的接口
-    :param cooldown: 冷却时间，大于 0，则使用此时间间隔执行并发
+    :param cooldown: 冷却时间，单位为秒。如果为 None，则用默认值（非并发时为 0，并发时为 1）
     :param max_workers: 最大并发数，如果为 None 或 <= 0，则自动确定
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
@@ -1168,8 +1147,8 @@ def iter_files(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     raise_for_changed_count: bool = False, 
     app: str = "android", 
-    cooldown: int | float = 0, 
-    max_workers: None | int = None, 
+    cooldown: None | float = None, 
+    max_workers: None | int = 1, 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -1190,8 +1169,8 @@ def iter_files(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     raise_for_changed_count: bool = False, 
     app: str = "android", 
-    cooldown: int | float = 0, 
-    max_workers: None | int = None, 
+    cooldown: None | float = None, 
+    max_workers: None | int = 1, 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -1211,8 +1190,8 @@ def iter_files(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     raise_for_changed_count: bool = False, 
     app: str = "android", 
-    cooldown: int | float = 0, 
-    max_workers: None | int = None, 
+    cooldown: None | float = None, 
+    max_workers: None | int = 1, 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -1250,7 +1229,7 @@ def iter_files(
     :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
     :param raise_for_changed_count: 分批拉取时，发现总数发生变化后，是否报错
     :param app: 使用指定 app（设备）的接口
-    :param cooldown: 冷却时间，大于 0，则使用此时间间隔执行并发
+    :param cooldown: 冷却时间，单位为秒。如果为 None，则用默认值（非并发时为 0，并发时为 1）
     :param max_workers: 最大并发数，如果为 None 或 <= 0，则自动确定
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
@@ -1302,7 +1281,7 @@ def iter_files_with_path(
     path_already: bool = False, 
     raise_for_changed_count: bool = False, 
     app: str = "android", 
-    cooldown: int | float = 0.5, 
+    cooldown: None | float = 0.5, 
     max_workers: None | int = None, 
     *, 
     async_: Literal[False] = False, 
@@ -1326,7 +1305,7 @@ def iter_files_with_path(
     path_already: bool = False, 
     raise_for_changed_count: bool = False, 
     app: str = "android", 
-    cooldown: int | float = 0.5, 
+    cooldown: None | float = 0.5, 
     max_workers: None | int = None, 
     *, 
     async_: Literal[True], 
@@ -1349,7 +1328,7 @@ def iter_files_with_path(
     path_already: bool = False, 
     raise_for_changed_count: bool = False, 
     app: str = "android", 
-    cooldown: int | float = 0.5, 
+    cooldown: None | float = 0.5, 
     max_workers: None | int = None, 
     *, 
     async_: Literal[False, True] = False, 
@@ -1396,7 +1375,7 @@ def iter_files_with_path(
     :param path_already: 如果为 True，则说明 id_to_dirnode 中已经具备构建路径所需要的目录节点，所以不会再去拉取目录节点的信息
     :param raise_for_changed_count: 分批拉取时，发现总数发生变化后，是否报错
     :param app: 使用指定 app（设备）的接口
-    :param cooldown: 冷却时间，大于 0，则使用此时间间隔执行并发
+    :param cooldown: 冷却时间，单位为秒。如果为 None，则用默认值（非并发时为 0，并发时为 1）
     :param max_workers: 最大并发数，如果为 None 或 <= 0，则自动确定
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
@@ -1907,7 +1886,7 @@ def iter_files_frament(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     raise_for_changed_count: bool = False, 
     app: str = "web", 
-    cooldown: int | float = 0, 
+    cooldown: None | float = None, 
     max_workers: None | int = None, 
     *, 
     async_: Literal[False] = False, 
@@ -1931,7 +1910,7 @@ def iter_files_frament(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     raise_for_changed_count: bool = False, 
     app: str = "web", 
-    cooldown: int | float = 0, 
+    cooldown: None | float = None, 
     max_workers: None | int = None, 
     *, 
     async_: Literal[True], 
@@ -1954,7 +1933,7 @@ def iter_files_frament(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     raise_for_changed_count: bool = False, 
     app: str = "web", 
-    cooldown: int | float = 0, 
+    cooldown: None | float = None, 
     max_workers: None | int = None, 
     *, 
     async_: Literal[False, True] = False, 
@@ -1992,7 +1971,7 @@ def iter_files_frament(
     :param normalize_attr: 把数据进行转换处理，使之便于阅读
     :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
     :param app: 使用指定 app（设备）的接口
-    :param cooldown: 冷却时间，大于 0，则使用此时间间隔执行并发
+    :param cooldown: 冷却时间，单位为秒。如果为 None，则用默认值（非并发时为 0，并发时为 1）
     :param raise_for_changed_count: 分批拉取时，发现总数发生变化后，是否报错
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
@@ -2761,7 +2740,7 @@ def iter_nodes_using_event(
     normalize_attr: None | bool | Callable[[dict], dict] = True, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "android", 
-    cooldown: int | float = 0, 
+    cooldown: float = 0, 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -2775,7 +2754,7 @@ def iter_nodes_using_event(
     normalize_attr: None | bool | Callable[[dict], dict] = True, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "android", 
-    cooldown: int | float = 0, 
+    cooldown: float = 0, 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -2788,7 +2767,7 @@ def iter_nodes_using_event(
     normalize_attr: None | bool | Callable[[dict], dict] = True, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     app: str = "android", 
-    cooldown: int | float = 0, 
+    cooldown: float = 0, 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -2915,7 +2894,7 @@ def iter_dir_nodes_using_star(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     raise_for_changed_count: bool = False, 
     app: str = "android", 
-    cooldown: int | float = 0, 
+    cooldown: None | float = None, 
     max_workers: None | int = 1, 
     already_stared: bool = False, 
     *, 
@@ -2930,7 +2909,7 @@ def iter_dir_nodes_using_star(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     raise_for_changed_count: bool = False, 
     app: str = "android", 
-    cooldown: int | float = 0, 
+    cooldown: None | float = None, 
     max_workers: None | int = 1, 
     already_stared: bool = False, 
     *, 
@@ -2944,7 +2923,7 @@ def iter_dir_nodes_using_star(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
     raise_for_changed_count: bool = False, 
     app: str = "android", 
-    cooldown: int | float = 0, 
+    cooldown: None | float = None, 
     max_workers: None | int = 1, 
     already_stared: bool = False, 
     *, 

@@ -1566,33 +1566,37 @@ def iter_download_nodes(
                 if not data["has_next_page"]:
                     break
     else:
-        max_page = 0
-        get_next_page = count(1).__next__
-        if async_:
-            q: Any = AsyncQueue()
-        else:
-            q = SimpleQueue()
-        get, put = q.get, q.put_nowait
-        def request(pickcode: str, /):
-            nonlocal max_page
-            while True:
-                page = get_next_page()
-                if max_page and page > max_page:
-                    return
-                resp: dict = yield get_nodes({"pickcode": pickcode, "page": page})
-                try:
-                    check_response(resp)
-                except BaseException as e:
-                    put(e)
-                    return
-                data = resp["data"]
-                attrs = normalize_attrs(data["list"])
-                if need_yield:
-                    attrs = yield attrs
-                put(attrs)
-                if not data["has_next_page"]:
-                    max_page = page
         def gen_step(pickcode: int | str, /):
+            max_page = 0
+            def request(task_idx, pickcode: str, /):
+                nonlocal max_page
+                while True:
+                    page = get_next_page()
+                    if max_page and page > max_page:
+                        return
+                    task_page[task_idx] = page
+                    resp: dict = yield get_nodes({"pickcode": pickcode, "page": page})
+                    try:
+                        check_response(resp)
+                    except BaseException as e:
+                        put(e)
+                        return
+                    data = resp["data"]
+                    attrs = normalize_attrs(data["list"])
+                    if need_yield:
+                        attrs = yield attrs
+                    put(attrs)
+                    if not data["has_next_page"]:
+                        max_page = page
+                        for i, p in enumerate(task_page):
+                            if p > page:
+                                task_list[i].cancel()
+            get_next_page = count(1).__next__
+            if async_:
+                q: Any = AsyncQueue()
+            else:
+                q = SimpleQueue()
+            get, put = q.get, q.put_nowait
             if async_:
                 n = cast(int, max_workers)
                 task_group = TaskGroup()
@@ -1622,8 +1626,11 @@ def iter_download_nodes(
                             n -= 1
                             if not n:
                                 put(sentinel)
-                for _ in range(n):
-                    submit(run_gen_step, request(pickcode), async_).add_done_callback(countdown)
+                task_list: list = [None] * n
+                task_page: list[int] = [0] * n
+                for i in range(n):
+                    task = task_list[i] = submit(run_gen_step, request(i, pickcode), async_)
+                    task.add_done_callback(countdown)
                 while True:
                     ls = yield get()
                     if ls is sentinel:
@@ -1637,7 +1644,6 @@ def iter_download_nodes(
         return run_gen_step_iter(gen_step(pickcode), async_)
     else:
         def chain():
-            nonlocal max_page, get_next_page
             pickcodes: list[str] = []
             add_pickcode = pickcodes.append
             with with_iter_next(iterdir(
@@ -1660,8 +1666,6 @@ def iter_download_nodes(
                         yield Yield(attr)
             for pickcode in pickcodes:
                 yield YieldFrom(run_gen_step_iter(gen_step(pickcode), async_))             
-                max_page = 0
-                get_next_page = count(1).__next__
         return run_gen_step_iter(chain, async_)
 
 
