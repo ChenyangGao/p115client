@@ -220,7 +220,7 @@ def iter_fs_files_serialized(
     }
     cid = int(payload["cid"])
     def gen_step():
-        nonlocal count
+        nonlocal count, first_page_size
         last_call_ts: float = 0
         while True:
             while True:

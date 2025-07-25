@@ -11,7 +11,7 @@ __doc__ = """\
     │                                                                              │
     │                      \x1b[32mlicense     \x1b[4;34mhttps://www.gnu.org/licenses/gpl-3.0.txt\x1b[0m    │
     │                                                                              │
-    │                      \x1b[32mversion     \x1b[1;36m0.2.0\x1b[0m                                       │
+    │                      \x1b[32mversion     \x1b[1;36m0.2.1\x1b[0m                                       │
     │                                                                              │
     ╰──────────────────────────────────────────────────────────────────────────────╯
 
@@ -28,12 +28,15 @@ __doc__ = """\
 
     \x1b[3;34mhashlib\x1b[0m.\x1b[3;31msha1\x1b[0m(\x1b[3;31mbytes\x1b[0m(f\x1b[32m"302@115-{\x1b[1;3;36mtoken\x1b[0m\x1b[32m}-{\x1b[1;3;36mt\x1b[0m\x1b[32m}-{\x1b[1;3;36mvalue\x1b[0m\x1b[32m}"\x1b[0m, \x1b[32m"utf-8"\x1b[0m)).\x1b[3;31mhexdigest\x1b[0m()
 
-其中
-- \x1b[3;36mtoken\x1b[0m 就是命令行所传入的令牌
-- \x1b[3;36mt\x1b[0m 为过期时间点（\x1b[1;3;31m默认值为 0，即永不过期\x1b[0m）
-- \x1b[3;36mvalue\x1b[0m 就是值，像这样的链接，优先级顺序为 \x1b[3;36mpickcode\x1b[0m > \x1b[3;36mid\x1b[0m > \x1b[3;36msha1\x1b[0m > \x1b[3;36mname\x1b[0m > \x1b[3;36mpath\x1b[0m > \x1b[3;36mname2\x1b[0m
+其中：
 
-    \x1b[4;34mhttp://localhost:8000/{\x1b[1;3;36mname2\x1b[0m\x1b[4;34m}?id={\x1b[1;3;36mid\x1b[0m\x1b[4;34m}&pickcode={\x1b[1;3;36mpickcode\x1b[0m\x1b[4;34m}&sha1={\x1b[1;3;36msha1\x1b[0m\x1b[4;34m}&name={\x1b[1;3;36mname\x1b[0m\x1b[4;34m}&path={\x1b[1;3;36mpath\x1b[0m\x1b[4;34m}\x1b[0m
+    1. \x1b[3;36mtoken\x1b[0m 就是命令行所传入的令牌
+    2. \x1b[3;36mt\x1b[0m 为过期时间点（\x1b[1;3;31m默认值为 0，即永不过期\x1b[0m）
+    3. \x1b[3;36mvalue\x1b[0m 就是值，像这样的链接，优先级顺序为 \x1b[3;36mid\x1b[0m > \x1b[3;36mpickcode\x1b[0m > \x1b[3;36msha1\x1b[0m > \x1b[3;36mname\x1b[0m > \x1b[3;36mpath\x1b[0m > \x1b[3;36mname2\x1b[0m
+
+        \x1b[4;34mhttp://localhost:8000/{\x1b[1;3;36mname2\x1b[0m\x1b[4;34m}?id={\x1b[1;3;36mid\x1b[0m\x1b[4;34m}&pickcode={\x1b[1;3;36mpickcode\x1b[0m\x1b[4;34m}&sha1={\x1b[1;3;36msha1\x1b[0m\x1b[4;34m}&name={\x1b[1;3;36mname\x1b[0m\x1b[4;34m}&path={\x1b[1;3;36mpath\x1b[0m\x1b[4;34m}\x1b[0m
+
+    4. 但如果你传入了查询参数 \x1b[3;36mvalue\x1b[0m，且不是空字符串，那么就强制用这个值来计算签名，优先级高于上一条规则
 
 🌰 查询示例：
 
@@ -186,7 +189,7 @@ def main(argv: None | list[str] | Namespace = None, /):
     run_config.setdefault("timeout_graceful_shutdown", 1)
     run_config.setdefault("access_log", False)
 
-    from p115tiny302 import make_application
+    from p115tiny302.app import make_application
     from uvicorn import run
 
     print(__doc__)

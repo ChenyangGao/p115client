@@ -55,7 +55,7 @@ usage: p115open302 [-h] [-c COOKIES] [-cp COOKIES_PATH] [-a APP_ID]
     │                                                                              │
     │                      license     https://www.gnu.org/licenses/gpl-3.0.txt    │
     │                                                                              │
-    │                      version     0.0.4                                       │
+    │                      version     0.0.5                                       │
     │                                                                              │
     ╰──────────────────────────────────────────────────────────────────────────────╯
 
@@ -70,12 +70,15 @@ usage: p115open302 [-h] [-c COOKIES] [-cp COOKIES_PATH] [-a APP_ID]
 
     hashlib.sha1(bytes(f"302@115-{token}-{t}-{value}", "utf-8")).hexdigest()
 
-其中
-- token 就是命令行所传入的令牌
-- t 为过期时间点（默认值为 0，即永不过期）
-- value 就是值，像这样的链接，优先级顺序为 pickcode > id > sha1 > name > path > name2
+其中：
 
-    http://localhost:8000/{name2}?id={id}&pickcode={pickcode}&sha1={sha1}&name={name}&path={path}
+    1. token 就是命令行所传入的令牌
+    2. t 为过期时间点（默认值为 0，即永不过期）
+    3. value 就是值，像这样的链接，优先级顺序为 id > pickcode > sha1 > name > path > name2
+
+        http://localhost:8000/{name2}?id={id}&pickcode={pickcode}&sha1={sha1}&name={name}&path={path}
+
+    4. 但如果你传入了查询参数 value，且不是空字符串，那么就强制用这个值来计算签名，优先级高于上一条规则
 
 🌰 查询示例：
 
@@ -95,19 +98,19 @@ usage: p115open302 [-h] [-c COOKIES] [-cp COOKIES_PATH] [-a APP_ID]
         http://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?ecjq9ichcb40lzlvx
         http://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?pickcode=ecjq9ichcb40lzlvx
         http://localhost:8000/ecjq9ichcb40lzlvx/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv
-    4. 查询 sha1
+    5. 查询 sha1
         http://localhost:8000?E7FAA0BE343AF2DA8915F2B694295C8E4C91E691
         http://localhost:8000/E7FAA0BE343AF2DA8915F2B694295C8E4C91E691
         http://localhost:8000?sha1=E7FAA0BE343AF2DA8915F2B694295C8E4C91E691
-    5. 带（任意）名字查询 sha1
+    6. 带（任意）名字查询 sha1
         http://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?E7FAA0BE343AF2DA8915F2B694295C8E4C91E691
         http://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv?sha1=E7FAA0BE343AF2DA8915F2B694295C8E4C91E691
         http://localhost:8000/E7FAA0BE343AF2DA8915F2B694295C8E4C91E691/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv
-    6. 查询 name（如果直接以路径作为 name，则不要有 pickcode、id、sha1、name 或 path）
+    7. 查询 name（如果直接以路径作为 name，则不要有 pickcode、id、sha1、name 或 path）
         http://localhost:8000/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv
         http://localhost:8000?Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv
         http://localhost:8000?name=Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv
-    7. 查询 path（如果直接以路径作为 path，则不要有 pickcode、id、sha1、name 或 path，在根目录下要以 > 或 / 开头，如果整个路径中不含 > 或 /，则会视为 name）
+    8. 查询 path（如果直接以路径作为 path，则不要有 pickcode、id、sha1、name 或 path，在根目录下要以 > 或 / 开头，如果整个路径中不含 > 或 /，则会视为 name）
         http://localhost:8000/电影/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv
         http://localhost:8000//电影/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv
         http://localhost:8000?/电影/Novembre.2022.FRENCH.2160p.BluRay.DV.HEVC.DTS-HD.MA.5.1.mkv
@@ -115,7 +118,7 @@ usage: p115open302 [-h] [-c COOKIES] [-cp COOKIES_PATH] [-a APP_ID]
 
 🌰 视频相关操作：
 
-当你提供 method 参数时，一般就意味着你需要操作的目标是视频，此参数的值分别如下：
+当你提供 method 参数时，通常就意味着你需要操作的目标是视频，此参数的值分别如下：
 
     1. "subs"、"subtitle" 或 "subtitles"，获取目标文件的内嵌字幕和与它同一目录下的字幕，返回这些字幕的信息和下载链接，结果是一个 JSON
     2. "tran" 或 "transcode"，获取目标文件的转码信息和在线播放地址，结果是一个 JSON

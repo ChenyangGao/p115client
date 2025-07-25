@@ -1792,10 +1792,13 @@ def iter_download_files(
         else:
             dirname = id_to_path[pid] = get_path(id_to_dirnode[pid]) + "/"
         return dirname + name
-    top_id = to_id(cid)
+    root_ancestors = [{"id": 0, "parent_id": 0, "name": ""}]
     top_path: str = ""
     top_ancestors: list[dict]
-    root_ancestors = [{"id": 0, "parent_id": 0, "name": ""}]
+    top_id = to_id(cid)
+    if not top_id:
+        top_path = "/"
+        top_ancestors = root_ancestors
     def update_attr_from_url(attr: dict, url: P115URL, /):
         name = attr["name"] = url["name"]
         if escape is not None:
