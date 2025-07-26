@@ -1703,10 +1703,14 @@ def iter_files_with_path_skim(
                     to_id(cid), 
                     page_size=1, 
                     id_to_dirnode=id_to_dirnode, 
+                    normalize_attr=None, 
                     escape=escape, 
+                    app=app, 
                     async_=async_, 
                     **request_kwargs, 
-                ))
+                ), None)
+                if not attr:
+                    return
                 top_ancestors = attr["top_ancestors"]
                 top_path = attr["top_path"]
                 top_prefix_len = 1 if top_path == "/" else len(top_path) + 1
@@ -3615,17 +3619,15 @@ def share_iter_files(
         if id_to_dirnode is None:
             id_to_dirnode = ID_TO_DIRNODE_CACHE[(client.user_id, payload["share_code"])]
         payload["cid"] = cid
-        it = share_iterdir(
+        with with_iter_next(share_iterdir(
             client, 
             **payload, 
             id_to_dirnode=id_to_dirnode, 
             async_=async_, 
             **request_kwargs, 
-        )
-        do_next: Callable = anext if async_ else next
-        try:
+        )) as get_next:
             while True:
-                attr = yield do_next(it)
+                attr = yield get_next()
                 if attr.get("is_dir"):
                     payload["cid"] = attr["id"]
                     resp = yield client.share_downlist(
@@ -3645,8 +3647,6 @@ def share_iter_files(
                         })
                 else:
                     yield Yield({k: attr[k] for k in ("id", "sha1", "name", "size", "path")})
-        except (StopIteration, StopAsyncIteration):
-            pass
     return run_gen_step(gen_step, async_)
 
 

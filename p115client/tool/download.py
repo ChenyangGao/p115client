@@ -647,13 +647,14 @@ def iter_subtitles_with_url(
         fs_copy = partial(client.fs_copy_app, app=app)
         fs_delete = partial(client.fs_delete_app, app=app)
         fs_video_subtitle = partial(client.fs_video_subtitle_app, app=app)
+    from .iterdir import _iter_fs_files
     cid = to_id(cid)
     def gen_step():
         nonlocal suffixes
         if isinstance(suffixes, str):
             suffixes = suffixes,
         do_chain: Callable = async_chain.from_iterable if async_ else chain.from_iterable
-        do_next = anext if async_ else next
+        do_next: Callable = anext if async_ else next
         with with_iter_next(chunked(do_chain(
             iter_files(
                 client, 
@@ -697,18 +698,17 @@ def iter_subtitles_with_url(
                         **request_kwargs, 
                     )
                     check_response(resp)
-                    attr = yield do_next(iter_files(
+                    attr = yield do_next(_iter_fs_files(
                         client, 
                         scid, 
-                        first_page_size=1, 
-                        normalize_attr=None, 
-                        base_url=True, 
+                        page_size=1, 
+                        normalize_attr=normalize_attr_simple, 
                         app=app, 
-                        async_=async_, # type: ignore
+                        async_=async_, 
                         **request_kwargs, 
                     ))
                     resp = yield fs_video_subtitle(
-                        attr["pc"], 
+                        attr["pickcode"], 
                         async_=async_, 
                         **request_kwargs, 
                     )
@@ -811,6 +811,7 @@ def iter_subtitle_batches(
         fs_copy = partial(client.fs_copy_app, app=app)
         fs_delete = partial(client.fs_delete_app, app=app)
         fs_video_subtitle = partial(client.fs_video_subtitle_app, app=app)
+    from .iterdir import _iter_fs_files
     def gen_step():
         do_next: Callable = anext if async_ else next
         for ids in batched(map(to_id, file_ids), batch_size):
@@ -829,18 +830,17 @@ def iter_subtitle_batches(
                     **request_kwargs, 
                 )
                 check_response(resp)
-                attr = yield do_next(iter_files(
+                attr = yield do_next(_iter_fs_files(
                     client, 
                     scid, 
-                    first_page_size=1, 
-                    normalize_attr=None, 
-                    base_url=True, 
+                    page_size=1, 
+                    normalize_attr=normalize_attr_simple, 
                     app=app, 
-                    async_=async_, # type: ignore
+                    async_=async_, 
                     **request_kwargs, 
                 ))
                 resp = yield fs_video_subtitle(
-                    attr["pc"], 
+                    attr["pickcode"], 
                     async_=async_, 
                     **request_kwargs, 
                 )
@@ -1914,14 +1914,19 @@ def iter_download_files(
                 if cid:
                     from .iterdir import _iter_fs_files
                     do_next: Callable = anext if async_ else next
-                    yield do_next(_iter_fs_files(
+                    attr = yield do_next(_iter_fs_files(
                         client, 
                         to_id(cid), 
                         page_size=1, 
                         id_to_dirnode=id_to_dirnode, 
+                        normalize_attr=None, 
+                        escape=escape, 
+                        app=app, 
                         async_=async_, 
                         **request_kwargs, 
-                    ))
+                    ), None)
+                    if not attr:
+                        return
                 if async_:
                     task: Any = create_task(load_ancestors(pickcode))
                 else:

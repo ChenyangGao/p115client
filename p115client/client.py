@@ -29,7 +29,7 @@ from os import fsdecode, fstat, isatty, PathLike, path as ospath
 from pathlib import Path, PurePath
 from platform import system
 from posixpath import splitext
-from re import compile as re_compile, MULTILINE
+from re import compile as re_compile, Match, MULTILINE
 from string import digits
 from sys import _getframe
 from tempfile import TemporaryFile
@@ -83,6 +83,7 @@ from ._upload import buffer_length, make_dataiter, oss_upload, oss_multipart_upl
 CRE_SET_COOKIE: Final = re_compile(r"[0-9a-f]{32}=[0-9a-f]{32}.*")
 CRE_COOKIES_UID_search: Final = re_compile(r"(?<=\bUID=)[^\s;]+").search
 CRE_API_match: Final = re_compile(r"http://(web|pro)api.115.com(?=/|\?|#|$)").match
+CRE_AREA_DATA_search: Final = re_compile(r"(?<=n=)\{[\s\S]+?\}(?=;)").search
 ED2K_NAME_TRANSTAB: Final = dict(zip(b"/|", ("%2F", "%7C")))
 # 当前的系统平台
 SYS_PLATFORM = system()
@@ -7631,6 +7632,58 @@ class P115Client(P115OpenClient):
 
     @overload
     @staticmethod
+    def app_area_list(
+        request: None | Callable = None, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs
+    ) -> dict:
+        ...
+    @overload
+    @staticmethod
+    def app_area_list(
+        request: None | Callable = None, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    @staticmethod
+    def app_area_list(
+        request: None | Callable = None, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取地区编码列表
+
+        GET https://cdnres.115.com/my/m_r/setting_new/js/ylmf_area.js
+        """
+        api = "https://cdnres.115.com/my/m_r/setting_new/js/ylmf_area.js"
+        def iter_area(data: dict, /) -> Iterator[tuple[int, str]]:
+            for code, detail in data.items():
+                if isinstance(code, str):
+                    continue
+                if isinstance(detail, dict):
+                    yield code, detail["n"]
+                    for key in ("c", "t"):
+                        if key in detail and detail[key]:
+                            yield from iter_area(detail[key])
+                            break
+                else:
+                    yield code, detail
+        def parse(_, content, /):
+            data_str = cast(Match[str], CRE_AREA_DATA_search(content.decode("utf-8")))[0]
+            data = eval(data_str, {"n": "n", "c": "c", "t": "t", "l": "l"})
+            return {"state": True, "data": list(iter_area(data))}
+        request_kwargs.setdefault("parse", parse)
+        if request is None:
+            return get_default_request()(url=api, async_=async_, **request_kwargs)
+        else:
+            return request(url=api, **request_kwargs)
+
+    @overload
+    @staticmethod
     def app_version_list(
         request: None | Callable = None, 
         *, 
@@ -12000,7 +12053,7 @@ class P115Client(P115OpenClient):
             - type: int | str = 0 💡 类型（？？表示还未搞清楚），多个用逗号 "," 隔开
 
                 - 全部: 0
-                - ？？: 1
+                - ？？: 1（大概和接收有关）
                 - 离线下载: 2
                 - 播放视频: 3
                 - 上传: 4
@@ -12155,7 +12208,7 @@ class P115Client(P115OpenClient):
             - type: int | str = 0 💡 类型（？？表示还未搞清楚），多个用逗号 "," 隔开
 
                 - 全部: 0
-                - ？？: 1
+                - ？？: 1（大概和接收有关）
                 - 离线下载: 2
                 - 播放视频: 3
                 - 上传: 4
@@ -12215,7 +12268,7 @@ class P115Client(P115OpenClient):
             - type: int = <default> 💡 类型（？？表示还未搞清楚），多个用逗号 "," 隔开
 
                 - 全部: 0
-                - ？？: 1
+                - ？？: 1（大概和接收有关）
                 - 离线下载: 2
                 - 播放视频: 3
                 - 上传: 4
@@ -12276,7 +12329,7 @@ class P115Client(P115OpenClient):
             - type: int = <default> 💡 类型（？？表示还未搞清楚），多个用逗号 "," 隔开
 
                 - 全部: 0
-                - ？？: 1
+                - ？？: 1（大概和接收有关）
                 - 离线下载: 2
                 - 播放视频: 3
                 - 上传: 4
@@ -20554,6 +20607,41 @@ class P115Client(P115OpenClient):
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
+    def share_notlogin_dl_quota(
+        self, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def share_notlogin_dl_quota(
+        self, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def share_notlogin_dl_quota(
+        self, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """免登录下载流量配额
+
+        GET https://webapi.115.com/user/notlogin_dl_quota
+        """
+        api = complete_webapi("/user/notlogin_dl_quota", base_url=base_url)
+        return self.request(url=api, async_=async_, **request_kwargs)
+
+    @overload
     def share_receive(
         self, 
         payload: dict, 
@@ -22938,7 +23026,7 @@ class P115Client(P115OpenClient):
         GET https://my.115.com/proapi/3.0/index.php?method=user_info
 
         .. important::
-            这个函数可以作为 staticmethod 使用，只要 `self` 不是 P115Client 类型，此时不需要登录
+            这个函数可以作为 staticmethod 使用，只要 `self` 不是 P115Client 类型，此时不需要登录，但需要指定查询参数 ``uid``
 
         :payload:
             - uid: int | str
@@ -22962,6 +23050,158 @@ class P115Client(P115OpenClient):
                 return get_default_request()(url=api, params=payload, async_=async_, **request_kwargs)
             else:
                 return request(url=api, params=payload, **request_kwargs)
+
+    @overload
+    def user_info_set(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def user_info_set(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def user_info_set(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """更新用户信息
+
+        POST https://my.115.com/proapi/3.0/index.php?method=set_user
+
+        :payload:
+            - user_name: str = <default> 💡 网名（1-15 个中英文字符，15天允许修改一次网名）
+            - gender: -1 | 0 | 1 = <default> 💡 性别。-1:未知 0:女 1:男
+            - calendar_type: 0 | 1 = <default> 💡 日历类型。0:公历 1:农历
+            - birthday: str = <default> 💡 生日，格式为 年-月-日（不需要补前 0，初始值为 0-0-0）
+            - height: int = <default> 💡 身高
+            - weight: int = <default> 💡 体重
+            - blood_type: "A" | "B" | "C" | "D" | "O" = <default> 💡 血型。A:A型 B:B型 C:AB型 O:O型 D:其它
+            - is_marry: int = <default> 💡 感情
+
+                - 0: 保密
+                - 1: 单身
+                - 2: 恋爱中
+                - 3: 已婚
+                - 4: 分居
+                - 5: 离异
+                - 9: 请选择
+
+            - education: int = <default> 💡 学历
+
+                - -1: 选择学历
+                -  0: 初中
+                -  1: 高中
+                -  2: 中专
+                -  3: 大专
+                -  4: 本科
+                -  5: 硕士
+                -  6: 博士及以上
+
+            - job: int = <default> 💡 职业
+
+                - -1: 选择职业
+                -  1: 计算机/互联网/通信
+                -  2: 生产/工艺/制造
+                -  3: 医疗/护理/制药
+                -  4: 金融/银行/投资/保险
+                -  5: 商业/服务业/个体经营
+                -  6: 文化/广告/传媒
+                -  7: 娱乐/艺术/表演
+                -  8: 律师/法务
+                -  9: 教育/培训
+                - 10: 公务员/行政/事业单位
+                - 11: 模特
+                - 12: 空姐
+                - 13: 学生
+                - 14: 其他职业
+
+            - salary: str = <default> 💡 收入
+
+                - ""
+                - "2千-3千"
+                - "3千-4.5千"
+                - "4.5千-6千"
+                - "7千-8千"
+                - "8千-1万"
+                - "1万以下"
+                - "1万-2万"
+                - "2万-3万"
+                - "3万-4万"
+                - "4万-5万"
+                - "5万以上"
+
+            - location_birth: int = <default> 💡 家乡。填 115 给出的地区编码，初始值为 0
+            - location: int = <default> 💡 现居地。填 115 给出的地区编码，初始值为 0
+            - location_link: int = <default> 💡 快递地址。填 115 给出的地区编码，初始值为 0
+            - address: str = <default> 💡 输入详细街道地址
+            - wechat: str = <default> 💡 微信
+            - weibo: str = <default> 💡 微博
+            - alipay: str = <default> 💡 支付宝
+            - pub_mobile: str = <default> 💡 电话
+            - pub_email: str = <default> 💡 邮箱
+            - homepage: str = <default> 💡 个人网站
+            - like_celeb: str = <default> 💡 最喜欢的名人
+            - like_music: str = <default> 💡 最喜欢的音乐
+            - like_animal: str = <default> 💡 最喜欢的动物
+            - like_book: str = <default> 💡 最喜欢的书籍
+            - like_video: str = <default> 💡 最喜欢的视频
+            - interest: str = <default> 💡 兴趣爱好
+        """
+        api = complete_api("/proapi/3.0/index.php?method=set_user", "my", base_url=base_url)
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def user_interests_list(
+        self, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def user_interests_list(
+        self, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def user_interests_list(
+        self, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """用户兴趣列表
+
+        GET https://my.115.com/proapi/3.0/index.php?method=get_interests_list
+        """
+        api = complete_api("/proapi/3.0/index.php?method=get_interests_list", "my", base_url=base_url)
+        return self.request(url=api, async_=async_, **request_kwargs)
 
     @overload
     def user_my(
@@ -23195,6 +23435,86 @@ class P115Client(P115OpenClient):
             payload = {"limit": 32, **payload}
         api = f"http://points.115.com/api/1.0/{app}/1.0/user/transaction"
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def user_public(
+        self, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def user_public(
+        self, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def user_public(
+        self, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """用户隐私设置
+
+        GET https://my.115.com/proapi/3.0/index.php?method=get_public
+        """
+        api = complete_api("/proapi/3.0/index.php?method=get_public", "my", base_url=base_url)
+        return self.request(url=api, async_=async_, **request_kwargs)
+
+    @overload
+    def user_public_set(
+        self, 
+        payload: dict | str, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def user_public_set(
+        self, 
+        payload: dict | str, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def user_public_set(
+        self, 
+        payload: dict | str, 
+        /, 
+        base_url: bool | str | Callable[[], str] = False, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """设置用户隐私
+
+        POST https://my.115.com/proapi/3.0/index.php?method=set_public
+
+        :payload:
+            - column: str 💡 隐私项
+            - open: 0 | 1 = 1 💡 是否公开可见
+        """
+        api = complete_api("/proapi/3.0/index.php?method=set_public", "my", base_url=base_url)
+        if isinstance(payload, str):
+            payload = {"column": payload}
+        payload.setdefault("open", 1)
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
     def user_setting(
@@ -23454,6 +23774,78 @@ class P115Client(P115OpenClient):
         POST https://proapi.115.com/android/1.0/user/setting
         """
         api = complete_proapi("/1.0/user/setting", base_url, app)
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def user_sign(
+        self, 
+        /, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def user_sign(
+        self, 
+        /, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def user_sign(
+        self, 
+        /, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """个性签名
+
+        GET https://q.115.com/home/setting/sign
+        """
+        api = "https://q.115.com/home/setting/sign"
+        return self.request(url=api, async_=async_, **request_kwargs)
+
+    @overload
+    def user_sign_set(
+        self, 
+        payload: dict | str, 
+        /, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def user_sign_set(
+        self, 
+        payload: dict | str, 
+        /, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def user_sign_set(
+        self, 
+        payload: dict | str, 
+        /, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """修改个性签名
+
+        POST https://q.115.com/ajax_users/save_sign
+
+        :payload:
+            - content: str 💡 个性签名，支持 HTML
+        """
+        api = "https://q.115.com/ajax_users/save_sign"
+        if isinstance(payload, str):
+            payload = {"content": payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload

@@ -37,7 +37,6 @@ from httpx import Client, AsyncClient
 from orjson import dumps as json_dumps, loads as json_loads
 from p115client import check_response, P115Client, P115URL
 from p115client.exception import AuthenticationError, BusyOSError
-from p115client.tool import P115ID
 from path_predicate import MappingPath
 from posixpatht import escape
 from property import locked_cacheproperty
