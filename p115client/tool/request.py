@@ -13,6 +13,7 @@ from sys import executable, modules
 from typing import Literal
 
 
+# TODO: 专门做一个模块，用来汇总这些模块，而不是放在这
 def make_request(
     module: Literal["", "httpx", "httpx_async", "requests", "urllib3", "urlopen", "aiohttp", "blacksheep"] = "", 
     cookiejar: None | CookieJar = None, 
@@ -127,12 +128,10 @@ def make_request(
             raise ValueError(f"can't make request for {module!r}")
 
 
-# TODO: 基于 http.client 实现一个 request，并且支持连接池
-# TODO: 基于 https://asks.readthedocs.io/en/latest/ 实现一个 request
-# TODO: 基于 https://pypi.org/project/pycurl/ 实现一个 request
+# TODO: 所有 request 接受这几个参数：url, method, params, data, json, headers, parse, cookies, raise_for_status, follow_redirects
+# TODO: 扩展一下，所有的也支持 files 参数（这样便会执行 multipart 提交）
 # TODO: 基于 https://www.tornadoweb.org/en/stable/httpclient.html 实现一个 request
 # TODO: 基于 https://pypi.org/project/treq/ 实现一个 request
-# TODO: 基于 https://pypi.org/project/httplib2/ 实现一个 request
 # TODO: 基于 https://github.com/geventhttpclient/geventhttpclient 实现一个 request
 # TODO: 基于 https://docs.twisted.org/en/latest/web/howto/client.html 实现一个 request
 # TODO: 基于 https://aiosonic.readthedocs.io/en/latest/ 实现一个 request

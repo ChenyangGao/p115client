@@ -26,7 +26,7 @@ from typing import cast, overload, Any, Literal
 from iterutils import run_gen_step, with_iter_next
 from p115client import check_response, normalize_attr_web, P115Client, P115OpenClient
 from p115client.const import CLASS_TO_TYPE, SUFFIX_TO_TYPE, ID_TO_DIRNODE_CACHE
-from p115client.type import DirNode, P115ID
+from p115client.type import P115ID
 from p115pickcode import to_id
 from posixpatht import path_is_dir_form, splitext, splits
 
@@ -138,7 +138,7 @@ def get_path_to_cid(
     root_id: None | int | str = None, 
     escape: None | bool | Callable[[str], str] = True, 
     refresh: bool = False, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     *, 
     async_: Literal[False] = False, 
@@ -152,7 +152,7 @@ def get_path_to_cid(
     root_id: None | int | str = None, 
     escape: None | bool | Callable[[str], str] = True, 
     refresh: bool = False, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     *, 
     async_: Literal[True], 
@@ -165,7 +165,7 @@ def get_path_to_cid(
     root_id: None | int | str = None, 
     escape: None | bool | Callable[[str], str] = True, 
     refresh: bool = False, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     *, 
     async_: Literal[False, True] = False, 
@@ -184,7 +184,7 @@ def get_path_to_cid(
         - 如果为 Callable，则用你所提供的调用，以或者转义后的名字
 
     :param refresh: 是否刷新。如果为 True，则会执行网络请求以查询；如果为 False，则直接从 `id_to_dirnode` 中获取
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
     :param app: 使用指定 app（设备）的接口
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
@@ -232,7 +232,7 @@ def get_path_to_cid(
                 raise FileNotFoundError(ENOENT, cid)
             parts.extend(info["name"] for info in resp["path"][1:])
             for info in resp["path"][1:]:
-                id_to_dirnode[int(info["cid"])] = DirNode(info["name"], int(info["pid"]))
+                id_to_dirnode[int(info["cid"])] = (info["name"], int(info["pid"]))
         else:
             while cid and (not root_id or cid != root_id):
                 name, cid = id_to_dirnode[cid]
@@ -255,7 +255,7 @@ def get_path_to_cid(
 def get_file_count(
     client: str | PathLike | P115Client, 
     cid: int | str = 0, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     use_fs_files: bool = True, 
     *, 
@@ -267,7 +267,7 @@ def get_file_count(
 def get_file_count(
     client: str | PathLike | P115Client, 
     cid: int | str = 0, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     use_fs_files: bool = True, 
     *, 
@@ -278,7 +278,7 @@ def get_file_count(
 def get_file_count(
     client: str | PathLike | P115Client, 
     cid: int | str = 0, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     use_fs_files: bool = True, 
     *, 
@@ -289,7 +289,7 @@ def get_file_count(
 
     :param client: 115 客户端或 cookies
     :param cid: 目录 id 或 pickcode
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
     :param app: 使用指定 app（设备）的接口
     :param use_fs_files: 使用 `client.fs_files`，否则使用 `client.fs_category_get`
     :param async_: 是否异步
@@ -376,7 +376,7 @@ def get_file_count(
 def get_ancestors(
     client: str | PathLike | P115Client, 
     attr: int | str | dict, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     *, 
     async_: Literal[False] = False, 
@@ -387,7 +387,7 @@ def get_ancestors(
 def get_ancestors(
     client: str | PathLike | P115Client, 
     attr: int | str | dict, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     *, 
     async_: Literal[True], 
@@ -397,7 +397,7 @@ def get_ancestors(
 def get_ancestors(
     client: str | PathLike | P115Client, 
     attr: int | str | dict, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     *, 
     async_: Literal[False, True] = False, 
@@ -407,7 +407,7 @@ def get_ancestors(
 
     :param client: 115 客户端或 cookies
     :param attr: 待查询节点 id 或 pickcode 或信息字典（必须有 id，可选有 parent_id）
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
     :param app: 使用指定 app（设备）的接口
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
@@ -498,7 +498,7 @@ def get_ancestors(
                         })
                     if id_to_dirnode is not ...:
                         for ans in ancestors[1:]:
-                            id_to_dirnode[ans["id"]] = DirNode(ans["name"], ans["parent_id"])
+                            id_to_dirnode[ans["id"]] = (ans["name"], ans["parent_id"])
                     if "name" in attr:
                         name = attr["name"]
                         is_dir = bool(attr.get("is_dir"))
@@ -510,7 +510,7 @@ def get_ancestors(
                     ans = {"id": fid, "parent_id": pid, "name": name}
                     add_ancestor(ans)
                     if is_dir and id_to_dirnode is not ...:
-                        id_to_dirnode[ans["id"]] = DirNode(ans["name"], ans["parent_id"])
+                        id_to_dirnode[ans["id"]] = (ans["name"], ans["parent_id"])
                     return ancestors
             elif is_dir:
                 resp = yield get_resp_of_fs_files(fid)
@@ -525,7 +525,7 @@ def get_ancestors(
                     })
                 if id_to_dirnode is not ...:
                     for ans in ancestors[1:]:
-                        id_to_dirnode[ans["id"]] = DirNode(ans["name"], ans["parent_id"])
+                        id_to_dirnode[ans["id"]] = (ans["name"], ans["parent_id"])
                 return ancestors
             else:
                 resp = yield get_resp_of_category_get(fid)
@@ -539,7 +539,7 @@ def get_ancestors(
                 ans = {"id": fid, "parent_id": pid, "name": resp["file_name"]}
                 add_ancestor(ans)
                 if not resp.get("sha1") and id_to_dirnode is not ...:
-                    id_to_dirnode[ans["id"]] = DirNode(ans["name"], ans["parent_id"])
+                    id_to_dirnode[ans["id"]] = (ans["name"], ans["parent_id"])
                 return ancestors
         else:
             fid = to_id(attr)
@@ -556,7 +556,7 @@ def get_ancestors(
                 })
             if id_to_dirnode is not ...:
                 for ans in ancestors[1:]:
-                    id_to_dirnode[ans["id"]] = DirNode(ans["name"], ans["parent_id"])
+                    id_to_dirnode[ans["id"]] = (ans["name"], ans["parent_id"])
         else:
             resp = yield get_resp_of_category_get(fid)
             resp = update_resp_ancestors(resp, id_to_dirnode)
@@ -569,7 +569,7 @@ def get_ancestors(
             ans = {"id": fid, "parent_id": pid, "name": resp["file_name"]}
             add_ancestor(ans)
             if not resp.get("sha1") and id_to_dirnode is not ...:
-                id_to_dirnode[ans["id"]] = DirNode(ans["name"], ans["parent_id"])
+                id_to_dirnode[ans["id"]] = (ans["name"], ans["parent_id"])
         return ancestors
     return run_gen_step(gen_step, async_)
 
@@ -581,7 +581,7 @@ def get_ancestors_to_cid(
     client: str | PathLike | P115Client, 
     cid: int | str, 
     refresh: bool = False, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     *, 
     async_: Literal[False] = False, 
@@ -593,7 +593,7 @@ def get_ancestors_to_cid(
     client: str | PathLike | P115Client, 
     cid: int | str, 
     refresh: bool = False, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     *, 
     async_: Literal[True], 
@@ -604,7 +604,7 @@ def get_ancestors_to_cid(
     client: str | PathLike | P115Client, 
     cid: int | str, 
     refresh: bool = False, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     *, 
     async_: Literal[False, True] = False, 
@@ -615,7 +615,7 @@ def get_ancestors_to_cid(
     :param client: 115 客户端或 cookies
     :param cid: 目录的 id 或 pickcode
     :param refresh: 是否刷新。如果为 True，则会执行网络请求以查询；如果为 False，则直接从 `id_to_dirnode` 中获取
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
     :param app: 使用指定 app（设备）的接口
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
@@ -671,7 +671,7 @@ def get_ancestors_to_cid(
             add_part({"id": 0, "name": "", "parent_id": 0})
             for info in resp["path"][1:]:
                 id, pid, name = int(info["cid"]), int(info["pid"]), info["name"]
-                id_to_dirnode[id] = DirNode(name, pid)
+                id_to_dirnode[id] = (name, pid)
                 add_part({"id": id, "name": name, "parent_id": pid})
         else:
             while cid:
@@ -695,7 +695,7 @@ def get_id_to_path(
     ensure_file: None | bool = None, 
     is_posixpath: bool = False, 
     refresh: bool = False, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     dont_use_getid: bool = False, 
     *, 
@@ -711,7 +711,7 @@ def get_id_to_path(
     ensure_file: None | bool = None, 
     is_posixpath: bool = False, 
     refresh: bool = False, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     dont_use_getid: bool = False, 
     *, 
@@ -726,7 +726,7 @@ def get_id_to_path(
     ensure_file: None | bool = None, 
     is_posixpath: bool = False, 
     refresh: bool = False, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     dont_use_getid: bool = False, 
     *, 
@@ -746,7 +746,7 @@ def get_id_to_path(
 
     :param is_posixpath: 使用 posixpath，会把 "/" 转换为 "|"，因此解析的时候，会对 "|" 进行特别处理
     :param refresh: 是否刷新。如果为 True，则会执行网络请求以查询；如果为 False，则直接从 `id_to_dirnode` 中获取
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
     :param app: 使用指定 app（设备）的接口
     :param dont_use_getid: 不要使用 `client.fs_dir_getid` 或 `client.fs_dir_getid_app`，以便 `id_to_dirnode` 有缓存
     :param async_: 是否异步
@@ -962,7 +962,7 @@ def share_get_id_to_path(
     ensure_file: None | bool = None, 
     is_posixpath: bool = False, 
     refresh: bool = False, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -978,7 +978,7 @@ def share_get_id_to_path(
     ensure_file: None | bool = None, 
     is_posixpath: bool = False, 
     refresh: bool = False, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -993,7 +993,7 @@ def share_get_id_to_path(
     ensure_file: None | bool = None, 
     is_posixpath: bool = False, 
     refresh: bool = False, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -1013,7 +1013,7 @@ def share_get_id_to_path(
 
     :param is_posixpath: 使用 posixpath，会把 "/" 转换为 "|"，因此解析的时候，会对 "|" 进行特别处理
     :param refresh: 是否刷新。如果为 True，则会执行网络请求以查询；如果为 False，则直接从 `id_to_dirnode` 中获取
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
 

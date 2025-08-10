@@ -14,42 +14,6 @@ from iterutils import acc_step
 
 from .const import G_kts, ECDH_REMOTE_PUBKEY, RSA_PUBKEY_PAIR
 
-try:
-    from collections.abc import Buffer # type: ignore
-except ImportError:
-    from abc import ABC, abstractmethod
-    from array import array
-
-    def _check_methods(C, *methods):
-        mro = C.__mro__
-        for method in methods:
-            for B in mro:
-                if method in B.__dict__:
-                    if B.__dict__[method] is None:
-                        return NotImplemented
-                    break
-            else:
-                return NotImplemented
-        return True
-
-    class Buffer(ABC): # type: ignore
-        __slots__ = ()
-
-        @abstractmethod
-        def __buffer__(self, flags: int, /) -> memoryview:
-            raise NotImplementedError
-
-        @classmethod
-        def __subclasshook__(cls, C):
-            if cls is Buffer:
-                return _check_methods(C, "__buffer__")
-            return NotImplemented
-
-    Buffer.register(bytes)
-    Buffer.register(bytearray)
-    Buffer.register(memoryview)
-    Buffer.register(array)
-
 
 to_bytes = partial(int.to_bytes, byteorder="big", signed=False)
 from_bytes = partial(int.from_bytes, byteorder="big", signed=False)

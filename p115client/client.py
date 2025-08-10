@@ -13,10 +13,11 @@ from asyncio import Lock as AsyncLock
 from base64 import b64encode
 from collections.abc import (
     AsyncGenerator, AsyncIterable, Awaitable, Buffer, Callable, Container, Coroutine, 
-    Generator, ItemsView, Iterable, Iterator, Mapping, MutableMapping, Sequence, 
+    Generator, Iterable, Iterator, Mapping, MutableMapping, Sequence, 
 )
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
+from ensure import ensure_bytes
 from functools import partial
 from hashlib import md5, sha1
 from http.cookiejar import Cookie, CookieJar
@@ -44,6 +45,8 @@ from argtools import argcount
 from asynctools import ensure_async
 from cookietools import cookies_str_to_dict, create_cookie
 from dictattr import AttrDict
+from dicttools import iter_items, get_first
+from errno2 import errno
 from filewrap import (
     bytes_iter_to_reader, bytes_iter_to_async_reader, 
     progress_bytes_iter, progress_bytes_async_iter, 
@@ -51,11 +54,12 @@ from filewrap import (
 )
 from ed2k import ed2k_hash, ed2k_hash_async, Ed2kHash
 from hashtools import HashObj, file_digest, file_mdigest, file_digest_async, file_mdigest_async
-from http_request import encode_multipart_data, encode_multipart_data_async, SupportsGeturl
+from http_request import SupportsGeturl
 from http_response import get_total_length
 from httpfile import HTTPFileReader, AsyncHTTPFileReader
 from iterutils import run_gen_step
 from orjson import dumps, loads
+from multidict import CIMultiDict
 from p115cipher.fast import (
     rsa_encode, rsa_decode, ecdh_encode_token, ecdh_aes_encode, ecdh_aes_decode, make_upload_payload, 
 )
@@ -68,7 +72,7 @@ from yarl import URL
 
 from .const import (
     CLASS_TO_TYPE, CLIENT_API_METHODS_MAP, CLIENT_METHOD_API_MAP, 
-    SSOENT_TO_APP, SUFFIX_TO_TYPE, errno, 
+    SSOENT_TO_APP, SUFFIX_TO_TYPE, 
 )
 from .exception import (
     AccessError, AccessTokenError, AuthenticationError, BusyOSError, DataError, 
@@ -229,7 +233,7 @@ def complete_lixian_api(
 
 def try_parse_int(
     s, /, 
-    _match=re_compile("-?[1-9][0-9]*").fullmatch, 
+    _match=re_compile("0|-?[1-9][0-9]*").fullmatch, 
 ):
     if not isinstance(s, str) or not s or not _match(s):
         return s
@@ -303,23 +307,6 @@ def parse_upload_init_response(_, content: bytes, /) -> dict:
     return json_loads(data)
 
 
-@overload
-def items[K, V](m: Mapping[K, V], /) -> ItemsView[K, V]:
-    ...
-@overload
-def items[K, V](m: Iterable[tuple[K, V]], /) -> Iterable[tuple[K, V]]:
-    ...
-def items[K, V](m: Mapping[K, V] | Iterable[tuple[K, V]], /) -> ItemsView[K, V] | Iterable[tuple[K, V]]:
-    if isinstance(m, Mapping):
-        try:
-            if isinstance((items := getattr(m, "items")()), ItemsView):
-                return items
-        except (AttributeError, TypeError):
-            pass
-        return ItemsView(m)
-    return m
-
-
 def extend_headers(
     headers: None | Mapping[str, Any] | Iterable[tuple[str, Any]], 
     predicate: None | Container | Callable = None, 
@@ -331,7 +318,7 @@ def extend_headers(
     for headers in (headers, kwargs):
         if not headers:
             continue
-        for k, v in items(headers):
+        for k, v in iter_items(headers):
             k = k.lower()
             if v is None:
                 headers_new.pop(k, None)
@@ -390,17 +377,6 @@ def make_ed2k_url(
     return f"ed2k://|file|{name.translate(ED2K_NAME_TRANSTAB)}|{size}|{hash}|/"
 
 
-def get_first(m: Mapping, /, *keys, default=None):
-    for k in keys:
-        if k in m:
-            return m[k]
-    return default
-
-
-def contains_any(m: Mapping, /, *keys):
-    return any(k in m for k in keys)
-
-
 @overload
 def check_response(resp: dict, /) -> dict:
     ...
@@ -415,10 +391,10 @@ def check_response(resp: dict | Awaitable[dict], /) -> dict | Coroutine[Any, Any
             raise P115OSError(errno.EIO, resp)
         if resp.get("state", True):
             return resp
-        if code := get_first(resp, "errno", "errNo", "errcode", "errCode", "code"):
+        if code := get_first(resp, "errno", "errNo", "errcode", "errCode", "code", default=None):
             resp.setdefault("errno", code)
             if "error" not in resp:
-                resp.setdefault("error", get_first(resp, "msg", "error_msg", "message"))
+                resp.setdefault("error", get_first(resp, "msg", "error_msg", "message", default=None))
             match code:
                 # {"state": false, "errno": 99, "error": "请重新登录"}
                 case 99:
@@ -1260,9 +1236,7 @@ class IgnoreCaseDict[V](dict[str, V]):
         for arg in args:
             if not arg:
                 continue
-            if isinstance(arg, Mapping):
-                arg = items(arg)
-            update(((k.lower(), v) for k, v in arg))
+            update(((k.lower(), v) for k, v in iter_items(arg)))
         if kwargs:
             update(((k.lower(), v) for k, v in kwargs.items()))
 
@@ -1271,9 +1245,7 @@ class IgnoreCaseDict[V](dict[str, V]):
         for arg in args:
             if not arg:
                 continue
-            if isinstance(arg, Mapping):
-                arg = items(arg)
-            for k, v in arg:
+            for k, v in iter_items(arg):
                 setdefault(k, v)
         if kwargs:
             for k, v in kwargs.items():
@@ -1351,7 +1323,7 @@ class ClientRequestMixin:
         if isinstance(cookies, Mapping):
             if not cookies:
                 return
-            for key, val in items(cookies):
+            for key, val in iter_items(cookies):
                 if val:
                     set_cookie(create_cookie(key, val, domain=".115.com"))
                 else:
@@ -1388,7 +1360,6 @@ class ClientRequestMixin:
     def headers(self, /) -> MutableMapping:
         """请求头，无论同步还是异步请求都共用这个请求头
         """
-        from multidict import CIMultiDict
         return CIMultiDict({
             "accept": "application/json, text/plain, */*", 
             "accept-encoding": "gzip, deflate", 
@@ -1406,13 +1377,11 @@ class ClientRequestMixin:
         self.__dict__.pop("session", None)
         self.__dict__.pop("async_session", None)
 
-    def _request(
+    def request(
         self, 
         /, 
         url: str, 
         method: str = "GET", 
-        params = None, 
-        data = None, 
         *, 
         ecdh_encrypt: bool = False, 
         async_: Literal[False, True] = False, 
@@ -1423,7 +1392,6 @@ class ClientRequestMixin:
 
         :param url: HTTP 的请求链接
         :param method: HTTP 的请求方法
-        :param params: 查询参数
         :param ecdh_encrypt: 使用 ecdh 算法进行加密（返回值也要解密）
         :param async_: 说明 `request` 是同步调用还是异步调用
         :param request: HTTP 请求调用，如果为 None，则默认用 httpx 执行请求
@@ -1431,8 +1399,8 @@ class ClientRequestMixin:
 
             - url:     HTTP 的请求链接
             - method:  HTTP 的请求方法
-            - headers: HTTP 的请求头
             - data:    HTTP 的请求体
+            - headers: HTTP 的请求头
             - parse:   解析 HTTP 响应的方法，默认会构建一个 Callable，会把响应的字节数据视为 JSON 进行反序列化解析
 
                 - 如果为 None，则直接把响应对象返回
@@ -1485,21 +1453,19 @@ class ClientRequestMixin:
                 .. code:: python
 
                     from blacksheep_client_request import request
+
+            7. `asks_request <https://pypi.org/project/asks_request/>`_，由 `asks <https://pypi.org/project/asks/>`_ 封装，支持异步调用
+
+                .. code:: python
+
+                    from asks_request import request
+
+            8. `httpcore_request <https://pypi.org/project/httpcore_request/>`_，由 `httpcore <https://pypi.org/project/httpcore/>`_ 封装，支持同步和异步调用，本模块默认用的就是这个封装
+
+                .. code:: python
+
+                    from httpcore_request import request
         """
-        if url.startswith("//"):
-            url = "http:" + url
-        elif not url.startswith(("http://", "https://")):
-            if url.startswith("?"):
-                url = "http://115.com" + url
-            else:
-                if not url.startswith("/"):
-                    url = "/" + url
-                if url.startswith(("/app/", "/android/", "/115android/", "/ios/", "/115ios/", "/115ipad/", "/wechatmini/", "/alipaymini/")):
-                    url = "http://proapi.115.com" + url
-                else:
-                    url = "http://webapi.115.com" + url
-        if params:
-            url = make_url(url, params)
         if request is None:
             request_kwargs["session"] = self.async_session if async_ else self.session
             request_kwargs["async_"] = async_
@@ -1511,99 +1477,12 @@ class ClientRequestMixin:
         if m := CRE_API_match(url):
             headers.setdefault("host", m.expand(r"\1.api.115.com"))
         request_kwargs["headers"] = headers
-        if ecdh_encrypt:
+        if ecdh_encrypt and (data := request_kwargs.get("data")):
             url = make_url(url, _default_k_ec)
-            if data:
-                request_kwargs["data"] = ecdh_aes_encode(urlencode(data).encode("latin-1") + b"&")
+            request_kwargs["data"] = ecdh_aes_encode(ensure_bytes(urlencode(data)) + b"&")
             headers["content-type"] = "application/x-www-form-urlencoded"
-        elif isinstance(data, (list, dict)):
-            request_kwargs["data"] = urlencode(data).encode("latin-1")
-            headers["content-type"] = "application/x-www-form-urlencoded"
-        elif data is not None:
-            request_kwargs["data"] = data
         request_kwargs.setdefault("parse", default_parse)
         return request(url=url, method=method, **request_kwargs)
-
-    def request(
-        self, 
-        /, 
-        url: str, 
-        method: str = "GET", 
-        params = None, 
-        data = None, 
-        *, 
-        async_: Literal[False, True] = False, 
-        **request_kwargs, 
-    ):
-        """帮助函数：可执行同步和异步的网络请求
-
-        :param url: HTTP 的请求链接
-        :param method: HTTP 的请求方法
-        :param params: 查询参数
-        :param ecdh_encrypt: 使用 ecdh 算法进行加密（返回值也要解密）
-        :param async_: 说明 `request` 是同步调用还是异步调用
-        :param request: HTTP 请求调用，如果为 None，则默认用 httpx 执行请求
-            如果传入调用，则必须至少能接受以下几个关键词参数：
-
-            - url:     HTTP 的请求链接
-            - method:  HTTP 的请求方法
-            - headers: HTTP 的请求头
-            - data:    HTTP 的请求体
-            - parse:   解析 HTTP 响应的方法，默认会构建一个 Callable，会把响应的字节数据视为 JSON 进行反序列化解析
-
-                - 如果为 None，则直接把响应对象返回
-                - 如果为 ...(Ellipsis)，则把响应对象关闭后将其返回
-                - 如果为 True，则根据响应头来确定把响应得到的字节数据解析成何种格式（反序列化），请求也会被自动关闭
-                - 如果为 False，则直接返回响应得到的字节数据，请求也会被自动关闭
-                - 如果为 Callable，则使用此调用来解析数据，接受 1-2 个位置参数，并把解析结果返回给 `request` 的调用者，请求也会被自动关闭
-                    - 如果只接受 1 个位置参数，则把响应对象传给它
-                    - 如果能接受 2 个位置参数，则把响应对象和响应得到的字节数据（响应体）传给它
-
-        :param request_kwargs: 其余的请求参数，会被传给 `request`
-
-        :return: 直接返回 `request` 执行请求后的返回值
-
-        .. note:: 
-            `request` 可以由不同的请求库来提供，下面是封装了一些模块
-
-            1. `httpx_request <https://pypi.org/project/httpx_request/>`_，由 `httpx <https://pypi.org/project/httpx/>`_ 封装，支持同步和异步调用，本模块默认用的就是这个封装
-
-                .. code:: python
-
-                    from httpx_request import request
-
-            2. `python-urlopen <https://pypi.org/project/python-urlopen/>`_，由 `urllib.request.urlopen <https://docs.python.org/3/library/urllib.request.html#urllib.request.urlopen>`_ 封装，支持同步调用，性能相对最差
-
-                .. code:: python
-
-                    from urlopen import request
-
-            3. `urllib3_request <https://pypi.org/project/urllib3_request/>`_，由 `urllib3 <https://pypi.org/project/urllib3/>`_ 封装，支持同步调用，性能相对较好，推荐使用
-
-                .. code:: python
-
-                    from urllib3_request import request
-
-            4. `requests_request <https://pypi.org/project/requests_request/>`_，由 `requests <https://pypi.org/project/requests/>`_ 封装，支持同步调用
-
-                .. code:: python
-
-                    from requests_request import request
-
-            5. `aiohttp_client_request <https://pypi.org/project/aiohttp_client_request/>`_，由 `aiohttp <https://pypi.org/project/aiohttp/>`_ 封装，支持异步调用，异步并发能力最强，推荐使用
-
-                .. code:: python
-
-                    from aiohttp_client_request import request
-
-            6. `blacksheep_client_request <https://pypi.org/project/blacksheep_client_request/>`_，由 `blacksheep <https://pypi.org/project/blacksheep/>`_ 封装，支持异步调用
-
-                .. code:: python
-
-                    from blacksheep_client_request import request
-        """
-        kwargs = {**self.request_kwargs, **request_kwargs}
-        return self._request(url, method, params, data, async_=async_, **kwargs)
 
     ########## Qrcode API ##########
 
@@ -5341,7 +5220,7 @@ class P115OpenClient(ClientRequestMixin):
                         file = await AsyncHttpxFileReader.new(url, headers={"user-agent": ""})
                         async with file:
                             return await do_upload(file)
-                    return request
+                    return request()
                 else:
                     with HTTPFileReader(url, headers={"user-agent": ""}) as file:
                         return do_upload(file)
@@ -5756,7 +5635,7 @@ class P115Client(P115OpenClient):
         if isinstance(cookies, Mapping):
             if not cookies:
                 return
-            for key, val in items(cookies):
+            for key, val in iter_items(cookies):
                 if val:
                     set_cookie(create_cookie(key, val, domain=".115.com"))
                 else:
@@ -6772,15 +6651,12 @@ class P115Client(P115OpenClient):
                 return None
         return self.logout_by_ssoent(ssoent, async_=async_, **request_kwargs)
 
-    def _request(
+    def request(
         self, 
         /, 
         url: str, 
         method: str = "GET", 
-        params = None, 
-        data = None, 
         *, 
-        check: bool = False, 
         ecdh_encrypt: bool = False, 
         fetch_cert_headers: None | Callable[..., Mapping] | Callable[..., Awaitable[Mapping]] = None, 
         revert_cert_headers: None | Callable[[Mapping], Any] = None, 
@@ -6792,8 +6668,6 @@ class P115Client(P115OpenClient):
 
         :param url: HTTP 的请求链接
         :param method: HTTP 的请求方法
-        :param params: 查询参数
-        :param check: 是否用 `check_response` 函数检查返回值
         :param ecdh_encrypt: 使用 ecdh 算法进行加密（返回值也要解密）
         :param fetch_cert_headers: 调用以获取认证信息头
         :param revert_cert_headers: 调用以退还认证信息头
@@ -6820,6 +6694,8 @@ class P115Client(P115OpenClient):
         :return: 直接返回 `request` 执行请求后的返回值
 
         .. note:: 
+            `request` 可以由不同的请求库来提供，下面是封装了一些模块
+
             `request` 可以由不同的请求库来提供，下面是封装了一些模块
 
             1. `httpx_request <https://pypi.org/project/httpx_request/>`_，由 `httpx <https://pypi.org/project/httpx/>`_ 封装，支持同步和异步调用，本模块默认用的就是这个封装
@@ -6857,21 +6733,19 @@ class P115Client(P115OpenClient):
                 .. code:: python
 
                     from blacksheep_client_request import request
+
+            7. `asks_request <https://pypi.org/project/asks_request/>`_，由 `asks <https://pypi.org/project/asks/>`_ 封装，支持异步调用
+
+                .. code:: python
+
+                    from asks_request import request
+
+            8. `httpcore_request <https://pypi.org/project/httpcore_request/>`_，由 `httpcore <https://pypi.org/project/httpcore/>`_ 封装，支持同步和异步调用，本模块默认用的就是这个封装
+
+                .. code:: python
+
+                    from httpcore_request import request
         """
-        if url.startswith("//"):
-            url = "http:" + url
-        elif not url.startswith(("http://", "https://")):
-            if url.startswith("?"):
-                url = "http://115.com" + url
-            else:
-                if not url.startswith("/"):
-                    url = "/" + url
-                if url.startswith(("/app/", "/android/", "/115android/", "/ios/", "/115ios/", "/115ipad/", "/wechatmini/", "/alipaymini/")):
-                    url = "http://proapi.115.com" + url
-                else:
-                    url = "http://webapi.115.com" + url
-        if params:
-            url = make_url(url, params)
         is_open_api = url.startswith("https://proapi.115.com/open/")
         headers = IgnoreCaseDict(request_kwargs.get("headers") or {})
         request_kwargs["headers"] = headers
@@ -6904,16 +6778,10 @@ class P115Client(P115OpenClient):
             headers["cookie"] = ""
         if m := CRE_API_match(url):
             headers.setdefault("host", m.expand(r"\1.api.115.com"))
-        if ecdh_encrypt:
+        if ecdh_encrypt and (data := request_kwargs.get("data")):
             url = make_url(url, _default_k_ec)
-            if data:
-                request_kwargs["data"] = ecdh_aes_encode(urlencode(data).encode("latin-1") + b"&")
+            request_kwargs["data"] = ecdh_aes_encode(urlencode(data).encode("latin-1") + b"&")
             headers["content-type"] = "application/x-www-form-urlencoded"
-        elif isinstance(data, (list, dict)):
-            request_kwargs["data"] = urlencode(data).encode("latin-1")
-            headers["content-type"] = "application/x-www-form-urlencoded"
-        elif data is not None:
-            request_kwargs["data"] = data
         request_kwargs.setdefault("parse", default_parse)
         def gen_step():
             cert_headers: None | Mapping = None
@@ -7016,94 +6884,8 @@ class P115Client(P115OpenClient):
                 else:
                     if cert_headers is not None and revert_cert_headers is not None:
                         yield revert_cert_headers(cert_headers)
-                    if check and isinstance(resp, dict):
-                        check_response(resp)
                     return resp
         return run_gen_step(gen_step, async_)
-
-    def request(
-        self, 
-        /, 
-        url: str, 
-        method: str = "GET", 
-        params = None, 
-        data = None, 
-        *, 
-        async_: Literal[False, True] = False, 
-        **request_kwargs, 
-    ):
-        """帮助函数：可执行同步和异步的网络请求
-
-        :param url: HTTP 的请求链接
-        :param method: HTTP 的请求方法
-        :param params: 查询参数
-        :param check: 是否用 `check_response` 函数检查返回值
-        :param ecdh_encrypt: 使用 ecdh 算法进行加密（返回值也要解密）
-        :param fetch_cert_headers: 调用以获取认证信息头
-        :param revert_cert_headers: 调用以退还认证信息头
-        :param async_: 说明 `request` 是同步调用还是异步调用
-        :param request: HTTP 请求调用，如果为 None，则默认用 httpx 执行请求
-            如果传入调用，则必须至少能接受以下几个关键词参数：
-
-            - url:     HTTP 的请求链接
-            - method:  HTTP 的请求方法
-            - headers: HTTP 的请求头
-            - data:    HTTP 的请求体
-            - parse:   解析 HTTP 响应的方法，默认会构建一个 Callable，会把响应的字节数据视为 JSON 进行反序列化解析
-
-                - 如果为 None，则直接把响应对象返回
-                - 如果为 ...(Ellipsis)，则把响应对象关闭后将其返回
-                - 如果为 True，则根据响应头来确定把响应得到的字节数据解析成何种格式（反序列化），请求也会被自动关闭
-                - 如果为 False，则直接返回响应得到的字节数据，请求也会被自动关闭
-                - 如果为 Callable，则使用此调用来解析数据，接受 1-2 个位置参数，并把解析结果返回给 `request` 的调用者，请求也会被自动关闭
-                    - 如果只接受 1 个位置参数，则把响应对象传给它
-                    - 如果能接受 2 个位置参数，则把响应对象和响应得到的字节数据（响应体）传给它
-
-        :param request_kwargs: 其余的请求参数，会被传给 `request`
-
-        :return: 直接返回 `request` 执行请求后的返回值
-
-        .. note:: 
-            `request` 可以由不同的请求库来提供，下面是封装了一些模块
-
-            1. `httpx_request <https://pypi.org/project/httpx_request/>`_，由 `httpx <https://pypi.org/project/httpx/>`_ 封装，支持同步和异步调用，本模块默认用的就是这个封装
-
-                .. code:: python
-
-                    from httpx_request import request
-
-            2. `python-urlopen <https://pypi.org/project/python-urlopen/>`_，由 `urllib.request.urlopen <https://docs.python.org/3/library/urllib.request.html#urllib.request.urlopen>`_ 封装，支持同步调用，性能相对最差
-
-                .. code:: python
-
-                    from urlopen import request
-
-            3. `urllib3_request <https://pypi.org/project/urllib3_request/>`_，由 `urllib3 <https://pypi.org/project/urllib3/>`_ 封装，支持同步调用，性能相对较好，推荐使用
-
-                .. code:: python
-
-                    from urllib3_request import request
-
-            4. `requests_request <https://pypi.org/project/requests_request/>`_，由 `requests <https://pypi.org/project/requests/>`_ 封装，支持同步调用
-
-                .. code:: python
-
-                    from requests_request import request
-
-            5. `aiohttp_client_request <https://pypi.org/project/aiohttp_client_request/>`_，由 `aiohttp <https://pypi.org/project/aiohttp/>`_ 封装，支持异步调用，异步并发能力最强，推荐使用
-
-                .. code:: python
-
-                    from aiohttp_client_request import request
-
-            6. `blacksheep_client_request <https://pypi.org/project/blacksheep_client_request/>`_，由 `blacksheep <https://pypi.org/project/blacksheep/>`_ 封装，支持异步调用
-
-                .. code:: python
-
-                    from blacksheep_client_request import request
-        """
-        kwargs = {**self.request_kwargs, **request_kwargs}
-        return self._request(url, method, params, data, async_=async_, **kwargs)
 
     ########## Activity API ##########
 
@@ -22462,24 +22244,19 @@ class P115Client(P115OpenClient):
                 async_=async_, 
                 **request_kwargs, 
             )
-            api = resp["host"]
-            data = {
-                "name": filename, 
-                "key": resp["object"], 
-                "policy": resp["policy"], 
-                "OSSAccessKeyId": resp["accessid"], 
-                "success_action_status": "200", 
-                "callback": resp["callback"], 
-                "signature": resp["signature"], 
-            }
-            if async_:
-                headers, request_kwargs["data"] = encode_multipart_data_async(data, {"file": dataiter})
-            else:
-                headers, request_kwargs["data"] = encode_multipart_data(data, {"file": dataiter})
-            request_kwargs["headers"] = {**request_kwargs.get("headers", {}), **headers}
             return self.request(
-                url=api, 
+                url=resp["host"], 
                 method="POST", 
+                data={
+                    "name": filename, 
+                    "key": resp["object"], 
+                    "policy": resp["policy"], 
+                    "OSSAccessKeyId": resp["accessid"], 
+                    "success_action_status": "200", 
+                    "callback": resp["callback"], 
+                    "signature": resp["signature"], 
+                }, 
+                files={"file": dataiter}, 
                 async_=async_, 
                 **request_kwargs, 
             )
@@ -22719,7 +22496,7 @@ class P115Client(P115OpenClient):
                         file = await AsyncHttpxFileReader.new(url, headers={"user-agent": ""})
                         async with file:
                             return await do_upload(file)
-                    return request
+                    return request()
                 else:
                     with HTTPFileReader(url, headers={"user-agent": ""}) as file:
                         return do_upload(file)
@@ -24234,3 +24011,4 @@ with temp_globals():
 # TODO: 提供一个可随时终止和暂停的上传功能，并且可以输出进度条和获取进度
 # TODO: 更新一下，p115client._upload，做更多的封装，至少让断点续传更易于使用
 # TODO: 支持对接口调用进行频率统计，默认就会开启，配置项目：1. 允许记录多少条或者多大时间窗口，默认记录最近 10 条（无限时间窗口） 2. 可以设置一个 key 函数，默认用 (url, method) 为 key 3. 数据和统计由单独的对象来承载，就行 headers 和 cookies 属性那样，可以被随意查看，这个对象由各种配置项目，可以随意修改，client初始化时候支持传入此对象 4. 可以修改时间窗口和数量限制 5. 可以获取数据，就像字典一样使用 dict[key, list[timestamp]] 6. 有一些做好的统计方法，你也可以自己来执行统计 7. 即使有些历史数据被移除，有些统计方法可以持续更新，覆盖从早到现在的所有数据，比如 加总、计数
+# TODO: 移除 aiofile 的依赖

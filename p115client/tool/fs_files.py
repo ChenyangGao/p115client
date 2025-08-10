@@ -379,11 +379,11 @@ def iter_fs_files_threaded(
                 future = make_future({**payload, "offset": offset})
             else:
                 yield resp
-                reach_end = offset != resp["offset"] or count and offset + len(resp["data"]) >= count
+                reach_end = offset != resp["offset"] or count >= 0 and offset + len(resp["data"]) >= count
                 will_continue = False
                 while dq:
                     future, offset = pop()
-                    if not count or offset < count:
+                    if count < 0 or offset < count:
                         will_continue = True
                         break
                     future.cancel()
@@ -393,7 +393,7 @@ def iter_fs_files_threaded(
                     break
                 else:
                     offset = payload["offset"] = payload["offset"] + page_size
-                    if count and offset >= count:
+                    if count >= 0 and offset >= count:
                         break
                     future = make_future()
     finally:
@@ -515,11 +515,11 @@ async def iter_fs_files_asynchronized(
                 task = make_task({**payload, "offset": offset})
             else:
                 yield resp
-                reach_end = offset != resp["offset"] or count and offset + len(resp["data"]) >= count
+                reach_end = offset != resp["offset"] or count >= 0 and offset + len(resp["data"]) >= count
                 will_continue = False
                 while dq:
                     task, offset = pop()
-                    if not count or offset < count:
+                    if count < 0 or offset < count:
                         will_continue = True
                         break
                     task.cancel()
@@ -529,7 +529,7 @@ async def iter_fs_files_asynchronized(
                     break
                 else:
                     offset = payload["offset"] = payload["offset"] + page_size
-                    if count and offset >= count:
+                    if count >= 0 and offset >= count:
                         break
                     task = make_task()
 

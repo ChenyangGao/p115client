@@ -47,7 +47,6 @@ from p115client import (
 )
 from p115client.const import ID_TO_DIRNODE_CACHE
 from p115client.exception import AccessError, P115Warning
-from p115client.type import DirNode
 from p115pickcode import to_id
 
 from .iterdir import (
@@ -216,7 +215,7 @@ def iter_files_with_url(
     use_star: None | bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     raise_for_changed_count: bool = False, 
     user_agent: str = "", 
@@ -237,7 +236,7 @@ def iter_files_with_url(
     use_star: None | bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     raise_for_changed_count: bool = False, 
     user_agent: str = "", 
@@ -257,7 +256,7 @@ def iter_files_with_url(
     use_star: None | bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     raise_for_changed_count: bool = False, 
     user_agent: str = "", 
@@ -293,7 +292,7 @@ def iter_files_with_url(
         - 如果为 Callable，则用你所提供的调用，以或者转义后的名字
 
     :param normalize_attr: 把数据进行转换处理，使之便于阅读
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
     :param app: 使用指定 app（设备）的接口
     :param raise_for_changed_count: 分批拉取时，发现总数发生变化后，是否报错
     :param user_agent: "user-agent" 请求头的值
@@ -391,7 +390,7 @@ def iter_images_with_url(
     use_star: None | bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     raise_for_changed_count: bool = False, 
     *, 
@@ -410,7 +409,7 @@ def iter_images_with_url(
     use_star: None | bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     raise_for_changed_count: bool = False, 
     *, 
@@ -428,7 +427,7 @@ def iter_images_with_url(
     use_star: None | bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     raise_for_changed_count: bool = False, 
     *, 
@@ -455,7 +454,7 @@ def iter_images_with_url(
         - 如果为 Callable，则用你所提供的调用，以或者转义后的名字
 
     :param normalize_attr: 把数据进行转换处理，使之便于阅读
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
     :param app: 使用指定 app（设备）的接口
     :param raise_for_changed_count: 分批拉取时，发现总数发生变化后，是否报错
     :param async_: 是否异步
@@ -550,7 +549,7 @@ def iter_subtitles_with_url(
     use_star: None | bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     raise_for_changed_count: bool = False, 
     *, 
@@ -569,7 +568,7 @@ def iter_subtitles_with_url(
     use_star: None | bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     raise_for_changed_count: bool = False, 
     *, 
@@ -587,7 +586,7 @@ def iter_subtitles_with_url(
     use_star: None | bool = False, 
     escape: None | bool | Callable[[str], str] = True, 
     normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "web", 
     raise_for_changed_count: bool = False, 
     *, 
@@ -619,7 +618,7 @@ def iter_subtitles_with_url(
         - 如果为 Callable，则用你所提供的调用，以或者转义后的名字
 
     :param normalize_attr: 把数据进行转换处理，使之便于阅读
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
     :param app: 使用指定 app（设备）的接口
     :param raise_for_changed_count: 分批拉取时，发现总数发生变化后，是否报错
     :param async_: 是否异步
@@ -865,7 +864,7 @@ def make_db(
     with_path: bool = True, 
     with_event: bool = False, 
     batch_size: int = 3_000, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "android", 
     max_workers: None | int = None, 
     *, 
@@ -883,7 +882,7 @@ def make_db(
     with_path: bool = True, 
     with_event: bool = False, 
     batch_size: int = 3_000, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "android", 
     max_workers: None | int = None, 
     *, 
@@ -900,7 +899,7 @@ def make_db(
     with_path: bool = True, 
     with_event: bool = False, 
     batch_size: int = 3_000, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "android", 
     max_workers: None | int = None, 
     *, 
@@ -917,7 +916,7 @@ def make_db(
     :param with_path: 拉取数据时是否需要 "path" 字段
     :param with_event: 是否收集和文件系统变更（文件的增删改）有关的事件，数据保存在 ``event`` 表中
     :param batch_size: 每批写入数据库的最多条数
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``DirNode(name, parent_id)`` 命名元组的字典
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
     :param app: 使用指定 app（设备）的接口
     :param max_workers: 最大并发数，用户拉取目录树，但写入数据库仍然是单线程的（经过测试如此效率更高）
     :param async_: 是否异步
@@ -1144,7 +1143,7 @@ def make_strm(
     clean: bool = True, 
     replace: bool = True, 
     predicate: None | Literal[1, 2, 3, 4, 5, 6, 7] | str | tuple[str, ...] | Callable[[dict], bool] = 4, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     path_already: bool = False, 
     app: str = "android", 
     max_workers: None | int = None, 
@@ -1164,7 +1163,7 @@ def make_strm(
     clean: bool = True, 
     replace: bool = True, 
     predicate: None | Literal[1, 2, 3, 4, 5, 6, 7] | str | tuple[str, ...] | Callable[[dict], bool] = 4, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     path_already: bool = False, 
     app: str = "android", 
     max_workers: None | int = None, 
@@ -1183,7 +1182,7 @@ def make_strm(
     clean: bool = True, 
     replace: bool = True, 
     predicate: None | Literal[1, 2, 3, 4, 5, 6, 7] | str | tuple[str, ...] | Callable[[dict], bool] = 4, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     path_already: bool = False, 
     app: str = "android", 
     max_workers: None | int = None, 
@@ -1226,7 +1225,7 @@ def make_strm(
         - 如果是 str 或元组，则是后缀或一组后缀，筛选这些后缀的文件
         - 如果是 Callable，则逐个对获取到的文件信息调用它，返回值为 True 才保留
  
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``DirNode(name, parent_id)`` 命名元组的字典
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
     :param path_already: 如果为 True，则说明 ``id_to_dirnode`` 中已经具备构建路径所需要的目录节点，所以不会再去拉取目录节点的信息
     :param app: 使用指定 app（设备）的接口
     :param max_workers: 最大并发数，用户拉取目录树，但写入本地文件仍然是单线程的（经过测试如此效率更高）
@@ -1439,7 +1438,7 @@ def iter_download_nodes(
     pickcode: str | int = "", 
     files: bool = True, 
     ensure_name: bool = False, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = ..., 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = ..., 
     max_workers: None | int = 1, 
     app: str = "android", 
     *, 
@@ -1453,7 +1452,7 @@ def iter_download_nodes(
     pickcode: str | int = "", 
     files: bool = True, 
     ensure_name: bool = False, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = ..., 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = ..., 
     max_workers: None | int = 1, 
     app: str = "android", 
     *, 
@@ -1466,7 +1465,7 @@ def iter_download_nodes(
     pickcode: str | int = "", 
     files: bool = True, 
     ensure_name: bool = False, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = ..., 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = ..., 
     max_workers: None | int = 1, 
     app: str = "android", 
     *, 
@@ -1479,7 +1478,7 @@ def iter_download_nodes(
     :param pickcode: 目录的 pickcode 或 id
     :param files: 如果为 True，则只获取文件，否则只获取目录
     :param ensure_name: 确保返回数据中有 "name" 字段
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
     :param max_workers: 最大并发数，如果为 None 或 <= 0，则自动确定
     :param app: 使用指定 app（设备）的接口
     :param async_: 是否异步
@@ -1524,7 +1523,7 @@ def iter_download_nodes(
                     }
                 if id_to_dirnode is not ... and id_to_dirnode is not None:
                     for attr in attrs:
-                        id_to_dirnode[attr["id"]] = DirNode(attr["name"], attr["parent_id"])
+                        id_to_dirnode[attr["id"]] = (attr["name"], attr["parent_id"])
         return attrs
     if need_yield:
         prepare = normalize_attrs
@@ -1673,7 +1672,7 @@ def iter_download_nodes(
 def iter_download_files(
     client: str | PathLike | P115Client, 
     cid: int | str = 0, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     escape: None | bool | Callable[[str], str] = True, 
     with_ancestors: bool = False, 
     with_url: bool = False, 
@@ -1690,7 +1689,7 @@ def iter_download_files(
 def iter_download_files(
     client: str | PathLike | P115Client, 
     cid: int | str = 0, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     escape: None | bool | Callable[[str], str] = True, 
     with_ancestors: bool = False, 
     with_url: bool = False, 
@@ -1706,7 +1705,7 @@ def iter_download_files(
 def iter_download_files(
     client: str | PathLike | P115Client, 
     cid: int | str = 0, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int] | DirNode] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     escape: None | bool | Callable[[str], str] = True, 
     with_ancestors: bool = False, 
     with_url: bool = False, 
@@ -1725,7 +1724,7 @@ def iter_download_files(
 
     :param client: 115 客户端或 cookies
     :param cid: 目录 id 或 pickcode
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 `DirNode(name, parent_id)` 命名元组的字典
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
     :param escape: 对文件名进行转义
 
         - 如果为 None，则不处理；否则，这个函数用来对文件名中某些符号进行转义，例如 "/" 等
@@ -1761,36 +1760,47 @@ def iter_download_files(
             escape = posix_escape_name
     escape = cast(None | Callable[[str], str], escape)
     if with_ancestors:
-        id_to_ancestors: dict[int, list[dict]] = {}
-        def get_ancestors(id: int, attr: dict | tuple[str, int] | DirNode, /) -> list[dict]:
-            if isinstance(attr, (DirNode, tuple)):
+        id_to_node = {0: {"id": 0, "parent_id": 0, "name": ""}}
+        push = list.append
+        def get_ancestors(id: int, attr: None | dict | tuple[str, int] = None, /) -> list[dict]:
+            if not id:
+                return [id_to_node[0]]
+            elif attr is None:
+                name, pid = id_to_dirnode[id]
+            elif isinstance(attr, tuple):
                 name, pid = attr
             else:
                 pid = attr["parent_id"]
                 name = attr["name"]
-            if pid == 0:
-                ancestors = [{"id": 0, "parent_id": 0, "name": ""}]
-            else:
-                if pid not in id_to_ancestors:
-                    id_to_ancestors[pid] = get_ancestors(pid, id_to_dirnode[pid])
-                ancestors = [*id_to_ancestors[pid]]
-            ancestors.append({"id": id, "parent_id": pid, "name": name})
+            ancestors: list[dict] = []
+            while True:
+                if id in id_to_node:
+                    ancestor = id_to_node[id]
+                else:
+                    ancestor = id_to_node[id] = {"id": id, "parent_id": pid, "name": name}
+                push(ancestors, ancestor)
+                if not pid:
+                    push(ancestors, id_to_node[0])
+                    break
+                id = pid
+                try:
+                    name, pid = id_to_dirnode[id]
+                except KeyError:
+                    break
+            ancestors.reverse()
             return ancestors
-    id_to_path: dict[int, str] = {}
-    def get_path(attr: dict | tuple[str, int] | DirNode, /) -> str:
-        if isinstance(attr, (DirNode, tuple)):
+    id_to_path: dict[int, str] = {0: "/"}
+    def get_path(attr: dict | tuple[str, int], /) -> str:
+        if isinstance(attr, tuple):
             name, pid = attr
         else:
             pid = attr["parent_id"]
             name = attr["name"]
         if escape is not None:
             name = escape(name)
-        if pid == 0:
-            dirname = "/"
-        elif pid in id_to_path:
-            dirname = id_to_path[pid]
-        else:
-            dirname = id_to_path[pid] = get_path(id_to_dirnode[pid]) + "/"
+        dirname = id_to_path.get(pid, "")
+        if not dirname and (node := id_to_dirnode.get(pid)):
+            dirname = id_to_path[pid] = get_path(node) + "/"
         return dirname + name
     root_ancestors = [{"id": 0, "parent_id": 0, "name": ""}]
     top_path: str = ""

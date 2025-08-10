@@ -11,7 +11,7 @@ __doc__ = "这个模块提供了一些和上传有关的函数"
 import errno
 
 from asyncio import to_thread
-from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
+from collections.abc import AsyncIterator, Callable, Coroutine, Iterator, Mapping
 from itertools import dropwhile
 from os import fsdecode, stat, PathLike
 from typing import cast, overload, Any, Literal
@@ -618,7 +618,7 @@ def multipart_upload_init(
                         file.seek(start)
                         return file.read(end - start + 1)
                 else:
-                    with urlopen(path, headers={"Range": "bytes="+sign_check}) as file:
+                    with urlopen(path, headers=cast(Mapping, {"Range": "bytes="+sign_check})) as file:
                         return file.read()
             if async_:
                 read_range_bytes_or_hash = ensure_async(read_range_bytes_or_hash, threaded=True)
