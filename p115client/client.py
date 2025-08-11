@@ -5,15 +5,17 @@ from __future__ import annotations
 
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
 __all__ = [
-    "check_response", "normalize_attr", "normalize_attr_simple", "normalize_attr_web", 
-    "normalize_attr_app", "normalize_attr_app2", "P115OpenClient", "P115Client", 
+    "check_response", "normalize_attr", "normalize_attr_simple", 
+    "normalize_attr_web", "normalize_attr_app", "normalize_attr_app2", 
+    "P115OpenClient", "P115Client", 
 ]
 
 from asyncio import Lock as AsyncLock
 from base64 import b64encode
 from collections.abc import (
-    AsyncGenerator, AsyncIterable, Awaitable, Buffer, Callable, Container, Coroutine, 
-    Generator, Iterable, Iterator, Mapping, MutableMapping, Sequence, 
+    AsyncGenerator, AsyncIterable, Awaitable, Buffer, Callable, 
+    Container, Coroutine, Generator, Iterable, Iterator, Mapping, 
+    MutableMapping, Sequence, 
 )
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
@@ -53,7 +55,9 @@ from filewrap import (
     copyfileobj, copyfileobj_async, SupportsRead, 
 )
 from ed2k import ed2k_hash, ed2k_hash_async, Ed2kHash
-from hashtools import HashObj, file_digest, file_mdigest, file_digest_async, file_mdigest_async
+from hashtools import (
+    HashObj, file_digest, file_mdigest, file_digest_async, file_mdigest_async, 
+)
 from http_request import SupportsGeturl
 from http_response import get_total_length
 from httpfile import HTTPFileReader, AsyncHTTPFileReader
@@ -61,7 +65,8 @@ from iterutils import run_gen_step
 from orjson import dumps, loads
 from multidict import CIMultiDict
 from p115cipher.fast import (
-    rsa_encode, rsa_decode, ecdh_encode_token, ecdh_aes_encode, ecdh_aes_decode, make_upload_payload, 
+    rsa_encode, rsa_decode, ecdh_encode_token, ecdh_aes_encode, 
+    ecdh_aes_decode, make_upload_payload, 
 )
 from p115pickcode import get_stable_point, to_id, to_pickcode
 from property import locked_cacheproperty
@@ -75,10 +80,10 @@ from .const import (
     SSOENT_TO_APP, SUFFIX_TO_TYPE, 
 )
 from .exception import (
-    AccessError, AccessTokenError, AuthenticationError, BusyOSError, DataError, 
-    LoginError, OpenAppAuthLimitExceeded, NotSupportedError, P115OSError, 
-    OperationalError, P115Warning, P115FileExistsError, P115FileNotFoundError, 
-    P115IsADirectoryError, 
+    AccessError, AccessTokenError, AuthenticationError, BusyOSError, 
+    DataError, LoginError, OpenAppAuthLimitExceeded, NotSupportedError, 
+    P115OSError, OperationalError, P115Warning, P115FileExistsError, 
+    P115FileNotFoundError, P115IsADirectoryError, 
 )
 from .type import RequestKeywords, MultipartResumeData, P115Cookies, P115URL
 from ._upload import buffer_length, make_dataiter, oss_upload, oss_multipart_upload
@@ -113,7 +118,8 @@ _httpx_request = None
 def make_prefix_generator(
     n: int = 1, 
     /, 
-    seq=("/behavior", "/category", "/files", "/history", "/label", "/movies", "/offine", "/photo", "/rb", "/share", "/user", "/usershare"), 
+    seq=("/behavior", "/category", "/files", "/history", "/label", "/movies", 
+         "/offine", "/photo", "/rb", "/share", "/user", "/usershare"), 
 ) -> Callable[[], str]:
     if n == 0:
         return cycle(("",)).__next__
@@ -1547,8 +1553,7 @@ class ClientRequestMixin:
             else:
                 return json_loads(content)
         request_kwargs["parse"] = parse
-        for key in ("allow_redirects", "follow_redirects", "redirect"):
-            request_kwargs[key] = False
+        request_kwargs["follow_redirects"] = False
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -3393,7 +3398,7 @@ class P115OpenClient(ClientRequestMixin):
         self, 
         payload: int | str | Iterable[int | str] | dict, 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False] = False, 
@@ -3405,7 +3410,7 @@ class P115OpenClient(ClientRequestMixin):
         self, 
         payload: int | str | Iterable[int | str] | dict, 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[True], 
@@ -3416,7 +3421,7 @@ class P115OpenClient(ClientRequestMixin):
         self, 
         payload: int | str | Iterable[int | str] | dict, 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False, True] = False, 
@@ -3438,14 +3443,9 @@ class P115OpenClient(ClientRequestMixin):
         api = complete_proapi("/open/ufile/copy", base_url)
         if isinstance(payload, (int, str)):
             payload = {"file_id": payload}
-        elif isinstance(payload, dict):
-            payload = dict(payload)
-        else:
+        elif not isinstance(payload, dict):
             payload = {"file_id": ",".join(map(str, payload))}
-        if not payload.get("file_id"):
-            return {"state": False, "message": "no op"}
-        payload = cast(dict, payload)
-        payload.setdefault("pid", pid)
+        payload.setdefault("pid", pid) # type: ignore
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -3610,15 +3610,11 @@ class P115OpenClient(ClientRequestMixin):
         """
         api = complete_proapi("/open/ufile/files", base_url)
         if isinstance(payload, (int, str)):
-            payload = {
-                "aid": 1, "count_folders": 1, "limit": 32, "offset": 0, 
-                "record_open_time": 1, "show_dir": 1, "cid": payload, 
-            }
-        else:
-            payload = {
-                "aid": 1, "count_folders": 1, "limit": 32, "offset": 0, 
-                "record_open_time": 1, "show_dir": 1, "cid": 0, **payload, 
-            }
+            payload = {"cid": payload}
+        payload = {
+            "aid": 1, "count_folders": 1, "limit": 32, "offset": 0, 
+            "record_open_time": 1, "show_dir": 1, "cid": 0, **payload, 
+        }
         if payload.keys() & frozenset(("asc", "fc_mix", "o")):
             payload["custom_order"] = 2
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
@@ -3629,6 +3625,7 @@ class P115OpenClient(ClientRequestMixin):
         payload: int | str | dict, 
         /, 
         base_url: bool | str | Callable[[], str] = False, 
+        method: str = "GET", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -3640,6 +3637,7 @@ class P115OpenClient(ClientRequestMixin):
         payload: int | str | dict, 
         /, 
         base_url: bool | str | Callable[[], str] = False, 
+        method: str = "GET", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -3650,6 +3648,7 @@ class P115OpenClient(ClientRequestMixin):
         payload: int | str | dict, 
         /, 
         base_url: bool | str | Callable[[], str] = False, 
+        method: str = "GET", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
@@ -3682,19 +3681,18 @@ class P115OpenClient(ClientRequestMixin):
                 payload = {"path": payload}
             else:
                 payload = {"file_id": payload}
-        method = request_kwargs.get("method")
-        if method and method.upper() == "POST":
+        if method.upper() == "POST":
             request_kwargs["data"] = payload
         else:
             request_kwargs["params"] = payload
-        return self.request(url=api, async_=async_, **request_kwargs)
+        return self.request(url=api, method=method, async_=async_, **request_kwargs)
 
     @overload
     def fs_mkdir(
         self, 
         payload: str | dict, 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False] = False, 
@@ -3706,7 +3704,7 @@ class P115OpenClient(ClientRequestMixin):
         self, 
         payload: str | dict, 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[True], 
@@ -3717,7 +3715,7 @@ class P115OpenClient(ClientRequestMixin):
         self, 
         payload: str | dict, 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False, True] = False, 
@@ -3738,8 +3736,7 @@ class P115OpenClient(ClientRequestMixin):
         api = complete_proapi("/open/folder/add", base_url)
         if isinstance(payload, str):
             payload = {"pid": pid, "file_name": payload}
-        else:
-            payload = {"pid": pid, **payload}
+        payload.setdefault("pid", pid)
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -3747,7 +3744,7 @@ class P115OpenClient(ClientRequestMixin):
         self, 
         payload: int | str | Iterable[int | str] | dict, 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False] = False, 
@@ -3759,7 +3756,7 @@ class P115OpenClient(ClientRequestMixin):
         self, 
         payload: int | str | Iterable[int | str] | dict, 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[True], 
@@ -3770,7 +3767,7 @@ class P115OpenClient(ClientRequestMixin):
         self, 
         payload: int | str | Iterable[int | str] | dict, 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False, True] = False, 
@@ -3791,14 +3788,9 @@ class P115OpenClient(ClientRequestMixin):
         api = complete_proapi("/open/ufile/move", base_url)
         if isinstance(payload, (int, str)):
             payload = {"file_ids": payload}
-        elif isinstance(payload, dict):
-            payload = dict(payload)
-        else:
+        elif not isinstance(payload, dict):
             payload = {"file_ids": ",".join(map(str, payload))}
-        if not payload.get("file_ids"):
-            return {"state": False, "message": "no op"}
-        payload = cast(dict, payload)
-        payload.setdefault("to_cid", pid)
+        payload.setdefault("to_cid", pid) # type: ignore
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -3895,15 +3887,11 @@ class P115OpenClient(ClientRequestMixin):
         """
         api = complete_proapi("/open/ufile/search", base_url)
         if isinstance(payload, str):
-            payload = {
-                "aid": 1, "cid": 0, "format": "json", "limit": 32, "offset": 0, 
-                "show_dir": 1, "search_value": payload, 
-            }
-        else:
-            payload = {
-                "aid": 1, "cid": 0, "format": "json", "limit": 32, "offset": 0, 
-                "show_dir": 1, "search_value": ".", **payload, 
-            }
+            payload = {"search_value": payload}
+        payload = {
+            "aid": 1, "cid": 0, "format": "json", "limit": 32, "offset": 0, 
+            "show_dir": 1, "search_value": ".", **payload, 
+        }
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -3952,17 +3940,12 @@ class P115OpenClient(ClientRequestMixin):
             - ...
             - star: 0 | 1 = 1
         """
-        api = complete_webapi("/files/star", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {"file_id": payload, "star": int(star)}
+            payload = {"file_id": payload}
         elif not isinstance(payload, dict):
             payload = {f"file_id[{i}]": id for i, id in enumerate(payload)}
-            if not payload:
-                return {"state": False, "message": "no op"}
-            payload["star"] = int(star)
-        else:
-            payload = {"star": int(star), **payload}
-        return self.fs_update(payload, async_=async_, **request_kwargs)
+        payload.setdefault("star", int(star))
+        return self.fs_update(payload, base_url=base_url, async_=async_, **request_kwargs)
 
     @overload
     def fs_video(
@@ -4693,8 +4676,7 @@ class P115OpenClient(ClientRequestMixin):
         api = complete_proapi("/open/rb/list", base_url)
         if isinstance(payload, int):
             payload = {"limit": 32, "offset": payload}
-        else:
-            payload = {"limit": 32, **payload}
+        payload.setdefault("limit", 32)
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -4901,7 +4883,7 @@ class P115OpenClient(ClientRequestMixin):
         filesha1: str, 
         preid: str = "", 
         read_range_bytes_or_hash: None | Callable[[str], str | Buffer] = None, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -4916,7 +4898,7 @@ class P115OpenClient(ClientRequestMixin):
         filesha1: str, 
         preid: str = "", 
         read_range_bytes_or_hash: None | Callable[[str], str | Buffer] = None, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -4930,7 +4912,7 @@ class P115OpenClient(ClientRequestMixin):
         filesha1: str, 
         preid: str = "", 
         read_range_bytes_or_hash: None | Callable[[str], str | Buffer] = None, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
@@ -4994,6 +4976,7 @@ class P115OpenClient(ClientRequestMixin):
             return resp
         return run_gen_step(gen_step, async_)
 
+    # TODO: 需要极度简化
     @overload
     def upload_file(
         self, 
@@ -5001,7 +4984,7 @@ class P115OpenClient(ClientRequestMixin):
         file: ( str | PathLike | URL | SupportsGeturl | 
                 Buffer | SupportsRead[Buffer] | Iterable[Buffer] ), 
         filename: None | str = None, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         filesize: int = -1, 
         filesha1: str = "", 
         partsize: int = 0, 
@@ -5020,7 +5003,7 @@ class P115OpenClient(ClientRequestMixin):
         file: ( str | PathLike | URL | SupportsGeturl | 
                 Buffer | SupportsRead[Buffer] | Iterable[Buffer] | AsyncIterable[Buffer] ), 
         filename: None | str = None, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         filesize: int = -1, 
         filesha1: str = "", 
         partsize: int = 0, 
@@ -5038,7 +5021,7 @@ class P115OpenClient(ClientRequestMixin):
         file: ( str | PathLike | URL | SupportsGeturl | 
                 Buffer | SupportsRead[Buffer] | Iterable[Buffer] | AsyncIterable[Buffer] ), 
         filename: None | str = None, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         filesize: int = -1, 
         filesha1: str = "", 
         partsize: int = 0, 
@@ -7075,9 +7058,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_api(f"/api/1.0/{app}/1.0/act2024xys/desire_aid_list", "act", base_url=base_url)
         if isinstance(payload, str):
-            payload = {"start": 0, "page": 1, "limit": 10, "id": payload}
-        else:
-            payload = {"start": 0, "page": 1, "limit": 10, **payload}
+            payload = {"id": payload}
+        payload = {"start": 0, "page": 1, "limit": 10, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -7253,9 +7235,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_api(f"/api/1.0/{app}/1.0/act2024xys/my_aid_desire", "act", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {"start": 0, "page": 1, "limit": 10, "type": payload}
-        else:
-            payload = {"type": 0, "start": 0, "page": 1, "limit": 10, **payload}
+            payload = {"type": payload}
+        payload = {"type": 0, "start": 0, "page": 1, "limit": 10, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -7309,9 +7290,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_api(f"/api/1.0/{app}/1.0/act2024xys/my_desire", "act", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {"start": 0, "page": 1, "limit": 10, "type": payload}
-        else:
-            payload = {"type": 0, "start": 0, "page": 1, "limit": 10, **payload}
+            payload = {"type": payload}
+        payload = {"type": 0, "start": 0, "page": 1, "limit": 10, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -7359,9 +7339,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_api(f"/api/1.0/{app}/1.0/act2024xys/wish", "act", base_url=base_url)
         if isinstance(payload, str):
-            payload = {"rewardSpace": 5, "content": payload}
-        else:
-            payload = {"rewardSpace": 5, **payload}
+            payload = {"content": payload}
+        payload.setdefault("rewardSpace", 5)
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -7731,9 +7710,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/user/captcha", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {"ac": "security_code", "type": "web", "ctype": "web", "client": "web", "code": payload}
-        else:
-            payload = {"ac": "security_code", "type": "web", "ctype": "web", "client": "web", **payload}
+            payload = {"code": payload}
+        payload = {"ac": "security_code", "type": "web", "ctype": "web", "client": "web", **payload}
         def gen_step():
             if "sign" not in payload:
                 resp = yield self.captcha_sign(async_=async_)
@@ -8731,9 +8709,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/files/extract_info", base_url=base_url)
         if isinstance(payload, str):
-            payload = {"paths": "文件", "page_count": 999, "next_marker": "", "file_name": "", "pick_code": payload}
-        else:
-            payload = {"paths": "文件", "page_count": 999, "next_marker": "", "file_name": "", **payload}
+            payload = {"pick_code": payload}
+        payload = {"paths": "文件", "page_count": 999, "next_marker": "", "file_name": "", **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -9056,9 +9033,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/photo/albumlist", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {"album_type": 1, "limit": 1150, "offset": payload}
-        else:
-            payload = {"album_type": 1, "limit": 1150, "offset": 0, **payload}
+            payload = {"offset": payload}
+        payload = {"album_type": 1, "limit": 1150, "offset": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -9276,11 +9252,10 @@ class P115Client(P115OpenClient):
             - offset: int = 0
             - limit: int = 1150
         """
-        if isinstance(payload, (int, str)):
-            payload = {"limit": 1150, "offset": payload}
-        else:
-            payload = {"limit": 1150, "offset": 0, **payload}
         api = complete_webapi("/category/shortcut", base_url=base_url)
+        if isinstance(payload, (int, str)):
+            payload = {"offset": payload}
+        payload = {"limit": 1150, "offset": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -9343,7 +9318,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict | Iterable[int | str], 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False] = False, 
@@ -9355,7 +9330,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict | Iterable[int | str], 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[True], 
@@ -9366,7 +9341,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict | Iterable[int | str], 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False, True] = False, 
@@ -9388,12 +9363,8 @@ class P115Client(P115OpenClient):
         api = complete_webapi("/files/copy", base_url=base_url)
         if isinstance(payload, (int, str)):
             payload = {"fid": payload}
-        elif isinstance(payload, dict):
-            payload = dict(payload)
-        else:
+        elif not isinstance(payload, dict):
             payload = {f"fid[{i}]": fid for i, fid in enumerate(payload)}
-            if not payload:
-                return {"state": False, "message": "no op"}
         payload.setdefault("pid", pid)
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
@@ -9402,7 +9373,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict | Iterable[int | str], 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         app: str = "android", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
@@ -9415,7 +9386,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict | Iterable[int | str], 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         app: str = "android", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
@@ -9427,7 +9398,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict | Iterable[int | str], 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         app: str = "android", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
@@ -9445,14 +9416,9 @@ class P115Client(P115OpenClient):
         api = complete_proapi("/files/copy", base_url, app)
         if isinstance(payload, (int, str)):
             payload = {"fid": payload}
-        elif isinstance(payload, dict):
-            payload = dict(payload)
-        else:
+        elif not isinstance(payload, dict):
             payload = {"fid": ",".join(map(str, payload))}
-        if not payload.get("fid"):
-            return {"state": False, "message": "no op"}
-        payload = cast(dict, payload)
-        payload.setdefault("pid", pid)
+        payload.setdefault("pid", pid) # type: ignore
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -9674,9 +9640,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/files/desc", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {"format": "json", "compat": 1, "file_id": payload}
-        else:
-            payload = {"format": "json", "compat": 1, **payload}
+            payload = {"file_id": payload}
+        payload = {"format": "json", "compat": 1, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -9726,9 +9691,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/android/files/desc", base_url, app)
         if isinstance(payload, (int, str)):
-            payload = {"format": "json", "compat": 1, "file_id": payload}
-        else:
-            payload = {"format": "json", "compat": 1, **payload}
+            payload = {"file_id": payload}
+        payload = {"format": "json", "compat": 1, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -10087,8 +10051,6 @@ class P115Client(P115OpenClient):
             payload.setdefault(attr, default)
         else:
             payload = [("fid[]", fid) for fid in payload]
-            if not payload:
-                return {"state": False, "message": "no op"}
             payload.append((attr, default))
         return self.fs_edit(payload, async_=async_, **request_kwargs)
 
@@ -10137,8 +10099,6 @@ class P115Client(P115OpenClient):
             payload.setdefault(attr, default)
         else:
             payload = [(f"file_id[{i}]", fid) for i, fid in enumerate(payload)]
-            if not payload:
-                return {"state": False, "message": "no op"}
             payload.append((attr, default))
         return self.fs_edit(payload, async_=async_, **request_kwargs)
 
@@ -10184,9 +10144,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/files/export_dir", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {"target": "U_1_0", "file_ids": payload}
-        else:
-            payload = {"target": "U_1_0", **payload}
+            payload = {"file_ids": payload}
+        payload.setdefault("target", "U_1_0")
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -10234,9 +10193,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/2.0/ufile/export_dir", base_url, app)
         if isinstance(payload, (int, str)):
-            payload = {"target": "U_1_0", "file_ids": payload}
-        else:
-            payload = {"target": "U_1_0", **payload}
+            payload = {"file_ids": payload}
+        payload.setdefault("target", "U_1_0")
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -10377,6 +10335,7 @@ class P115Client(P115OpenClient):
         payload: int | str | Iterable[int | str] | dict, 
         /, 
         base_url: bool | str | Callable[[], str] = False, 
+        method: str = "GET", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -10388,6 +10347,7 @@ class P115Client(P115OpenClient):
         payload: int | str | Iterable[int | str] | dict, 
         /, 
         base_url: bool | str | Callable[[], str] = False, 
+        method: str = "GET", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -10398,6 +10358,7 @@ class P115Client(P115OpenClient):
         payload: int | str | Iterable[int | str] | dict, 
         /, 
         base_url: bool | str | Callable[[], str] = False, 
+        method: str = "GET", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
@@ -10417,11 +10378,11 @@ class P115Client(P115OpenClient):
             payload = {"file_id": payload}
         elif not isinstance(payload, dict):
             payload = {"file_id": ",".join(map(str, payload))}
-        if request_kwargs.get("method", "get").lower() == "post":
-            request_kwargs.update(data=payload)
+        if method.upper() == "POST":
+            request_kwargs["data"] = payload
         else:
-            request_kwargs.update(params=payload)
-        return self.request(url=api, async_=async_, **request_kwargs)
+            request_kwargs["params"] = payload
+        return self.request(url=api, method=method, async_=async_, **request_kwargs)
 
     @overload
     def fs_files(
@@ -10575,15 +10536,11 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/files", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {
-                "aid": 1, "count_folders": 1, "limit": 32, "offset": 0, 
-                "record_open_time": 1, "show_dir": 1, "cid": payload, 
-            }
-        else:
-            payload = {
-                "aid": 1, "count_folders": 1, "limit": 32, "offset": 0, 
-                "record_open_time": 1, "show_dir": 1, "cid": 0, **payload, 
-            }
+            payload = {"cid": payload}
+        payload = {
+            "aid": 1, "count_folders": 1, "limit": 32, "offset": 0, 
+            "record_open_time": 1, "show_dir": 1, "cid": 0, **payload, 
+        }
         if payload.keys() & frozenset(("asc", "fc_mix", "o")):
             payload["custom_order"] = 1
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
@@ -10713,15 +10670,11 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/2.0/ufile/files", base_url, app)
         if isinstance(payload, (int, str)):
-            payload = {
-                "aid": 1, "count_folders": 1, "limit": 32, "offset": 0, 
-                "record_open_time": 1, "show_dir": 1, "cid": payload, 
-            }
-        else:
-            payload = {
-                "aid": 1, "count_folders": 1, "limit": 32, "offset": 0, 
-                "record_open_time": 1, "show_dir": 1, "cid": 0, **payload, 
-            }
+            payload = {"cid": payload}
+        payload = {
+            "aid": 1, "count_folders": 1, "limit": 32, "offset": 0, 
+            "record_open_time": 1, "show_dir": 1, "cid": 0, **payload, 
+        }
         if payload.keys() & frozenset(("asc", "fc_mix", "o")):
             payload["custom_order"] = 2
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
@@ -10843,15 +10796,11 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/files", base_url, app)
         if isinstance(payload, (int, str)):
-            payload = {
-                "aid": 1, "count_folders": 1, "limit": 32, "offset": 0, 
-                "record_open_time": 1, "show_dir": 1, "cid": payload, 
-            }
-        else:
-            payload = {
-                "aid": 1, "count_folders": 1, "limit": 32, "offset": 0, 
-                "record_open_time": 1, "show_dir": 1, "cid": 0, **payload, 
-            }
+            payload = {"cid": payload}
+        payload = {
+            "aid": 1, "count_folders": 1, "limit": 32, "offset": 0, 
+            "record_open_time": 1, "show_dir": 1, "cid": 0, **payload, 
+        }
         if payload.keys() & frozenset(("asc", "fc_mix", "o")):
             payload["custom_order"] = 2
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
@@ -10966,15 +10915,11 @@ class P115Client(P115OpenClient):
         """
         api = complete_api("/natsort/files.php", "aps", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {
-                "aid": 1, "count_folders": 1, "limit": 32, "offset": 0, 
-                "record_open_time": 1, "show_dir": 1, "cid": payload, 
-            }
-        else:
-            payload = {
-                "aid": 1, "count_folders": 1, "limit": 32, "offset": 0, 
-                "record_open_time": 1, "show_dir": 1, "cid": 0, **payload, 
-            }
+            payload = {"cid": payload}
+        payload = {
+            "aid": 1, "count_folders": 1, "limit": 32, "offset": 0, 
+            "record_open_time": 1, "show_dir": 1, "cid": 0, **payload, 
+        }
         if payload.keys() & frozenset(("asc", "fc_mix")):
             payload["custom_order"] = 1
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
@@ -11021,9 +10966,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/files/blank_document", base_url=base_url)
         if isinstance(payload, str):
-            payload = {"pid": 0, "type": 1, "file_name": payload}
-        else:
-            payload = {"pid": 0, "type": 1, **payload}
+            payload = {"file_name": payload}
+        payload = {"pid": 0, "type": 1, **payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -11085,9 +11029,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/files/imglist", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {"limit": 32, "offset": 0, "cid": payload}
-        else:
-            payload = {"limit": 32, "offset": 0, "cid": 0, **payload}
+            payload = {"cid": payload}
+        payload = {"limit": 32, "offset": 0, "cid": 0, **payload}
         if cid := payload.get("cid"):
             payload.setdefault("file_id", cid)
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
@@ -11149,9 +11092,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/files/imglist", base_url, app)
         if isinstance(payload, (int, str)):
-            payload = {"limit": 32, "offset": 0, "aid": 1, "cid": payload}
-        else:
-            payload = {"limit": 32, "offset": 0, "aid": 1, "cid": 0, **payload}
+            payload = {"cid": payload}
+        payload = {"limit": 32, "offset": 0, "aid": 1, "cid": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -11223,9 +11165,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/files/medialist", base_url, app)
         if isinstance(payload, (int, str)):
-            payload = {"limit": 32, "offset": 0, "aid": 1, "type": 0, "cid": payload}
-        else:
-            payload = {"limit": 32, "offset": 0, "aid": 1, "type": 0, "cid": 0, **payload}
+            payload = {"cid": payload}
+        payload = {"limit": 32, "offset": 0, "aid": 1, "type": 0, "cid": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -11279,9 +11220,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/files/get_second_type", base_url=base_url)
         if isinstance(payload, int):
-            payload = {"cid": 0, "type": payload}
-        else:
-            payload = {"cid": 0, "type": 1, **payload}
+            payload = {"type": payload}
+        payload = {"cid": 0, "type": 1, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -11473,16 +11413,14 @@ class P115Client(P115OpenClient):
 
         :payload:
             - name: str 💡 名字
-            - pid: int = 0 💡 在此目录 id 下创建目录
+            - pid: int | str = 0 💡 在此目录 id 下创建目录
             - aid: int = 1 💡 area_id
             - cid: int = <default> 💡 文件或目录的 id，优先级高于 `pid`
             - user_id: int = <default> 💡 不用管
             - ...
         """
         api = complete_proapi("/folder/update", base_url, app)
-        payload = dict(payload, user_id=self.user_id)
-        payload.setdefault("aid", 1)
-        payload.setdefault("pid", 0)
+        payload = {"aid": 1, "pid": 0, "user_id": self.user_id, **payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -11528,14 +11466,10 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/files/hiddenfiles", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {"hidden": 1, "fid[0]": payload}
-        elif isinstance(payload, dict):
-            payload = {"hidden": 1, **payload}
-        else:
+            payload = {"fid[0]": payload}
+        elif not isinstance(payload, dict):
             payload = {f"fid[{i}]": f for i, f in enumerate(payload)}
-            if not payload:
-                return {"state": False, "message": "no op"}
-            payload["hidden"] = 1
+        payload.setdefault("hidden", 1)
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -11582,14 +11516,10 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/files/hiddenfiles", base_url, app)
         if isinstance(payload, (int, str)):
-            payload = {"hidden": 1, "fid[0]": payload}
-        elif isinstance(payload, dict):
-            payload = {"hidden": 1, **payload}
-        else:
-            payload = cast(dict, {"fid": ",".join(map(str, payload))})
-            if not payload:
-                return {"state": False, "message": "no op"}
-            payload["hidden"] = 1
+            payload = {"fid[0]": payload}
+        elif not isinstance(payload, dict):
+            payload = {"fid": ",".join(map(str, payload))}
+        payload.setdefault("hidden", 1) # type: ignore
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -11634,9 +11564,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_api("/?ct=hiddenfiles&ac=switching", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {"valid_type": 1, "show": 1, "safe_pwd": payload}
-        else:
-            payload = {"valid_type": 1, "show": 1, "safe_pwd": "", **payload}
+            payload = {"safe_pwd": payload}
+        payload = {"valid_type": 1, "show": 1, "safe_pwd": "", **payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -11688,9 +11617,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/files/hiddenswitch", base_url, app)
         if isinstance(payload, (int, str)):
-            payload = {"show": 1, "safe_pwd": md5(str(payload).encode("ascii")).hexdigest()}
-        else:
-            payload = {"show": 1, "safe_pwd": "", **payload}
+            payload = {"safe_pwd": md5(str(payload).encode("ascii")).hexdigest()}
+        payload = {"show": 1, "safe_pwd": "", **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -11736,9 +11664,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/files/history", base_url=base_url)
         if isinstance(payload, str):
-            payload = {"category": 1, "fetch": "one", "pick_code": payload}
-        else:
-            payload = {"category": 1, "fetch": "one", **payload}
+            payload = {"pick_code": payload}
+        payload = {"category": 1, "fetch": "one", **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     fs_video_history = fs_history
@@ -11789,9 +11716,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/history", base_url, app)
         if isinstance(payload, str):
-            payload = {"category": 1, "action": "get_one", "pick_code": payload}
-        else:
-            payload = {"category": 1, "action": "get_one", **payload}
+            payload = {"pick_code": payload}
+        payload = {"category": 1, "action": "get_one", **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     fs_video_history_app = fs_history_app
@@ -11848,9 +11774,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/history/clean", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {"with_file": 0, "type": payload}
-        else:
-            payload = {"with_file": 0, "type": 0, **payload}
+            payload = {"type": payload}
+        payload = {"with_file": 0, "type": 0, **payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -11894,9 +11819,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/history/delete", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {"with_file": 0, "id": payload}
-        else:
-            payload = {"with_file": 0, **payload}
+            payload = {"id": payload}
+        payload.setdefault("with_file", 0)
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -11943,9 +11867,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/history/delete", base_url, app)
         if isinstance(payload, (int, str)):
-            payload = {"with_file": 0, "id": payload}
-        else:
-            payload = {"with_file": 0, **payload}
+            payload = {"id": payload}
+        payload.setdefault("with_file", 0)
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -12003,9 +11926,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/history/clean", base_url, app)
         if isinstance(payload, (int, str)):
-            payload = {"with_file": 0, "type": payload}
-        else:
-            payload = {"with_file": 0, "type": 0, **payload}
+            payload = {"type": payload}
+        payload = {"with_file": 0, "type": 0, **payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -12061,9 +11983,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/history/list", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {"limit": 1150, "offset": payload}
-        else:
-            payload = {"limit": 1150, "offset": 0, **payload}
+            payload = {"offset": payload}
+        payload = {"limit": 1150, "offset": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -12122,9 +12043,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/history/list", base_url, app)
         if isinstance(payload, (int, str)):
-            payload = {"limit": 1150, "offset": payload}
-        else:
-            payload = {"limit": 1150, "offset": 0, **payload}
+            payload = {"offset": payload}
+        payload = {"limit": 1150, "offset": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -12168,9 +12088,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/history/move_target_list", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {"limit": 1150, "offset": payload}
-        else:
-            payload = {"limit": 1150, "offset": 0, **payload}
+            payload = {"offset": payload}
+        payload = {"limit": 1150, "offset": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -12214,9 +12133,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/history/receive_list", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {"limit": 1150, "offset": payload}
-        else:
-            payload = {"limit": 1150, "offset": 0, **payload}
+            payload = {"offset": payload}
+        payload = {"limit": 1150, "offset": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -12263,9 +12181,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/history/receive_list", base_url, app)
         if isinstance(payload, (int, str)):
-            payload = {"limit": 1150, "offset": payload}
-        else:
-            payload = {"limit": 1150, "offset": 0, **payload}
+            payload = {"offset": payload}
+        payload = {"limit": 1150, "offset": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -12315,9 +12232,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/files/history", base_url=base_url)
         if isinstance(payload, str):
-            payload = {"category": 1, "op": "update", "pick_code": payload}
-        else:
-            payload = {"category": 1, "op": "update", **payload}
+            payload = {"pick_code": payload}
+        payload = {"category": 1, "op": "update", **payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     fs_video_history_set = fs_history_set
@@ -12372,9 +12288,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/files/hiddenswitch", base_url, app)
         if isinstance(payload, str):
-            payload = {"category": 1, "op": "update", "pick_code": payload}
-        else:
-            payload = {"category": 1, "op": "update", **payload}
+            payload = {"pick_code": payload}
+        payload = {"category": 1, "op": "update", **payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     fs_video_history_set_app = fs_history_set_app
@@ -12546,8 +12461,6 @@ class P115Client(P115OpenClient):
             payload = [("name[]", payload)]
         elif not isinstance(payload, dict) or not isinstance(payload, list) and payload and not isinstance(payload[0], tuple):
             payload = [("name[]", label) for label in payload if label]
-            if not payload:
-                return {"state": False, "message": "no op"}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -12597,8 +12510,6 @@ class P115Client(P115OpenClient):
             payload = [("name[]", payload)]
         elif not isinstance(payload, dict) or not isinstance(payload, list) and payload and not isinstance(payload[0], tuple):
             payload = [("name[]", label) for label in payload if label]
-            if not payload:
-                return {"state": False, "message": "no op"}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -12830,9 +12741,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/label/list", base_url=base_url)
         if isinstance(payload, str):
-            payload = {"offset": 0, "limit": 11500, "keyword": payload}
-        else:
-            payload = {"offset": 0, "limit": 11500, **payload}
+            payload = {"keyword": payload}
+        payload = {"offset": 0, "limit": 11500, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -12887,9 +12797,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/label/list", base_url, app)
         if isinstance(payload, str):
-            payload = {"offset": 0, "limit": 11500, "keyword": payload}
-        else:
-            payload = {"offset": 0, "limit": 11500, **payload}
+            payload = {"keyword": payload}
+        payload = {"offset": 0, "limit": 11500, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -13086,7 +12995,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         app: str = "chrome", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
@@ -13099,7 +13008,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         app: str = "chrome", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
@@ -13111,7 +13020,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         app: str = "chrome", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
@@ -13138,9 +13047,8 @@ class P115Client(P115OpenClient):
         else:
             api = complete_proapi("/2.0/ufile/add_path", base_url, app)
         if isinstance(payload, str):
-            payload = {"parent_id": pid, "path": payload}
-        else:
-            payload = {"parent_id": pid, **payload}
+            payload = {"path": payload}
+        payload.setdefault("parent_id", pid)
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -13148,7 +13056,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False] = False, 
@@ -13160,7 +13068,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[True], 
@@ -13171,7 +13079,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False, True] = False, 
@@ -13191,9 +13099,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/files/add", base_url=base_url)
         if isinstance(payload, str):
-            payload = {"pid": pid, "cname": payload}
-        else:
-            payload = {"pid": pid, **payload}
+            payload = {"cname": payload}
+        payload.setdefault("pid", pid)
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -13201,7 +13108,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: dict | str, 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         app: str = "android", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
@@ -13214,7 +13121,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: dict | str, 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         app: str = "android", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
@@ -13226,7 +13133,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: dict | str, 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         app: str = "android", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
@@ -13237,12 +13144,11 @@ class P115Client(P115OpenClient):
 
         :payload:
             - name: str    💡 名字
-            - pid: int = 0 💡 上级目录的 id
+            - pid: int | str = 0 💡 上级目录的 id
         """
         if isinstance(payload, str):
-            payload = {"pid": pid, "name": payload}
-        else:
-            payload = {"pid": pid, **payload}
+            payload = {"name": payload}
+        payload.setdefault("pid", pid)
         return self.fs_folder_update_app(
             payload, 
             app=app, 
@@ -13256,7 +13162,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict | Iterable[int | str], 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False] = False, 
@@ -13268,7 +13174,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict | Iterable[int | str], 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[True], 
@@ -13279,7 +13185,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict | Iterable[int | str], 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False, True] = False, 
@@ -13309,12 +13215,8 @@ class P115Client(P115OpenClient):
         api = complete_webapi("/files/move", base_url=base_url)
         if isinstance(payload, (int, str)):
             payload = {"fid": payload}
-        elif isinstance(payload, dict):
-            payload = dict(payload)
-        else:
+        elif not isinstance(payload, dict):
             payload = {f"fid[{i}]": fid for i, fid in enumerate(payload)}
-            if not payload:
-                return {"state": False, "message": "no op"}
         payload.setdefault("pid", pid)
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
@@ -13323,7 +13225,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict | Iterable[int | str], 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         app: str = "android", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
@@ -13336,7 +13238,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict | Iterable[int | str], 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         app: str = "android", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
@@ -13348,7 +13250,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict | Iterable[int | str], 
         /, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         app: str = "android", 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
@@ -13366,15 +13268,10 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/files/move", base_url, app)
         if isinstance(payload, (int, str)):
-            payload = {"ids": payload, "user_id": self.user_id}
-        elif isinstance(payload, dict):
-            payload = dict(payload, user_id=self.user_id)
-        else:
+            payload = {"ids": payload}
+        elif not isinstance(payload, dict):
             payload = {f"fid[{i}]": fid for i, fid in enumerate(payload)}
-            if not payload:
-                return {"state": False, "message": "no op"}
-            payload["user_id"] = self.user_id
-        payload.setdefault("pid", pid)
+        payload = {"pid": pid, "user_id": self.user_id, **payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -13464,8 +13361,7 @@ class P115Client(P115OpenClient):
         api = complete_webapi("/files/music", base_url=base_url)
         if isinstance(payload, str):
             payload = {"pickcode": payload}
-        if not request_kwargs.get("request"):
-            request_kwargs["follow_redirects"] = False
+        request_kwargs.setdefault("follow_redirects", False)
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -13680,9 +13576,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/files/music_topic_fond", base_url=base_url)
         if isinstance(payload, int):
-            payload = {"fond": 1, "topic_id": payload}
-        else:
-            payload = {"fond": 1, **payload}
+            payload = {"topic_id": payload}
+        payload.setdefault("fond", 1)
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -13728,9 +13623,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/files/include_music_list", base_url=base_url)
         if isinstance(payload, int):
-            payload = {"asc": 0, "limit": 1150, "order": "user_etime", "offset": payload}
-        else:
-            payload = {"asc": 0, "limit": 1150, "order": "user_etime", **payload}
+            payload = {"offset": payload}
+        payload = {"asc": 0, "limit": 1150, "order": "user_etime", **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -13779,9 +13673,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/music/include_music_list", base_url, app)
         if isinstance(payload, int):
-            payload = {"asc": 0, "limit": 1150, "order": "user_etime", "offset": payload}
-        else:
-            payload = {"asc": 0, "limit": 1150, "order": "user_etime", **payload}
+            payload = {"offset": payload}
+        payload = {"asc": 0, "limit": 1150, "order": "user_etime", **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -13915,9 +13808,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/files/music_list", base_url=base_url)
         if isinstance(payload, int):
-            payload = {"start": 0, "limit": 1150, "topic_id": payload}
-        else:
-            payload = {"start": 0, "limit": 1150, "topic_id": 1, **payload}
+            payload = {"topic_id": payload}
+        payload = {"start": 0, "limit": 1150, "topic_id": 1, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -13965,9 +13857,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/music/music_list", base_url, app)
         if isinstance(payload, int):
-            payload = {"start": 0, "limit": 1150, "topic_id": payload}
-        else:
-            payload = {"start": 0, "limit": 1150, "topic_id": 1, **payload}
+            payload = {"topic_id": payload}
+        payload = {"start": 0, "limit": 1150, "topic_id": 1, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -14013,9 +13904,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/files/musicnew", base_url=base_url)
         if isinstance(payload, int):
-            payload = {"start": 0, "limit": 1150, "type": 0, "topic_id": payload}
-        else:
-            payload = {"start": 0, "limit": 1150, "type": 0, "topic_id": 1, **payload}
+            payload = {"topic_id": payload}
+        payload = {"start": 0, "limit": 1150, "type": 0, "topic_id": 1, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -14062,9 +13952,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/music/musicnew", base_url, app)
         if isinstance(payload, int):
-            payload = {"type": 0, "topic_id": payload}
-        else:
-            payload = {"type": 0, "topic_id": 1, **payload}
+            payload = {"topic_id": payload}
+        payload = {"type": 0, "topic_id": 1, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -14111,9 +14000,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/files/music", base_url=base_url)
         if isinstance(payload, int):
-            payload = {"op": "add", "topic_id": 1, "file_id": payload}
-        else:
-            payload = {"op": "add", "fond": 1, "music_id": 1, "topic_id": 1, **payload}
+            payload = {"file_id": payload}
+        payload = {"op": "add", "fond": 1, "music_id": 1, "topic_id": 1, **payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -14257,9 +14145,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/music/musiclistnew", base_url, app)
         if isinstance(payload, int):
-            payload = {"fond": 0, "limit": 1150, "start": payload}
-        else:
-            payload = {"fond": 0, "limit": 1150, "start": 0, **payload}
+            payload = {"start": payload}
+        payload = {"fond": 0, "limit": 1150, "start": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -14359,9 +14246,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/files/order", base_url=base_url)
         if isinstance(payload, str):
-            payload = {"file_id": 0, "user_asc": 1, "user_order": payload}
-        else:
-            payload = {"file_id": 0, "user_asc": 1, "user_order": "user_ptime", **payload}
+            payload = {"user_order": payload}
+        payload = {"file_id": 0, "user_asc": 1, "user_order": "user_ptime", **payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -14422,9 +14308,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/2.0/ufile/order", base_url, app)
         if isinstance(payload, str):
-            payload = {"file_id": 0, "user_asc": 1, "user_order": payload}
-        else:
-            payload = {"file_id": 0, "user_asc": 1, "user_order": "user_ptime", **payload}
+            payload = {"user_order": payload}
+        payload = {"file_id": 0, "user_asc": 1, "user_order": "user_ptime", **payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -14513,8 +14398,6 @@ class P115Client(P115OpenClient):
             payload = {f"files_new_name[{payload[0]}]": payload[1]}
         elif not isinstance(payload, dict):
             payload = {f"files_new_name[{fid}]": name for fid, name in payload}
-        if not payload:
-            return {"state": False, "message": "no op"}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -14563,8 +14446,6 @@ class P115Client(P115OpenClient):
             payload = {f"files_new_name[{payload[0]}]": payload[1]}
         elif not isinstance(payload, dict):
             payload = {f"files_new_name[{fid}]": name for fid, name in payload}
-        if not payload:
-            return {"state": False, "message": "no op"}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -14687,9 +14568,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/files/get_repeat_sha", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {"offset": 0, "limit": 1150, "format": "json", "file_id": payload}
-        else:
-            payload = {"offset": 0, "limit": 1150, "format": "json", **payload}
+            payload = {"file_id": payload}
+        payload = {"offset": 0, "limit": 1150, "format": "json", **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -14739,9 +14619,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/2.0/ufile/get_repeat_sha", base_url, app)
         if isinstance(payload, (int, str)):
-            payload = {"offset": 0, "limit": 1150, "format": "json", "file_id": payload}
-        else:
-            payload = {"offset": 0, "limit": 1150, "format": "json", **payload}
+            payload = {"file_id": payload}
+        payload = {"offset": 0, "limit": 1150, "format": "json", **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -14884,15 +14763,11 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/files/search", base_url=base_url)
         if isinstance(payload, str):
-            payload = {
-                "aid": 1, "cid": 0, "format": "json", "limit": 32, "offset": 0, 
-                "show_dir": 1, "search_value": payload, 
-            }
-        else:
-            payload = {
-                "aid": 1, "cid": 0, "format": "json", "limit": 32, "offset": 0, 
-                "show_dir": 1, "search_value": ".", **payload, 
-            }
+            payload = {"search_value": payload}
+        payload = {
+            "aid": 1, "cid": 0, "format": "json", "limit": 32, "offset": 0, 
+            "show_dir": 1, "search_value": ".", **payload, 
+        }
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -14983,15 +14858,11 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/files/search", base_url, app)
         if isinstance(payload, str):
-            payload = {
-                "aid": 1, "cid": 0, "format": "json", "limit": 32, "offset": 0, 
-                "show_dir": 1, "search_value": payload, 
-            }
-        else:
-            payload = {
-                "aid": 1, "cid": 0, "format": "json", "limit": 32, "offset": 0, 
-                "show_dir": 1, "search_value": ".", **payload, 
-            }
+            payload = {"search_value": payload}
+        payload = {
+            "aid": 1, "cid": 0, "format": "json", "limit": 32, "offset": 0, 
+            "show_dir": 1, "search_value": ".", **payload, 
+        }
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -15084,15 +14955,11 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/2.0/ufile/search", base_url, app)
         if isinstance(payload, str):
-            payload = {
-                "aid": 1, "cid": 0, "format": "json", "limit": 32, "offset": 0, 
-                "show_dir": 1, "search_value": payload, 
-            }
-        else:
-            payload = {
-                "aid": 1, "cid": 0, "format": "json", "limit": 32, "offset": 0, 
-                "show_dir": 1, "search_value": ".", **payload, 
-            }
+            payload = {"search_value": payload}
+        payload = {
+            "aid": 1, "cid": 0, "format": "json", "limit": 32, "offset": 0, 
+            "show_dir": 1, "search_value": ".", **payload, 
+        }
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -15525,9 +15392,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/files/supervision", base_url=base_url)
         if isinstance(payload, str):
-            payload = {"preview_type": "file", "module": 10, "pickcode": payload}
-        else:
-            payload = {"preview_type": "file", "module": 10, **payload}
+            payload = {"pickcode": payload}
+        payload = {"preview_type": "file", "module": 10, **payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -15575,9 +15441,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/files/supervision", base_url, app)
         if isinstance(payload, str):
-            payload = {"preview_type": "file", "module": 10, "pickcode": payload}
-        else:
-            payload = {"preview_type": "file", "module": 10, **payload}
+            payload = {"pickcode": payload}
+        payload = {"preview_type": "file", "module": 10, **payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -16166,9 +16031,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/behavior/detail", base_url=base_url)
         if isinstance(payload, str):
-            payload = {"limit": 32, "offset": 0, "type": payload}
-        else:
-            payload = {"limit": 32, "offset": 0, **payload}
+            payload = {"type": payload}
+        payload = {"limit": 32, "offset": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -16237,9 +16101,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/behavior/detail", base_url, app)
         if isinstance(payload, str):
-            payload = {"limit": 32, "offset": 0, "type": payload}
-        else:
-            payload = {"limit": 32, "offset": 0, **payload}
+            payload = {"type": payload}
+        payload = {"limit": 32, "offset": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -16745,9 +16608,8 @@ class P115Client(P115OpenClient):
         """
         api = f"http://life.115.com/api/1.0/{app}/1.0/life/life_list"
         if isinstance(payload, (int, str)):
-            payload = {"limit": 1_000, "show_type": 0, "start": payload}
-        else:
-            payload = {"limit": 1_000, "show_type": 0, "start": 0, **payload}
+            payload = {"start": payload}
+        payload = {"limit": 1_000, "show_type": 0, "start": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -16884,9 +16746,8 @@ class P115Client(P115OpenClient):
         """
         api = f"http://life.115.com/api/1.0/{app}/1.0/life/recent_operations"
         if isinstance(payload, (int, str)):
-            payload = {"limit": 1_000, "show_type": 0, "start": payload}
-        else:
-            payload = {"limit": 1_000, "show_type": 0, "start": 0, **payload}
+            payload = {"start": payload}
+        payload = {"limit": 1_000, "show_type": 0, "start": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     ########## Login API ##########
@@ -17596,9 +17457,8 @@ class P115Client(P115OpenClient):
         """
         api = "https://pmsg.115.com/api/1.0/app/1.0/contact/ls"
         if isinstance(payload, (int, str)):
-            payload = {"limit": 115, "t": 1, "skip": payload}
-        else:
-            payload = {"limit": 115, "t": 1, "skip": 0, **payload}
+            payload = {"skip": payload}
+        payload = {"limit": 115, "t": 1, "skip": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -17704,11 +17564,10 @@ class P115Client(P115OpenClient):
         """
         api = "https://bookmark.115.com/api/bookmark_list.php"
         if isinstance(payload, int):
-            payload = {"limit": 1150, "offset": payload}
+            payload = {"offset": payload}
         elif isinstance(payload, str):
-            payload = {"limit": 1150, "search_value": payload}
-        else:
-            payload = {"limit": 1150, **payload}
+            payload = {"search_value": payload}
+        payload.setdefault("limit", 1150)
         if request_kwargs.get("method", "").upper() == "POST":
             return self.request(url=api, data=payload, async_=async_, **request_kwargs)
         else:
@@ -17979,9 +17838,8 @@ class P115Client(P115OpenClient):
         """
         api = "https://note.115.com/?ct=note&ac=get_fav_note_list"
         if isinstance(payload, int):
-            payload = {"limit": 1150, "start": payload}
-        else:
-            payload = {"limit": 1150, "start": 0, **payload}
+            payload = {"start": payload}
+        payload = {"limit": 1150, "start": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -18019,9 +17877,8 @@ class P115Client(P115OpenClient):
         """
         api = "https://note.115.com/?ct=note&ac=fav"
         if isinstance(payload, int):
-            payload = {"op": "add", "note_id": payload}
-        else:
-            payload = {"op": "add", **payload}
+            payload = {"note_id": payload}
+        payload.setdefault("op", "add")
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -18112,9 +17969,8 @@ class P115Client(P115OpenClient):
         """
         api = "https://note.115.com/?ct=note"
         if isinstance(payload, int):
-            payload = {"ac": "all", "cid": 0, "has_picknews": 1, "page_size": 1150, "start": payload}
-        else:
-            payload = {"ac": "all", "cid": 0, "has_picknews": 1, "page_size": 1150, "start": 0, **payload}
+            payload = {"start": payload}
+        payload = {"ac": "all", "cid": 0, "has_picknews": 1, "page_size": 1150, "start": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -18218,9 +18074,8 @@ class P115Client(P115OpenClient):
         """
         api = "https://note.115.com/api/2.0/api.php?ac=search"
         if isinstance(payload, str):
-            payload = {"has_picknews": 1, "limit": 1150, "start": 0, "q": payload}
-        else:
-            payload = {"has_picknews": 1, "limit": 1150, "start": 0, **payload}
+            payload = {"q": payload}
+        payload = {"has_picknews": 1, "limit": 1150, "start": 0, **payload}
         if request_kwargs.get("method", "").upper() == "POST":
             return self.request(url=api, data=payload, async_=async_, **request_kwargs)
         else:
@@ -18312,9 +18167,8 @@ class P115Client(P115OpenClient):
         """
         api = "https://note.115.com/api/2.0/api.php?ac=get_latest_tags"
         if isinstance(payload, str):
-            payload = {"is_return_color": 1, "limit": 1150, "q": payload}
-        else:
-            payload = {"is_return_color": 1, "limit": 1150, **payload}
+            payload = {"q": payload}
+        payload = {"is_return_color": 1, "limit": 1150, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -19715,9 +19569,8 @@ class P115Client(P115OpenClient):
         """ 
         api = complete_webapi("/rb", base_url=base_url)
         if isinstance(payload, int):
-            payload = {"aid": 7, "cid": 0, "limit": 32, "format": "json", "offset": payload}
-        else:
-            payload = {"aid": 7, "cid": 0, "limit": 32, "format": "json", "offset": 0, **payload}
+            payload = {"offset": payload}
+        payload = {"aid": 7, "cid": 0, "limit": 32, "format": "json", "offset": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -19768,9 +19621,8 @@ class P115Client(P115OpenClient):
         """ 
         api = complete_proapi("/rb", base_url, app)
         if isinstance(payload, int):
-            payload = {"aid": 7, "cid": 0, "limit": 32, "format": "json", "offset": payload}
-        else:
-            payload = {"aid": 7, "cid": 0, "limit": 32, "format": "json", "offset": 0, **payload}
+            payload = {"offset": payload}
+        payload = {"aid": 7, "cid": 0, "limit": 32, "format": "json", "offset": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -20334,9 +20186,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/share/slist", base_url=base_url)
         if isinstance(payload, int):
-            payload = {"limit": 32, "offset": payload}
-        else:
-            payload = {"limit": 32, "offset": 0, **payload}
+            payload = {"offset": payload}
+        payload = {"limit": 32, "offset": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -20383,9 +20234,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/2.0/share/slist", base_url, app)
         if isinstance(payload, int):
-            payload = {"limit": 32, "offset": payload}
-        else:
-            payload = {"limit": 32, "offset": 0, **payload}
+            payload = {"offset": payload}
+        payload = {"limit": 32, "offset": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -20567,9 +20417,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/share/send", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {"ignore_warn": 1, "is_asc": 1, "order": "file_name", "file_ids": payload}
-        else:
-            payload = {"ignore_warn": 1, "is_asc": 1, "order": "file_name", **payload}
+            payload = {"file_ids": payload}
+        payload = {"ignore_warn": 1, "is_asc": 1, "order": "file_name", **payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -20626,9 +20475,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/2.0/share/send", base_url, app)
         if isinstance(payload, (int, str)):
-            payload = {"ignore_warn": 1, "is_asc": 1, "order": "file_name", "file_ids": payload}
-        else:
-            payload = {"ignore_warn": 1, "is_asc": 1, "order": "file_name", **payload}
+            payload = {"file_ids": payload}
+        payload = {"ignore_warn": 1, "is_asc": 1, "order": "file_name", **payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -20778,9 +20626,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/share/skip_login_down", base_url=base_url)
         if isinstance(payload, str):
-            payload = {"skip_login": 1, "share_code": payload}
-        else:
-            payload = {"skip_login": 1, **payload}
+            payload = {"share_code": payload}
+        payload.setdefault("skip_login", 1)
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -21104,9 +20951,8 @@ class P115Client(P115OpenClient):
         default_start_time = f"{today} 00:00:00"
         default_end_time = f"{today + timedelta(days=1)} 00:00:00"
         if isinstance(payload, str):
-            payload = {"share_code": "", "limit": 32, "offset": 0, "start_time": payload or default_start_time, "end_time": default_end_time}
-        else:
-            payload = {"share_code": "", "limit": 32, "offset": 0, "start_time": default_start_time, "end_time": default_end_time, **payload}
+            payload = {"start_time": payload or default_start_time}
+        payload = {"share_code": "", "limit": 32, "offset": 0, "start_time": default_start_time, "end_time": default_end_time, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -21815,7 +21661,7 @@ class P115Client(P115OpenClient):
         self, 
         /, 
         filename: str, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False] = False, 
@@ -21827,7 +21673,7 @@ class P115Client(P115OpenClient):
         self, 
         /, 
         filename: str, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[True], 
@@ -21838,7 +21684,7 @@ class P115Client(P115OpenClient):
         self, 
         /, 
         filename: str, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         base_url: bool | str | Callable[[], str] = False, 
         *, 
         async_: Literal[False, True] = False, 
@@ -22033,7 +21879,7 @@ class P115Client(P115OpenClient):
         filesize: int, 
         filesha1: str, 
         read_range_bytes_or_hash: None | Callable[[str], str | Buffer] = None, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -22047,7 +21893,7 @@ class P115Client(P115OpenClient):
         filesize: int, 
         filesha1: str, 
         read_range_bytes_or_hash: None | Callable[[str], str | Buffer] = None, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -22060,7 +21906,7 @@ class P115Client(P115OpenClient):
         filesize: int, 
         filesha1: str, 
         read_range_bytes_or_hash: None | Callable[[str], str | Buffer] = None, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
@@ -22138,7 +21984,7 @@ class P115Client(P115OpenClient):
         file: Buffer | SupportsRead[Buffer] | Iterable[Buffer], 
         filename: str, 
         filesize: int = -1, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         make_reporthook: None | Callable[[None | int], Callable[[int], Any] | Generator[int, Any, Any]] = None, 
         *, 
         async_: Literal[False] = False, 
@@ -22152,7 +21998,7 @@ class P115Client(P115OpenClient):
         file: Buffer | SupportsRead[Buffer] | Iterable[Buffer] | AsyncIterable[Buffer],  
         filename: str, 
         filesize: int = -1, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         make_reporthook: None | Callable[[None | int], Callable[[int], Any] | Generator[int, Any, Any] | AsyncGenerator[int, Any]] = None, 
         *, 
         async_: Literal[True], 
@@ -22165,7 +22011,7 @@ class P115Client(P115OpenClient):
         file: Buffer | SupportsRead[Buffer] | Iterable[Buffer] | AsyncIterable[Buffer],  
         filename: str, 
         filesize: int = -1, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         make_reporthook: None | Callable[[None | int], Callable[[int], Any] | Generator[int, Any, Any] | AsyncGenerator[int, Any]] = None, 
         *, 
         async_: Literal[False, True] = False, 
@@ -22262,6 +22108,7 @@ class P115Client(P115OpenClient):
             )
         return run_gen_step(gen_step, async_)
 
+    # TODO: 需要进行极致简化
     # TODO: 分块上传时，允许一定次数的重试
     # TODO: 不妨单独为分块上传做一个封装
     # TODO: 减少参数，简化使用方法
@@ -22272,7 +22119,7 @@ class P115Client(P115OpenClient):
         file: ( str | PathLike | URL | SupportsGeturl | 
                 Buffer | SupportsRead[Buffer] | Iterable[Buffer] ), 
         filename: None | str = None, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         filesize: int = -1, 
         filesha1: str = "", 
         partsize: int = 0, 
@@ -22292,7 +22139,7 @@ class P115Client(P115OpenClient):
         file: ( str | PathLike | URL | SupportsGeturl | 
                 Buffer | SupportsRead[Buffer] | Iterable[Buffer] | AsyncIterable[Buffer] ), 
         filename: None | str = None, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         filesize: int = -1, 
         filesha1: str = "", 
         partsize: int = 0, 
@@ -22311,7 +22158,7 @@ class P115Client(P115OpenClient):
         file: ( str | PathLike | URL | SupportsGeturl | 
                 Buffer | SupportsRead[Buffer] | Iterable[Buffer] | AsyncIterable[Buffer] ), 
         filename: None | str = None, 
-        pid: int = 0, 
+        pid: int | str = 0, 
         filesize: int = -1, 
         filesha1: str = "", 
         partsize: int = 0, 
@@ -22815,9 +22662,8 @@ class P115Client(P115OpenClient):
         else:
             payload = self
         if isinstance(payload, (int, str)):
-            payload = {"uid": payload, "method": "user_info"}
-        else:
-            payload = {"method": "user_info", **payload}
+            payload = {"uid": payload}
+        payload.setdefault("method", "user_info")
         if isinstance(self, P115Client):
             return self.request(url=api, params=payload, async_=async_, **request_kwargs)
         else:
@@ -23207,9 +23053,8 @@ class P115Client(P115OpenClient):
             - month: str = <default> 💡 月份，格式为 YYYYMM
         """
         if isinstance(payload, int):
-            payload = {"limit": 32, "start": payload}
-        else:
-            payload = {"limit": 32, **payload}
+            payload = {"start": payload}
+        payload.setdefault("limit", 32)
         api = f"http://points.115.com/api/1.0/{app}/1.0/user/transaction"
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
@@ -23750,9 +23595,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/usershare/action", base_url=base_url)
         if isinstance(payload, int):
-            payload = {"limit": 32, "offset": 0, "share_id": payload}
-        else:
-            payload = {"limit": 32, "offset": 0, **payload}
+            payload = {"share_id": payload}
+        payload = {"limit": 32, "offset": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -23840,9 +23684,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/usershare/list", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {"all": 1, "limit": 1150, "offset": payload}
-        else:
-            payload = {"all": 1, "limit": 1150, "offset": 0, **payload}
+            payload = {"offset": payload}
+        payload = {"all": 1, "limit": 1150, "offset": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -23890,9 +23733,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_proapi("/2.0/usershare/list", base_url, app)
         if isinstance(payload, (int, str)):
-            payload = {"all": 1, "limit": 1150, "offset": payload}
-        else:
-            payload = {"all": 1, "limit": 1150, "offset": 0, **payload}
+            payload = {"offset": payload}
+        payload = {"all": 1, "limit": 1150, "offset": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -23937,9 +23779,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/usershare/member", base_url=base_url)
         if isinstance(payload, int):
-            payload = {"action": "member_list", "share_id": payload}
-        else:
-            payload = {"action": "member_list", **payload}
+            payload = {"share_id": payload}
+        payload.setdefault("action", "member_list")
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -23985,9 +23826,8 @@ class P115Client(P115OpenClient):
         """
         api = complete_webapi("/usershare/share", base_url=base_url)
         if isinstance(payload, (int, str)):
-            payload = {"ignore_warn": 0, "share_opt": 1, "safe_pwd": "", "file_id": payload}
-        else:
-            payload = {"ignore_warn": 0, "share_opt": 1, "safe_pwd": "", **payload}
+            payload = {"file_id": payload}
+        payload = {"ignore_warn": 0, "share_opt": 1, "safe_pwd": "", **payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
 
@@ -24011,4 +23851,3 @@ with temp_globals():
 # TODO: 提供一个可随时终止和暂停的上传功能，并且可以输出进度条和获取进度
 # TODO: 更新一下，p115client._upload，做更多的封装，至少让断点续传更易于使用
 # TODO: 支持对接口调用进行频率统计，默认就会开启，配置项目：1. 允许记录多少条或者多大时间窗口，默认记录最近 10 条（无限时间窗口） 2. 可以设置一个 key 函数，默认用 (url, method) 为 key 3. 数据和统计由单独的对象来承载，就行 headers 和 cookies 属性那样，可以被随意查看，这个对象由各种配置项目，可以随意修改，client初始化时候支持传入此对象 4. 可以修改时间窗口和数量限制 5. 可以获取数据，就像字典一样使用 dict[key, list[timestamp]] 6. 有一些做好的统计方法，你也可以自己来执行统计 7. 即使有些历史数据被移除，有些统计方法可以持续更新，覆盖从早到现在的所有数据，比如 加总、计数
-# TODO: 移除 aiofile 的依赖
