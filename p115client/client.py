@@ -24,7 +24,7 @@ from functools import partial
 from hashlib import md5, sha1
 from http.cookiejar import Cookie, CookieJar
 from http.cookies import Morsel
-from inspect import isawaitable
+from inspect import isawaitable, iscoroutinefunction, signature
 from itertools import count, cycle, product, repeat
 from math import nan
 from operator import itemgetter
@@ -1466,7 +1466,7 @@ class ClientRequestMixin:
 
                     from asks_request import request
 
-            8. `httpcore_request <https://pypi.org/project/httpcore_request/>`_，由 `httpcore <https://pypi.org/project/httpcore/>`_ 封装，支持同步和异步调用，本模块默认用的就是这个封装
+            8. `httpcore_request <https://pypi.org/project/httpcore_request/>`_，由 `httpcore <https://pypi.org/project/httpcore/>`_ 封装，支持同步和异步调用
 
                 .. code:: python
 
@@ -1478,7 +1478,23 @@ class ClientRequestMixin:
             headers: IgnoreCaseDict[str] = IgnoreCaseDict()
             request = get_default_request()
         else:
+            if iscoroutinefunction(request):
+                async_ = True
             headers = IgnoreCaseDict(self.headers)
+            try:
+                params = signature(request).parameters
+            except (ValueError, TypeError):
+                pass
+            else:
+                if ((param := params.get("async_")) and 
+                    param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY)
+                ):
+                    request_kwargs["async_"] = async_
+                if ("cookies" not in request_kwargs and 
+                    (param := params.get("cookies")) and 
+                    param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY)
+                ):
+                    request_kwargs["cookies"] = self.cookiejar
         headers.update(request_kwargs.get("headers") or {})
         if m := CRE_API_match(url):
             headers.setdefault("host", m.expand(r"\1.api.115.com"))
@@ -6679,8 +6695,6 @@ class P115Client(P115OpenClient):
         .. note:: 
             `request` 可以由不同的请求库来提供，下面是封装了一些模块
 
-            `request` 可以由不同的请求库来提供，下面是封装了一些模块
-
             1. `httpx_request <https://pypi.org/project/httpx_request/>`_，由 `httpx <https://pypi.org/project/httpx/>`_ 封装，支持同步和异步调用，本模块默认用的就是这个封装
 
                 .. code:: python
@@ -6723,7 +6737,7 @@ class P115Client(P115OpenClient):
 
                     from asks_request import request
 
-            8. `httpcore_request <https://pypi.org/project/httpcore_request/>`_，由 `httpcore <https://pypi.org/project/httpcore/>`_ 封装，支持同步和异步调用，本模块默认用的就是这个封装
+            8. `httpcore_request <https://pypi.org/project/httpcore_request/>`_，由 `httpcore <https://pypi.org/project/httpcore/>`_ 封装，支持同步和异步调用
 
                 .. code:: python
 
@@ -6756,6 +6770,23 @@ class P115Client(P115OpenClient):
             request_kwargs["session"] = self.async_session if async_ else self.session
             request_kwargs["async_"] = async_
             request = get_default_request()
+        else:
+            if iscoroutinefunction(request):
+                async_ = True
+            try:
+                params = signature(request).parameters
+            except (ValueError, TypeError):
+                pass
+            else:
+                if ((param := params.get("async_")) and 
+                    param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY)
+                ):
+                    request_kwargs["async_"] = async_
+                if ("cookies" not in request_kwargs and 
+                    (param := params.get("cookies")) and 
+                    param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY)
+                ):
+                    request_kwargs["cookies"] = self.cookiejar
         headers.merge(self.headers)
         if is_open_api:
             headers["cookie"] = ""
