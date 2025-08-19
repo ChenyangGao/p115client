@@ -106,7 +106,7 @@ def iter_history_once(
     if app in ("", "web", "desktop", "harmony"):
         history_list = partial(client.fs_history_list, **request_kwargs)
     else:
-        request_kwargs.setdefault("base_url", cycle(("http://proapi.115.com", "https://proapi.115.com")).__next__)
+        request_kwargs.setdefault("base_url", cycle(("http://pro.api.115.com", "https://proapi.115.com")).__next__)
         history_list = partial(client.fs_history_list_app, app=app, **request_kwargs)
     if first_batch_size <= 0:
         first_batch_size = 64 if from_time or from_id else 1150

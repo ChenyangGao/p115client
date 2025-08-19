@@ -135,11 +135,11 @@ def make_application(
     con_file: Connection
 
     # NOTE: webdav 的文件对象缓存
-    DAV_FILE_CACHE: MutableMapping[str, DAVNonCollection] = LRUDict(65536)
+    DAV_FILE_CACHE: MutableMapping[str, DAVNonCollection] = LRUDict(maxsize=65536)
     # NOTE: 文件缓存的读写锁
     FILE_LOCK_CACHE: MutableMapping[tuple[str, int], Lock] = WeakValueDictionary()
     # NOTE: 缓存文件数据
-    FILE_DATA_CACHE: MutableMapping[tuple[str, int], bytes] = LRUDict(128)
+    FILE_DATA_CACHE: MutableMapping[tuple[str, int], bytes] = LRUDict(maxsize=128)
 
     @app.on_middlewares_configuration
     def configure_forwarded_headers(app: Application):
@@ -337,7 +337,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sha1_size ON data(sha1, size);""")
         async def get_subtitles(pickcode: str):
             """获取字幕（随便提供此文件夹内的任何一个文件的提取码即可）
             """
-            resp = await client.fs_video_subtitle(pickcode, base_url=True, async_=True)
+            resp = await client.fs_video_subtitle(pickcode, async_=True)
             return check_response(resp).get("data")
 
     @app.router.get("/%3Curl")

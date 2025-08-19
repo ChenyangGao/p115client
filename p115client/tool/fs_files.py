@@ -32,8 +32,8 @@ from p115client.exception import BusyOSError, DataError, P115Warning
 from .util import is_timeouterror
 
 
-get_webapi_origin: Final = cycle(("http://webapi.115.com", "https://webapi.115.com")).__next__
-get_proapi_origin: Final = cycle(("http://proapi.115.com", "https://proapi.115.com")).__next__
+get_webapi_origin: Final = cycle(("http://web.api.115.com", "https://webapi.115.com")).__next__
+get_proapi_origin: Final = cycle(("http://pro.api.115.com", "https://proapi.115.com")).__next__
 
 
 @overload

@@ -229,7 +229,7 @@ def oss_multipart_upload_url(
     if domain.startswith(("http://", "https://")):
         url = domain.rstrip("/")
     elif domain:
-        url = f"http://{bucket}.{domain}/{object}"
+        url = f"https://{bucket}.{domain}/{object}"
     else:
         url = ""
     return url+params, headers

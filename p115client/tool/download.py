@@ -9,12 +9,15 @@ __all__ = [
 ]
 __doc__ = "这个模块提供了一些和下载有关的函数"
 
-from asyncio import create_task, to_thread, Queue as AsyncQueue, TaskGroup
+from asyncio import (
+    create_task, to_thread, CancelledError as AsyncCancelledError, 
+    Queue as AsyncQueue, TaskGroup, 
+)
 from collections import defaultdict
 from collections.abc import (
     AsyncIterator, Callable, Coroutine, Iterable, Iterator, MutableMapping, 
 )
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import CancelledError, ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime
 from functools import partial
@@ -1488,7 +1491,7 @@ def iter_download_nodes(
     """
     if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
-    get_base_url = cycle(("http://proapi.115.com", "https://proapi.115.com")).__next__
+    get_base_url = cycle(("http://pro.api.115.com", "https://proapi.115.com")).__next__
     if async_:
         if max_workers is None or max_workers <= 0:
             max_workers = 20
@@ -1574,16 +1577,16 @@ def iter_download_nodes(
                     if max_page and page > max_page:
                         return
                     task_page[task_idx] = page
-                    resp: dict = yield get_nodes({"pickcode": pickcode, "page": page})
                     try:
+                        resp: dict = yield get_nodes({"pickcode": pickcode, "page": page})
                         check_response(resp)
+                        data = resp["data"]
+                        attrs = normalize_attrs(data["list"])
+                        if need_yield:
+                            attrs = yield attrs
                     except BaseException as e:
                         put(e)
                         return
-                    data = resp["data"]
-                    attrs = normalize_attrs(data["list"])
-                    if need_yield:
-                        attrs = yield attrs
                     put(attrs)
                     if not data["has_next_page"]:
                         max_page = page
@@ -1634,6 +1637,8 @@ def iter_download_nodes(
                     ls = yield get()
                     if ls is sentinel:
                         break
+                    elif isinstance(ls, (CancelledError, AsyncCancelledError)):
+                        continue
                     elif isinstance(ls, BaseException):
                         raise ls
                     yield YieldFrom(ls)
@@ -1915,8 +1920,11 @@ def iter_download_files(
                 async_=async_, 
                 **request_kwargs, 
             ))
-        def set_ancestors_loaded(*_):
+        def set_ancestors_loaded(fu, /):
             nonlocal ancestors_loaded
+            exc = fu.exception()
+            if exc is not None:
+                raise exc
             ancestors_loaded = True
         def gen_step(pickcode: str, /):
             nonlocal ancestors_loaded

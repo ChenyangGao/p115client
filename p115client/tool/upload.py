@@ -674,7 +674,7 @@ def multipart_upload_init(
                 **request_kwargs, 
             )
             check_response(resp)
-        url = f"http://{bucket}.{domain}/{object}"
+        url = f"https://{bucket}.{domain}/{object}"
         token = client.upload_token
         if upload_id := upload_data.get("upload_id"):
             parts = yield collect(oss_multipart_part_iter(
@@ -828,7 +828,7 @@ def multipart_upload_complete(
     bucket = upload_data["bucket"]
     object = upload_data["object"]
     upload_id = upload_data["upload_id"]
-    url = f"http://{bucket}.{domain}/{object}"
+    url = f"https://{bucket}.{domain}/{object}"
     if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     def gen_step():

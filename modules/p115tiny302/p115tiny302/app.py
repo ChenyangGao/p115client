@@ -106,22 +106,22 @@ def make_application(
     :return: blacksheep 服务对象
     """
     #: sha1 或 (sha1, size) 对应 id
-    SHA1_TO_ID: LRUDict[str | tuple[str, int], int] = LRUDict(cache_size)
+    SHA1_TO_ID: LRUDict[str | tuple[str, int], int] = LRUDict(maxsize=cache_size)
     #: name 或 (name, size) 对应 id
-    NAME_TO_ID: LRUDict[str | tuple[str, int], int] = LRUDict(cache_size)
+    NAME_TO_ID: LRUDict[str | tuple[str, int], int] = LRUDict(maxsize=cache_size)
     #: path 对应 id
-    PATH_TO_ID: TTLDict[str, int] = TTLDict(cache_size, ttl=3600)
+    PATH_TO_ID: TTLDict[str, int] = TTLDict(maxsize=cache_size, ttl=3600)
     #: (share_code, name) 或 (share_code, name, size) 对应 id
-    SHARE_NAME_TO_ID: LRUDict[tuple[str, str] | tuple[str, str, int], int] = LRUDict(cache_size)
+    SHARE_NAME_TO_ID: LRUDict[tuple[str, str] | tuple[str, str, int], int] = LRUDict(maxsize=cache_size)
     #: (share_code, path) 对应 id
-    SHARE_PATH_TO_ID: TTLDict[tuple[str, str], int] = TTLDict(cache_size, ttl=3600)
+    SHARE_PATH_TO_ID: TTLDict[tuple[str, str], int] = TTLDict(maxsize=cache_size, ttl=3600)
     if cache_url:
         #: (id, user_agent) 对应下载 url
-        DOWNLOAD_URL_CACHE: TLRUDict[tuple[int, str], P115URL] = TLRUDict(cache_size)
+        DOWNLOAD_URL_CACHE: TLRUDict[tuple[int, str], tuple[float, P115URL]] = TLRUDict(maxsize=cache_size)
     #: id 或 (share_code, id) 对应 id
-    DOWNLOAD_URL_CACHE1: TLRUDict[int | tuple[str, int], P115URL] = TLRUDict(cache_size)
+    DOWNLOAD_URL_CACHE1: TLRUDict[int | tuple[str, int], tuple[float, P115URL]] = TLRUDict(maxsize=cache_size)
     #: (id, user_agent) 对应下载 url
-    DOWNLOAD_URL_CACHE2: TLRUDict[tuple[int, str], P115URL] = TLRUDict(1024)
+    DOWNLOAD_URL_CACHE2: TLRUDict[tuple[int, str], tuple[float, P115URL]] = TLRUDict(maxsize=1024)
     #: 分享码 对应 接收码
     CODE_SHARE_TO_RECEIVE: dict[str, str] = {}
 

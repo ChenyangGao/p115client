@@ -103,18 +103,18 @@ def make_application(
     :return: blacksheep 服务对象
     """
     #: sha1 或 (sha1, size) 对应 id
-    SHA1_TO_ID: LRUDict[str | tuple[str, int], int] = LRUDict(cache_size)
+    SHA1_TO_ID: LRUDict[str | tuple[str, int], int] = LRUDict(maxsize=cache_size)
     #: name 或 (name, size) 对应 id
-    NAME_TO_ID: LRUDict[str | tuple[str, int], int] = LRUDict(cache_size)
+    NAME_TO_ID: LRUDict[str | tuple[str, int], int] = LRUDict(maxsize=cache_size)
     #: path 对应 id
-    PATH_TO_ID: TTLDict[str, int] = TTLDict(cache_size, ttl=3600)
+    PATH_TO_ID: TTLDict[str, int] = TTLDict(maxsize=cache_size, ttl=3600)
     if cache_url:
         #: (id, user_agent) 对应下载 url
-        DOWNLOAD_URL_CACHE: TLRUDict[tuple[int, str], P115URL] = TLRUDict(cache_size)
+        DOWNLOAD_URL_CACHE: TLRUDict[tuple[int, str], tuple[float, P115URL]] = TLRUDict(maxsize=cache_size)
     #: id 对应下载 url（此 url 不限定 user_agent）
-    DOWNLOAD_URL_CACHE1: TLRUDict[int, P115URL] = TLRUDict(cache_size)
+    DOWNLOAD_URL_CACHE1: TLRUDict[int, tuple[float, P115URL]] = TLRUDict(maxsize=cache_size)
     #: (id, user_agent) 对应下载 url
-    DOWNLOAD_URL_CACHE2: TLRUDict[tuple[int, str], P115URL] = TLRUDict(1024)
+    DOWNLOAD_URL_CACHE2: TLRUDict[tuple[int, str], tuple[float, P115URL]] = TLRUDict(maxsize=1024)
 
     app = Application(router=Router(), show_error_details=debug)
     logger = getattr(app, "logger")

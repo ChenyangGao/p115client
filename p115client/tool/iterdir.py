@@ -376,10 +376,10 @@ def ensure_attr_path[D: dict](
         get_info: Callable = client.fs_info_open
         app = "open"
     elif app in ("", "web", "desktop", "harmony"):
-        request_kwargs.setdefault("base_url", cycle(("http://webapi.115.com", "https://webapi.115.com")).__next__)
+        request_kwargs.setdefault("base_url", cycle(("http://web.api.115.com", "https://webapi.115.com")).__next__)
         get_info = client.fs_category_get
     else:
-        request_kwargs.setdefault("base_url", cycle(("http://proapi.115.com", "https://proapi.115.com")).__next__)
+        request_kwargs.setdefault("base_url", cycle(("http://pro.api.115.com", "https://proapi.115.com")).__next__)
         get_info = partial(client.fs_category_get_app, app=app)
     bind = make_path_binder(id_to_dirnode, escape=escape, with_ancestors=with_ancestors)
     dangling_ids: set[int] = set()
@@ -1388,9 +1388,19 @@ def iter_files_with_path(
         ))
     else:
         from .download import iter_download_nodes
-        def set_path_already(*_):
-            nonlocal path_already
-            path_already = True
+        class BoolRaise:
+            def __init__(self, /, exception):
+                self.exception = exception
+            def __bool__(self, /):
+                raise self.exception
+        path_not_already: bool | BoolRaise = True
+        def set_path_already(fu, /):
+            nonlocal path_not_already
+            exc = fu.exception()
+            if exc is None:
+                path_not_already = False
+            else:
+                path_not_already = BoolRaise(exc)
         def fetch_dirs(id: int | str, /):
             if id:
                 return through(iter_download_nodes(
@@ -1417,12 +1427,11 @@ def iter_files_with_path(
         def gen_step():
             cache: list[dict] = []
             add_to_cache = cache.append
-            if not path_already:
-                if async_:
-                    task: Any = create_task(fetch_dirs(cid))
-                else:
-                    task = run_as_thread(fetch_dirs, cid)
-                task.add_done_callback(set_path_already)
+            if async_:
+                task: Any = create_task(fetch_dirs(cid))
+            else:
+                task = run_as_thread(fetch_dirs, cid)
+            task.add_done_callback(set_path_already)
             with with_iter_next(iter_files(
                 client, 
                 cid, 
@@ -1441,20 +1450,19 @@ def iter_files_with_path(
                 async_=async_, # type: ignore
                 **request_kwargs, 
             )) as get_next:
+                while path_not_already:
+                    add_to_cache((yield get_next()))
+                if cache:
+                    yield YieldFrom(map(update_path, cache))
+                    cache.clear()
                 while True:
-                    attr = yield get_next()
-                    if path_already:
-                        if cache:
-                            yield YieldFrom(map(update_path, cache))
-                            cache.clear()
-                        yield Yield(update_path(attr))
-                    else:
-                        add_to_cache(attr)
+                    yield Yield(update_path((yield get_next())))
             if cache:
                 if async_:
                     yield task
                 else:
                     task.result()
+                bool(path_not_already)
                 yield YieldFrom(map(update_path, cache))
         return run_gen_step_iter(gen_step, async_)
 
@@ -1628,23 +1636,33 @@ def iter_files_with_path_skim(
                         **request_kwargs, 
                     ), 
                 )
-        def set_path_already(*_):
-            nonlocal path_already
+        class BoolRaise:
+            def __init__(self, /, exception):
+                self.exception = exception
+            def __bool__(self, /):
+                raise self.exception
+        path_not_already: bool | BoolRaise = True
+        def set_path_already(fu, /):
+            nonlocal path_not_already
+            exc = fu.exception()
+            if exc is None:
+                path_not_already = False
+            else:
+                path_not_already = BoolRaise(exc)
             path_already = True
         def gen_step():
             cache: list[dict] = []
             add_to_cache = cache.append
-            if not path_already:
-                if async_:
-                    task: Any = async_gather(update_top(cid), fetch_dirs(cid))
-                    task.add_done_callback(set_path_already)
-                else:
-                    task0 = run_as_thread(update_top, cid)
-                    task = run_as_thread(fetch_dirs, cid)
-                    def done_callback(*_):
-                        task0.result()
-                        set_path_already()
-                    task.add_done_callback(done_callback)
+            if async_:
+                task: Any = async_gather(update_top(cid), fetch_dirs(cid))
+                task.add_done_callback(set_path_already)
+            else:
+                task0 = run_as_thread(update_top, cid)
+                task = run_as_thread(fetch_dirs, cid)
+                def done_callback(fu, /):
+                    task0.result()
+                    set_path_already(fu)
+                task.add_done_callback(done_callback)
             with with_iter_next(iter_download_nodes(
                 client, 
                 cid, 
@@ -1655,20 +1673,19 @@ def iter_files_with_path_skim(
                 async_=async_, 
                 **request_kwargs, 
             )) as get_next:
+                while path_not_already:
+                    add_to_cache((yield get_next()))
+                if cache:
+                    yield YieldFrom(map(update_path, cache))
+                    cache.clear()
                 while True:
-                    attr = yield get_next()
-                    if path_already:
-                        if cache:
-                            yield YieldFrom(map(update_path, cache))
-                            cache.clear()
-                        yield Yield(update_path(attr))
-                    else:
-                        add_to_cache(attr)
+                    yield Yield(update_path((yield get_next())))
             if cache:
                 if async_:
                     yield task
                 else:
                     task.result()
+                bool(path_not_already)
                 yield YieldFrom(map(update_path, cache))
         return run_gen_step_iter(gen_step, async_)
 
@@ -2237,7 +2254,7 @@ def iter_nodes(
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
     request_kwargs.setdefault(
         "base_url", 
-        cycle(("http://webapi.115.com", "https://webapi.115.com")).__next__, 
+        cycle(("http://web.api.115.com", "https://webapi.115.com")).__next__, 
     )
     def project(resp: dict, /) -> None | dict:
         if resp.get("code") == 20018:
@@ -2391,14 +2408,14 @@ def iter_nodes_by_pickcode(
     methods: list[Callable] = []
     if ignore_deleted or ignore_deleted is None:
         methods += (
-            partial(client.fs_document, base_url="http://webapi.115.com"), 
-            partial(client.fs_document_app, base_url="http://proapi.115.com"), 
+            partial(client.fs_document, base_url="http://web.api.115.com"), 
+            partial(client.fs_document_app, base_url="http://pro.api.115.com"), 
             partial(client.fs_document_app, base_url="https://proapi.115.com"), 
         )
     if not ignore_deleted:
        methods += (
-            partial(client.fs_supervision, base_url="http://webapi.115.com"), 
-            partial(client.fs_supervision_app, base_url="http://proapi.115.com"), 
+            partial(client.fs_supervision, base_url="http://web.api.115.com"), 
+            partial(client.fs_supervision_app, base_url="http://pro.api.115.com"), 
             partial(client.fs_supervision_app, base_url="https://proapi.115.com"), 
         )
     def get_response(pickcode: str, /, get_method=cycle(methods).__next__):
@@ -2485,7 +2502,7 @@ def iter_nodes_using_update(
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
     request_kwargs.setdefault(
         "base_url", 
-        cycle(("http://proapi.115.com", "https://proapi.115.com")).__next__, 
+        cycle(("http://pro.api.115.com", "https://proapi.115.com")).__next__, 
     )
     def project(resp: dict, /) -> None | dict:
         if error := resp.get("error"):
@@ -2573,19 +2590,19 @@ def iter_nodes_using_info(
         get_method = lambda: fs_info
     elif app == "":
         get_method = cycle((
-            partial(client.fs_category_get, base_url="http://webapi.115.com"), 
-            partial(client.fs_category_get_app, base_url="http://proapi.115.com"), 
+            partial(client.fs_category_get, base_url="http://web.api.115.com"), 
+            partial(client.fs_category_get_app, base_url="http://pro.api.115.com"), 
             partial(client.fs_category_get, base_url="https://webapi.115.com"), 
             partial(client.fs_category_get_app, base_url="https://proapi.115.com"), 
         )).__next__
     elif app in ("web", "desktop", "harmony"):
         get_method = cycle((
-            partial(client.fs_category_get, base_url="http://webapi.115.com"), 
+            partial(client.fs_category_get, base_url="http://web.api.115.com"), 
             partial(client.fs_category_get, base_url="https://webapi.115.com"), 
         )).__next__
     else:
         get_method = cycle((
-            partial(client.fs_category_get_app, base_url="http://proapi.115.com", app=app), 
+            partial(client.fs_category_get_app, base_url="http://pro.api.115.com", app=app), 
             partial(client.fs_category_get_app, base_url="https://proapi.115.com", app=app), 
         )).__next__
     def parse(_, content: bytes):
@@ -2723,9 +2740,9 @@ def iter_nodes_using_event(
             **request_kwargs, 
         )
         if app in ("", "web", "desktop", "harmony"):
-            get_base_url = cycle(("http://webapi.115.com", "https://webapi.115.com")).__next__
+            get_base_url = cycle(("http://web.api.115.com", "https://webapi.115.com")).__next__
         else:
-            get_base_url = cycle(("http://proapi.115.com", "https://proapi.115.com")).__next__
+            get_base_url = cycle(("http://pro.api.115.com", "https://proapi.115.com")).__next__
         request_kwargs.setdefault("base_url", get_base_url)
         discard = ids.discard
         with with_iter_next(iter_life_behavior_once(
@@ -3409,7 +3426,6 @@ def share_iterdir(
         while True:
             resp = yield client.share_snap(
                 payload, 
-                base_url=True, 
                 async_=async_, 
                 **request_kwargs, 
             )

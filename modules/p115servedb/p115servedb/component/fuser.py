@@ -19,7 +19,7 @@ from posixpath import split as splitpath, splitext
 from sqlite3 import connect
 from stat import S_IFDIR, S_IFREG
 from threading import Lock
-from typing import Final, BinaryIO
+from typing import BinaryIO
 from unicodedata import normalize
 from weakref import WeakValueDictionary
 
@@ -96,7 +96,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sha1_size ON data(sha1, size);""")
         self._root = {"st_mode": S_IFDIR | 0o555, "_attr": get_attr_from_db(self.con, 0)}
         self._next_fh: Callable[[], int] = count(1).__next__
         self._fh_to_file: dict[int, tuple[BinaryIO, bytes]] = {}
-        self.cache: LRUDict = LRUDict(1024)
+        self.cache: LRUDict = LRUDict(maxsize=1024)
         self.normpath_map: dict[str, str] = {}
 
     def __del__(self, /):
@@ -106,8 +106,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sha1_size ON data(sha1, size);""")
         with suppress(AttributeError):
             self.con.close()
             self.con_file.close()
-            if self.client:
-                self.client.close()
             popitem = self._fh_to_file.popitem
             while True:
                 try:

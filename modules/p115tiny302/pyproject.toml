@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "p115tiny302"
-version = "0.2.1"
+version = "0.2.1.1"
 description = "115 tiny 302 backend."
 authors = ["ChenyangGao <wosiwujm@gmail.com>"]
 license = "MIT"
@@ -28,9 +28,9 @@ include = [
 [tool.poetry.dependencies]
 python = "^3.12"
 blacksheep = "*"
-cachedict = ">=0.0.3"
+cachedict = ">=0.0.6"
 orjson = "*"
-p115client = ">=0.0.5.17"
+p115client = ">=0.0.5.18"
 p115pickcode = ">=0.0.5.4"
 posixpatht = ">=0.0.4"
 pyyaml = "*"

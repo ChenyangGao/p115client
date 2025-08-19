@@ -14,7 +14,6 @@ from .iterdir import *
 from .life import *
 from .offline import *
 from .pool import *
-from .request import *
 from .upload import *
 from .util import *
 from .xys import *

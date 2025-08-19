@@ -233,16 +233,16 @@ def make_application(
     logger.addHandler(handler)
 
     # NOTE: 缓存图片的 CDN 直链，缓存 59 分钟
-    IMAGE_URL_CACHE: TTLDict[str | tuple[str, int], str] = TTLDict(cache_size, ttl=60*59)
+    IMAGE_URL_CACHE: TTLDict[str | tuple[str, int], str] = TTLDict(maxsize=cache_size, ttl=60*59)
     # NOTE: 缓存直链（主要是音乐链接）
     if cache_url:
-        DOWNLOAD_URL_CACHE: TLRUDict[tuple[str, str], P115URL] = TLRUDict(cache_size)
-    DOWNLOAD_URL_CACHE1: TLRUDict[str | tuple[str, int], P115URL] = TLRUDict(cache_size)
-    DOWNLOAD_URL_CACHE2: TLRUDict[tuple[str, str], P115URL] = TLRUDict(1024)
+        DOWNLOAD_URL_CACHE: TLRUDict[tuple[str, str], tuple[float, P115URL]] = TLRUDict(maxsize=cache_size)
+    DOWNLOAD_URL_CACHE1: TLRUDict[str | tuple[str, int], tuple[float, P115URL]] = TLRUDict(maxsize=cache_size)
+    DOWNLOAD_URL_CACHE2: TLRUDict[tuple[str, str], tuple[float, P115URL]] = TLRUDict(maxsize=1024)
     # NOTE: 缓存文件列表数据
-    CACHE_ID_TO_LIST: LRUDict[int | tuple[str, int], dict] = LRUDict(64)
+    CACHE_ID_TO_LIST: LRUDict[int | tuple[str, int], dict] = LRUDict(maxsize=64)
     # NOTE: 缓存文件信息数据
-    CACHE_ID_TO_ATTR: LRUDict[int | tuple[str, int], AttrDict] = LRUDict(1024)
+    CACHE_ID_TO_ATTR: LRUDict[int | tuple[str, int], AttrDict] = LRUDict(maxsize=1024)
     # NOTE: 缓存文件信息数据，但是弱引用
     ID_TO_ATTR: WeakValueDictionary[int | tuple[str, int], AttrDict] = WeakValueDictionary()
     # NOTE: 获取文件列表数据时加锁，实现了对任何 1 个目录 id，只允许同时运行 1 个拉取
@@ -933,7 +933,7 @@ def make_application(
         offset = 0
         payload = {"offset": offset, "limit": 1150}
         while True:
-            resp = await share_get_list(payload, base_url=True, async_=True)
+            resp = await share_get_list(payload, async_=True)
             check_response(resp)
             for share in resp["list"]:
                 SHARE_CODE_MAP[share["share_code"]] = share
@@ -958,13 +958,12 @@ def make_application(
             if receive_code:
                 resp = await client.share_snap(
                     {"share_code": share_code, "receive_code": receive_code, "cid": 0, "limit": 1}, 
-                    base_url=True, 
                     async_=True, 
                 )
                 if resp["state"]:
                     share_info = resp["data"]["shareinfo"]
             else:
-                resp = await client.share_info(share_code, base_url=True, async_=True)
+                resp = await client.share_info(share_code, async_=True)
                 if resp["state"]:
                     share_info = resp["data"]
             check_response(resp)

@@ -27,7 +27,6 @@ from blacksheep.server.remotes.forwarding import ForwardedHeadersMiddleware
 from cachedict import LRUDict, TLRUDict
 from orjson import dumps, loads, OPT_INDENT_2, OPT_SORT_KEYS
 from p115rsacipher import encrypt, decrypt
-from p115pickcode import id_to_pickcode, pickcode_to_id, is_valid_pickcode
 from rich.box import ROUNDED
 from rich.console import Console
 from rich.highlighter import JSONHighlighter
@@ -159,16 +158,16 @@ def make_application(
     cache_url: bool = False, 
     cache_size: int = 65536, 
 ) -> Application:
-    ID_TO_PICKCODE:   LRUDict[tuple[int, int], str] = LRUDict(cache_size)
-    SHA1_TO_PICKCODE: LRUDict[tuple[int, str], str] = LRUDict(cache_size)
-    NAME_TO_PICKCODE: LRUDict[tuple[int, str], str] = LRUDict(cache_size)
-    DIR_TO_CID: LRUDict[tuple[int, str], int] = LRUDict(cache_size)
-    CID_NAME_TO_PICKCODE: LRUDict[tuple[int, int, str], str] = LRUDict(cache_size)
-    SHARE_NAME_TO_ID: LRUDict[tuple[str, str], int] = LRUDict(cache_size)
+    ID_TO_PICKCODE:   LRUDict[tuple[int, int], str] = LRUDict(maxsize=cache_size)
+    SHA1_TO_PICKCODE: LRUDict[tuple[int, str], str] = LRUDict(maxsize=cache_size)
+    NAME_TO_PICKCODE: LRUDict[tuple[int, str], str] = LRUDict(maxsize=cache_size)
+    DIR_TO_CID: LRUDict[tuple[int, str], int] = LRUDict(maxsize=cache_size)
+    CID_NAME_TO_PICKCODE: LRUDict[tuple[int, int, str], str] = LRUDict(maxsize=cache_size)
+    SHARE_NAME_TO_ID: LRUDict[tuple[str, str], int] = LRUDict(maxsize=cache_size)
     if cache_url:
-        DOWNLOAD_URL_CACHE: TLRUDict[tuple[int, str, str], Url] = TLRUDict(cache_size)
-    DOWNLOAD_URL_CACHE1: TLRUDict[tuple[int, str] | tuple[str, int], Url] = TLRUDict(cache_size)
-    DOWNLOAD_URL_CACHE2: TLRUDict[tuple[int, str, str], Url] = TLRUDict(1024)
+        DOWNLOAD_URL_CACHE: TLRUDict[tuple[int, str, str], tuple[float, Url]] = TLRUDict(maxsize=cache_size)
+    DOWNLOAD_URL_CACHE1: TLRUDict[tuple[int, str] | tuple[str, int], tuple[float, Url]] = TLRUDict(maxsize=cache_size)
+    DOWNLOAD_URL_CACHE2: TLRUDict[tuple[int, str, str], tuple[float, Url]] = TLRUDict(maxsize=1024)
     RECEIVE_CODE_MAP: dict[str, str] = {}
 
     PASSWORD = password

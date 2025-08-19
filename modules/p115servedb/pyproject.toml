@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "p115servedb"
-version = "0.0.5.6"
+version = "0.0.5.7"
 description = "115 网盘基于 p115updatedb 导出数据库的挂载服务"
 authors = ["ChenyangGao <wosiwujm@gmail.com>"]
 license = "MIT"
@@ -29,11 +29,11 @@ include = [
 python = "^3.12"
 a2wsgi = ">=1.10.7"
 blacksheep = "*"
-cachedict = ">=0.0.3"
+cachedict = ">=0.0.6"
 fusepy = "*"
 httpagentparser = "*"
 orjson = "*"
-p115client = ">=0.0.5.17.4"
+p115client = ">=0.0.5.18"
 p115updatedb = ">=0.0.12"
 path_predicate = ">=0.0.1.1"
 posixpatht = ">=0.0.3"
