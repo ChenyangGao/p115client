@@ -7,15 +7,19 @@ __all__ = [
     "P115DictAttrLike", "P115ID", "P115StrID", "P115URL", 
 ]
 
+from datetime import datetime
 from functools import cached_property
-from http.cookiejar import CookieJar
-from http.cookies import SimpleCookie
+from http.cookiejar import CookieJar, Cookie
+from http.cookies import BaseCookie, Morsel
 from re import compile as re_compile
 from types import MappingProxyType
 from typing import Any, Final, NamedTuple, NotRequired, Self, TypedDict
 
-from cookietools import cookies_to_dict
+from cookietools import cookies_to_dict, cookies_to_str
+from integer_tool import try_parse_int
 from undefined import undefined
+
+from .const import SSOENT_TO_APP
 
 
 CRE_UID_FORMAT_match: Final = re_compile("(?P<user_id>[1-9][0-9]*)_(?P<login_ssoent>[A-Z][1-9][0-9]*)_(?P<login_timestamp>[1-9][0-9]{9,})").fullmatch
@@ -43,9 +47,45 @@ class MultipartResumeData(TypedDict):
     filesize: NotRequired[int]
 
 
+class P115UID(str):
+
+    def __init__(self, /, *a, **k):
+        if m := CRE_UID_FORMAT_match(self):
+            self.__dict__.update((k, try_parse_int(v)) for k, v in m.groupdict().items())
+
+    @cached_property
+    def user_id(self, /) -> int:
+        return 0
+
+    @cached_property
+    def login_ssoent(self, /) -> str:
+        return ""
+
+    @cached_property
+    def login_timestamp(self, /) -> int:
+        return 0
+
+
 class P115Cookies(str):
     """cookies 的封装
     """
+    __last_new_instance__ = None
+
+    def __new__(cls, cookies, /):
+        def predicate(_, val, /):
+            domain: None | str = None
+            if isinstance(val, Cookie):
+                domain = val.domain
+            elif isinstance(val, Morsel):
+                domain = val["domain"]
+            return not domain or domain == "115.com" or domain.endswith(".115.com")
+        cookies = cookies_to_str(cookies, predicate)
+        if cookies == cls.__last_new_instance__:
+            return cls.__last_new_instance__
+        else:
+            inst = cls.__last_new_instance__ = super().__new__(cls, cookies)
+            return inst
+
     def __getattr__(self, attr: str, /):
         try:
             return self.mapping[attr]
@@ -59,7 +99,7 @@ class P115Cookies(str):
 
     def __repr__(self, /) -> str:
         cls = type(self)
-        if (module := cls.__module__) == "__main__":
+        if (module := cls.__module__) not in ("__main__", "builtins"):
             name = cls.__qualname__
         else:
             name = f"{module}.{cls.__qualname__}"
@@ -70,41 +110,51 @@ class P115Cookies(str):
 
     @cached_property
     def mapping(self, /) -> MappingProxyType:
-        return MappingProxyType(cookies_to_dict(str(self)))
+        return MappingProxyType(cookies_to_dict(self))
 
     @cached_property
-    def uid(self, /) -> str:
-        return self.mapping["UID"]
+    def uid(self, /) -> P115UID:
+        return P115UID(self.mapping.get("UID") or "")
 
     @cached_property
     def cid(self, /) -> str:
-        return self.mapping["CID"]
+        return self.mapping.get("CID") or ""
 
     @cached_property
     def kid(self, /) -> str:
-        return self.mapping["KID"]
+        return self.mapping.get("KID") or ""
 
     @cached_property
     def seid(self, /) -> str:
-        return self.mapping["SEID"]
+        return self.mapping.get("SEID") or ""
 
-    @cached_property
+    @property
     def user_id(self, /) -> int:
-        d: dict = CRE_UID_FORMAT_match(self.uid).groupdict() # type: ignore
-        self.__dict__.update(d)
-        return int(d["user_id"])
+        return self.uid.user_id
 
-    @cached_property
+    @property
     def login_ssoent(self, /) -> str:
-        d: dict = CRE_UID_FORMAT_match(self.uid).groupdict() # type: ignore
-        self.__dict__.update(d)
-        return d["login_ssoent"]
+        return self.uid.login_ssoent
+
+    ssoent = login_ssoent
 
     @cached_property
+    def login_app(self, /) -> None | str:
+        return SSOENT_TO_APP.get(self.login_ssoent)
+
+    @property
+    def app(self, /) -> None | str:
+        return self.login_app
+
+    @property
     def login_timestamp(self, /) -> int:
-        d: dict = CRE_UID_FORMAT_match(self.uid).groupdict() # type: ignore
-        self.__dict__.update(d)
-        return int(d["login_timestamp"])
+        return self.uid.login_timestamp
+
+    timestamp = login_timestamp
+
+    @cached_property
+    def datetime(self, /) -> datetime:
+        return datetime.fromtimestamp(self.login_timestamp)
 
     @cached_property
     def is_well_formed(self, /) -> bool:
@@ -124,6 +174,10 @@ class P115Cookies(str):
         return cookies
 
     @classmethod
+    def from_dict(cls, cookies: dict[str, str], /) -> Self:
+        return cls("; ".join(f"{key}={val}" for key, val in cookies.items()))
+
+    @classmethod
     def from_cookiejar(cls, cookiejar: CookieJar, /) -> Self:
         return cls("; ".join(
             f"{cookie.name}={cookie.value}" 
@@ -132,7 +186,7 @@ class P115Cookies(str):
         ))
 
     @classmethod
-    def from_simple_cookie(cls, cookies: SimpleCookie, /) -> Self:
+    def from_simple_cookie(cls, cookies: BaseCookie, /) -> Self:
         return cls("; ".join(
             f"{name}={cookie.value}" 
             for name, cookie in cookies.items() 
@@ -163,7 +217,7 @@ class P115DictAttrLikeMixin:
 
     def __repr__(self, /) -> str:
         cls = type(self)
-        if (module := cls.__module__) == "__main__":
+        if (module := cls.__module__) not in ("__main__", "builtins"):
             name = cls.__qualname__
         else:
             name = f"{module}.{cls.__qualname__}"

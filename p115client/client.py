@@ -22,7 +22,7 @@ from ensure import ensure_bytes
 from functools import cached_property, partial
 from hashlib import md5, sha1
 from http.cookiejar import Cookie, CookieJar
-from http.cookies import Morsel, SimpleCookie
+from http.cookies import Morsel, BaseCookie
 from inspect import isawaitable, iscoroutinefunction, signature, Signature
 from itertools import count
 from operator import itemgetter
@@ -137,7 +137,6 @@ def complete_url(
     return base_url + path
 
 
-# 这个函数需要被移除
 def json_loads(content: Buffer, /):
     try:
         if isinstance(content, (bytes, bytearray, memoryview)):
@@ -1039,6 +1038,8 @@ def normalize_attr_simple[D: dict[str, Any]](
 
 
 class ClientRequestMixin:
+    """混入类，部署了 HTTP 请求相关的属性和方法，并集成了一部分公共的静态方法和类方法
+    """
     cookies_path: None | PurePath = None
 
     def _read_cookies(
@@ -1070,19 +1071,19 @@ class ClientRequestMixin:
                 f.write(cookies_bytes)
 
     @property
-    def cookies(self, /) -> SimpleCookie:
+    def cookies(self, /) -> BaseCookie:
         """请求所用的 Cookies 对象（同步和异步共用）
         """
         try:
             return self.__dict__["cookies"]
         except KeyError:
-            cookies = self.__dict__["cookies"] = SimpleCookie()
+            cookies = self.__dict__["cookies"] = BaseCookie()
             return cookies
 
     @cookies.setter
     def cookies(
         self, 
-        cookies: None | str | CookieJar | SimpleCookie | Mapping[str, Any] | Iterable[Any] = None, 
+        cookies: None | str | CookieJar | BaseCookie | Mapping[str, Any] | Iterable[Any] = None, 
         /, 
     ):
         """更新 cookies
@@ -1090,10 +1091,10 @@ class ClientRequestMixin:
         cookie_store = self.cookies
         if cookies is None:
             cookie_store.clear()
+            self._write_cookies("")
         elif isinstance(cookies, str):
             cookies = cookies_to_dict(cookies.strip().rstrip(";"))
         if not cookies:
-            self._write_cookies("")
             return
         cookies_old = self.cookies_str
         update_cookies(cookie_store, cookies, domain=".115.com")
@@ -1136,14 +1137,13 @@ class ClientRequestMixin:
 
     @locked_cacheproperty
     def user_id(self, /) -> int:
-        try:
-            return self.cookies_str.user_id
-        except KeyError:
-            if "authorization" in self.headers:
-                resp = check_response(P115OpenClient.user_info_open(cast(P115OpenClient, self)))
-                return int(resp["data"]["user_id"])
-            else:
-                return 0
+        if user_id := self.cookies_str.user_id:
+            return user_id
+        elif "authorization" in self.headers:
+            resp = check_response(P115OpenClient.user_info_open(cast(P115OpenClient, self)))
+            return int(resp["data"]["user_id"])
+        else:
+            return 0
 
     def request(
         self, 
@@ -1175,7 +1175,7 @@ class ClientRequestMixin:
             - headers: HTTP 的请求头
             - follow_redirects: 是否跟进重定向，默认值为 True
             - raise_for_status: 是否对响应码 >= 400 时抛出异常
-            - cookies: 至少能接受 ``http.cookiejar.CookieJar`` 和 ``http.cookies.SimpleCookie``，会因响应头的 "set-cookie" 而更新
+            - cookies: 至少能接受 ``http.cookiejar.CookieJar`` 和 ``http.cookies.BaseCookie``，会因响应头的 "set-cookie" 而更新
             - parse:   解析 HTTP 响应的方法，默认会构建一个 Callable，会把响应的字节数据视为 JSON 进行反序列化解析
 
                 - 如果为 None，则直接把响应对象返回
@@ -1704,6 +1704,10 @@ class ClientRequestMixin:
 
         :return: 接口返回值
         """
+        if not isinstance(self, ClientRequestMixin):
+            uid = self
+        else:
+            assert uid is not None
         if app == "desktop":
             app = "web"
         api = complete_url(f"/app/1.0/{app}/1.0/login/qrcode/", base_url=base_url)
@@ -2151,7 +2155,7 @@ class ClientRequestMixin:
             if app:
                 return cls.login_qrcode_scan_result(
                     login_uid, 
-                    app, 
+                    app=app, 
                     base_url=base_url, 
                     async_=async_, 
                     **request_kwargs, 
@@ -2783,6 +2787,13 @@ class P115OpenClient(ClientRequestMixin):
             instance=self, 
         )
 
+    def __repr__(self, /) -> str:
+        cls = type(self)
+        if app_id := getattr(self, "app_id", 0):
+            return f"<{cls.__module__}.{cls.__qualname__}({app_id=}) at {hex(id(self))}>"
+        else:
+            return f"<{cls.__module__}.{cls.__qualname__} at {hex(id(self))}>"
+
     @overload
     @classmethod
     def init(
@@ -2858,7 +2869,10 @@ class P115OpenClient(ClientRequestMixin):
 
     @property
     def access_token(self, /) -> str:
-        return self.__dict__["access_token"]
+        try:
+            return self.__dict__["access_token"]
+        except KeyError as e:
+            raise AttributeError("access_token") from e
 
     @access_token.setter
     def access_token(self, token, /):
@@ -5369,14 +5383,11 @@ class P115Client(P115OpenClient):
             instance=self, 
         )
 
-    def __eq__(self, other, /) -> bool:
-        try:
-            return type(self) is type(other) and self.user_id == other.user_id
-        except AttributeError:
-            return False
-
-    def __hash__(self, /) -> int:
-        return id(self)
+    def __repr__(self, /) -> str:
+        cls = type(self)
+        if uid := self.cookies_str.uid:
+            return f"<{cls.__module__}.{cls.__qualname__}(UID={uid!r}, app={self.login_app()!r}) at {hex(id(self))}>"
+        return f"<{cls.__module__}.{cls.__qualname__} at {hex(id(self))}>"
 
     @locked_cacheproperty
     def user_key(self, /) -> str:
@@ -5618,16 +5629,18 @@ class P115Client(P115OpenClient):
                 async_=async_, 
                 **request_kwargs, 
             )
-            try:
-                check_response(resp)
-            except AuthenticationError:
-                resp = yield self.login_with_qrcode(
-                    app, 
-                    console_qrcode=console_qrcode, 
-                    async_=async_, 
-                    **request_kwargs, 
-                )
-                check_response(resp)
+            while True:
+                try:
+                    check_response(resp)
+                    break
+                except AuthenticationError:
+                    print("login error:", resp)
+                    resp = yield self.login_with_qrcode(
+                        app, 
+                        console_qrcode=console_qrcode, 
+                        async_=async_, 
+                        **request_kwargs, 
+                    )
             setattr(self, "cookies", resp["data"]["cookie"])
             return self
         return run_gen_step(gen_step, async_)
@@ -5758,7 +5771,7 @@ class P115Client(P115OpenClient):
             uid: str = yield self.login_without_app(async_=async_, **request_kwargs)
             return self.login_qrcode_scan_result(
                 uid, 
-                app, 
+                app=app, 
                 async_=async_, 
                 **request_kwargs, 
             )
@@ -6285,7 +6298,11 @@ class P115Client(P115OpenClient):
         """
         def gen_step():
             resp = yield cls.login_qrcode_scan_result(
-                uid, app, async_=async_, **request_kwargs)
+                uid, 
+                app=app, 
+                async_=async_, 
+                **request_kwargs, 
+            )
             check_response(resp)
             cookies = resp["data"]["cookie"]
             return cls(cookies, check_for_relogin=check_for_relogin)
@@ -6359,7 +6376,7 @@ class P115Client(P115OpenClient):
             - headers: HTTP 的请求头
             - follow_redirects: 是否跟进重定向，默认值为 True
             - raise_for_status: 是否对响应码 >= 400 时抛出异常
-            - cookies: 至少能接受 ``http.cookiejar.CookieJar`` 和 ``http.cookies.SimpleCookie``，会因响应头的 "set-cookie" 而更新
+            - cookies: 至少能接受 ``http.cookiejar.CookieJar`` 和 ``http.cookies.BaseCookie``，会因响应头的 "set-cookie" 而更新
             - parse:   解析 HTTP 响应的方法，默认会构建一个 Callable，会把响应的字节数据视为 JSON 进行反序列化解析
 
                 - 如果为 None，则直接把响应对象返回
@@ -17010,7 +17027,7 @@ class P115Client(P115OpenClient):
         """
         def gen_step():
             ssoent = self.login_ssoent
-            if ssoent is None:
+            if not ssoent:
                 return None
             if ssoent in SSOENT_TO_APP:
                 return SSOENT_TO_APP[ssoent]
@@ -17422,13 +17439,10 @@ class P115Client(P115OpenClient):
         return self.request(url=api, async_=async_, **request_kwargs)
 
     @property
-    def login_ssoent(self, /) -> None | str:
-        """获取当前的登录设备 ssoent，如果为 None，说明未能获得（会直接获取 Cookies 中名为 UID 字段的值，所以即使能获取，也不能说明登录未失效）
+    def login_ssoent(self, /) -> str:
+        """获取当前的登录设备 ssoent，如果为空，说明未能获得（会直接获取 Cookies 中名为 UID 字段的值，所以即使能获取，也不能说明登录未失效）
         """
-        try:
-            return self.cookies_str.login_ssoent
-        except KeyError:
-            return None
+        return self.cookies_str.login_ssoent
 
     ########## Logout API ##########
 
