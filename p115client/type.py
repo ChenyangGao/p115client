@@ -9,11 +9,12 @@ __all__ = [
 
 from functools import cached_property
 from http.cookiejar import CookieJar
+from http.cookies import SimpleCookie
 from re import compile as re_compile
 from types import MappingProxyType
 from typing import Any, Final, NamedTuple, NotRequired, Self, TypedDict
 
-from cookietools import cookies_str_to_dict
+from cookietools import cookies_to_dict
 from undefined import undefined
 
 
@@ -27,16 +28,6 @@ class DirNode(NamedTuple):
     """
     name: str
     parent_id: int
-
-
-class RequestKeywords(TypedDict):
-    """一个请求函数，至少需要包括的参数
-    """
-    url: str
-    method: str
-    data: Any
-    headers: Any
-    parse: Any
 
 
 class MultipartResumeData(TypedDict):
@@ -79,7 +70,7 @@ class P115Cookies(str):
 
     @cached_property
     def mapping(self, /) -> MappingProxyType:
-        return MappingProxyType(cookies_str_to_dict(str(self)))
+        return MappingProxyType(cookies_to_dict(str(self)))
 
     @cached_property
     def uid(self, /) -> str:
@@ -101,10 +92,10 @@ class P115Cookies(str):
     def user_id(self, /) -> int:
         d: dict = CRE_UID_FORMAT_match(self.uid).groupdict() # type: ignore
         self.__dict__.update(d)
-        return d["user_id"]
+        return int(d["user_id"])
 
     @cached_property
-    def login_ssoent(self, /) -> int:
+    def login_ssoent(self, /) -> str:
         d: dict = CRE_UID_FORMAT_match(self.uid).groupdict() # type: ignore
         self.__dict__.update(d)
         return d["login_ssoent"]
@@ -113,7 +104,7 @@ class P115Cookies(str):
     def login_timestamp(self, /) -> int:
         d: dict = CRE_UID_FORMAT_match(self.uid).groupdict() # type: ignore
         self.__dict__.update(d)
-        return d["login_timestamp"]
+        return int(d["login_timestamp"])
 
     @cached_property
     def is_well_formed(self, /) -> bool:
@@ -137,7 +128,15 @@ class P115Cookies(str):
         return cls("; ".join(
             f"{cookie.name}={cookie.value}" 
             for cookie in cookiejar 
-            if cookie.domain == "115.com" or cookie.domain.endswith(".115.com")
+            if not (domain := cookie.domain) or domain == "115.com" or domain.endswith(".115.com")
+        ))
+
+    @classmethod
+    def from_simple_cookie(cls, cookies: SimpleCookie, /) -> Self:
+        return cls("; ".join(
+            f"{name}={cookie.value}" 
+            for name, cookie in cookies.items() 
+            if not (domain := cookie["domain"]) or domain == "115.com" or domain.endswith(".115.com")
         ))
 
 

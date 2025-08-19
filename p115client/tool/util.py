@@ -3,8 +3,7 @@
 
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
 __all__ = [
-    "get_status_code", "is_timeouterror", "posix_escape_name", 
-    "reduce_image_url_layers", "share_extract_payload", 
+    "posix_escape_name", "reduce_image_url_layers", "share_extract_payload", 
     "unescape_115_charref", "determine_part_size", 
 ]
 __doc__ = "这个模块提供了一些工具函数"
@@ -21,36 +20,6 @@ CRE_SHARE_LINK_search = re_compile(r"(?:^|(?<=/))(?P<share_code>[a-z0-9]+)(?:-|\
 class SharePayload(TypedDict):
     share_code: str
     receive_code: NotRequired[None | str]
-
-
-def get_status_code(e: BaseException, /) -> None | int:
-    """获取 HTTP 请求异常的状态码（如果有的话）
-    """
-    status = (
-        getattr(e, "status", None) or 
-        getattr(e, "code", None) or 
-        getattr(e, "status_code", None)
-    )
-    if status is None and hasattr(e, "response"):
-        response = e.response
-        status = (
-            getattr(response, "status", None) or 
-            getattr(response, "code", None) or 
-            getattr(response, "status_code", None)
-        )
-    return status
-
-
-def is_timeouterror(exc: BaseException) -> bool:
-    """判断是不是超时异常
-    """
-    exctype = type(exc)
-    if issubclass(exctype, TimeoutError):
-        return True
-    for exctype in exctype.mro():
-        if "Timeout" in exctype.__name__:
-            return True
-    return False
 
 
 def posix_escape_name(name: str, /, repl: str = "|") -> str:

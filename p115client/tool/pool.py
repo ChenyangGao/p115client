@@ -20,11 +20,10 @@ from os import PathLike
 from threading import Lock
 from time import time
 
+from http_response import get_status_code, is_timeouterror
 from iterutils import run_gen_step
 from p115client import check_response, P115Client
 from p115client.exception import P115OSError, AuthenticationError, LoginError
-
-from .util import get_status_code, is_timeouterror
 
 
 @total_ordering

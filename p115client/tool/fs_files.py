@@ -24,12 +24,10 @@ from time import sleep, time
 from typing import overload, Any, Final, Literal
 from warnings import warn
 
+from http_response import get_status_code, is_timeouterror
 from iterutils import run_gen_step_iter, Yield
 from p115client import check_response, P115Client, P115OpenClient
-from p115client.client import get_status_code
 from p115client.exception import BusyOSError, DataError, P115Warning
-
-from .util import is_timeouterror
 
 
 get_webapi_origin: Final = cycle(("http://web.api.115.com", "https://webapi.115.com")).__next__

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
-# TODO: 减少导出的函数数量
 __all__ = [
     "check_response", "normalize_attr", "normalize_attr_simple", 
     "normalize_attr_web", "normalize_attr_app", "normalize_attr_app2", 
@@ -13,20 +12,19 @@ __all__ = [
 
 from asyncio import Lock as AsyncLock
 from base64 import b64encode
+from collections import UserString
 from collections.abc import (
     AsyncGenerator, AsyncIterable, Awaitable, Buffer, Callable, 
-    Container, Coroutine, Generator, Iterable, Iterator, Mapping, 
-    Sequence, 
+    Coroutine, Generator, Iterable, Iterator, Mapping, Sequence, 
 )
 from datetime import date, datetime, timedelta
 from ensure import ensure_bytes
-from functools import partial
+from functools import cached_property, partial
 from hashlib import md5, sha1
 from http.cookiejar import Cookie, CookieJar
-from http.cookies import Morsel
+from http.cookies import Morsel, SimpleCookie
 from inspect import isawaitable, iscoroutinefunction, signature, Signature
-from itertools import count, repeat
-from math import nan
+from itertools import count
 from operator import itemgetter
 from os import fsdecode, fstat, isatty, PathLike, path as ospath
 from pathlib import Path, PurePath
@@ -38,33 +36,32 @@ from sys import _getframe
 from tempfile import TemporaryFile
 from threading import Lock
 from time import time
-from typing import cast, overload, Any, Final, Literal, Self, Unpack
-from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
+from typing import cast, overload, Any, Final, Literal, Self
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit
 from uuid import uuid4
 from warnings import warn
 
 from argtools import argcount
 from asynctools import ensure_async
-from cookietools import cookies_str_to_dict, create_cookie
+from cookietools import cookies_to_dict, update_cookies
 from dictattr import AttrDict
-from dicttools import iter_items, get_first
+from dicttools import get_first, dict_update, KeyLowerDict
 from errno2 import errno
 from filewrap import (
     bytes_iter_to_reader, bytes_iter_to_async_reader, 
     progress_bytes_iter, progress_bytes_async_iter, 
     copyfileobj, copyfileobj_async, SupportsRead, 
 )
-from ed2k import ed2k_hash, ed2k_hash_async, Ed2kHash
+from ed2k import ed2k_hash, ed2k_hash_async
 from hashtools import (
     HashObj, file_digest, file_mdigest, file_digest_async, file_mdigest_async, 
 )
-from http_request import SupportsGeturl
-from http_response import get_total_length
+from http_request import complete_url as make_url, SupportsGeturl
+from http_response import get_status_code, get_total_length
 from httpfile import HTTPFileReader, AsyncHTTPFileReader
 from integer_tool import try_parse_int
 from iterutils import run_gen_step
 from orjson import dumps, loads
-from multidict import CIMultiDict
 from p115cipher.fast import (
     rsa_encode, rsa_decode, ecdh_encode_token, ecdh_aes_encode, 
     ecdh_aes_decode, make_upload_payload, 
@@ -73,7 +70,6 @@ from p115pickcode import get_stable_point, to_id, to_pickcode
 from property import locked_cacheproperty
 from startfile import startfile, startfile_async
 from temporary import temp_globals
-from undefined import undefined
 from yarl import URL
 
 from .const import (
@@ -86,7 +82,7 @@ from .exception import (
     P115OSError, OperationalError, P115Warning, P115FileExistsError, 
     P115FileNotFoundError, P115IsADirectoryError, 
 )
-from .type import RequestKeywords, MultipartResumeData, P115Cookies, P115URL
+from .type import MultipartResumeData, P115Cookies, P115URL
 from ._upload import buffer_length, make_dataiter, oss_upload, oss_multipart_upload
 
 
@@ -94,10 +90,8 @@ CRE_SET_COOKIE: Final = re_compile(r"[0-9a-f]{32}=[0-9a-f]{32}.*")
 CRE_COOKIES_UID_search: Final = re_compile(r"(?<=\bUID=)[^\s;]+").search
 CRE_AREA_DATA_search: Final = re_compile(r"(?<=n=)\{[\s\S]+?\}(?=;)").search
 ED2K_NAME_TRANSTAB: Final = dict(zip(b"/|", ("%2F", "%7C")))
-# 当前的系统平台
-SYS_PLATFORM = system()
 # 替换表，用于半角转全角，包括了 Windows 中不允许出现在文件名中的字符
-match SYS_PLATFORM:
+match system():
     case "Windows":
         NAME_TANSTAB_FULLWIDH = {c: chr(c+65248) for c in b"\\/:*?|><"}
     case "Darwin":
@@ -165,31 +159,27 @@ def default_parse(_, content: Buffer, /):
     return json_loads(memoryview(content))
 
 
-def has_keyword_async(request: Callable | Signature, /) -> bool:
-    if callable(request):
-        try:
-            request = signature(request)
-        except (ValueError, TypeError):
-            return False
-    params = request.parameters
-    param = params.get("async_")
-    return bool(param and param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY))
-
-
-def iter_locals(depth_start: int = 1, /) -> Iterator[dict]:
-    try:
-        frame = _getframe(depth_start)
-    except ValueError:
-        return
-    while frame:
-        yield frame.f_locals
-
-
 def get_request(
     async_: None | bool = None, 
     request_kwargs: None | dict = None, 
     self = None, 
 ) -> Callable:
+    def iter_locals(depth_start: int = 1, /) -> Iterator[dict]:
+        try:
+            frame = _getframe(depth_start)
+        except ValueError:
+            return
+        while frame:
+            yield frame.f_locals
+    def has_keyword_async(request: Callable | Signature, /) -> bool:
+        if callable(request):
+            try:
+                request = signature(request)
+            except (ValueError, TypeError):
+                return False
+        params = request.parameters
+        param = params.get("async_")
+        return bool(param and param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY))
     if request_kwargs is None:
         for f_locals in iter_locals(2):
             if "request_kwargs" in f_locals:
@@ -202,40 +192,30 @@ def get_request(
             if "async_" in f_locals:
                 async_ = f_locals["async_"]
                 break
-    with_async_ = async_ is not None
+    request: None | Callable = None
     if isinstance(self, ClientRequestMixin):
-        request: None | Callable = self.request
+        request = self.request
+        if async_ is not None:
+            if request_kwargs is None:
+                request = partial(request, async_=async_)
+            else:
+                request_kwargs["async_"] = async_
     else:
-        request = None
         if request_kwargs:
             request = request_kwargs.pop("request", None)
         if request is None:
-            from httpx_request import request
-        else:
-            with_async_ = with_async_ and has_keyword_async(request)
-    request = cast(Callable, request)
-    if with_async_:
+            from httpcore_request import request
+            request = cast(Callable, request)
+        if async_ is not None and not iscoroutinefunction(request) and has_keyword_async(request):
+            if request_kwargs is None:
+                request = partial(request, async_=async_)
+            else:
+                request_kwargs["async_"] = async_
         if request_kwargs is None:
-            request = partial(request, async_=async_)
+            request = partial(request, parse=default_parse)
         else:
-            request_kwargs["async_"] = async_
-    if request_kwargs is None:
-        request = partial(request, parse=default_parse)
-    else:
-        request_kwargs.setdefault("parse", default_parse)
+            request_kwargs.setdefault("parse", default_parse)
     return request
-
-
-# TODO: 移动到 http_response.py
-def get_status_code(e: BaseException, /) -> int:
-    for attr in ("status", "code", "status_code"):
-        if isinstance(status := getattr(e, attr, None), int):
-            return status
-    if response := getattr(e, "response", None):
-        for attr in ("status", "code", "status_code"):
-            if isinstance(status := getattr(response, attr, None), int):
-                return status
-    return 0
 
 
 def default_check_for_relogin(e: BaseException, /) -> bool:
@@ -247,80 +227,6 @@ def parse_upload_init_response(_, content: bytes, /) -> dict:
     if not isinstance(data, (bytes, bytearray, memoryview)):
         data = memoryview(data)
     return json_loads(data)
-
-
-def extend_headers(
-    headers: None | Mapping[str, Any] | Iterable[tuple[str, Any]], 
-    predicate: None | Container | Callable = None, 
-    **kwargs, 
-) -> dict[str, str]:
-    if isinstance(predicate, Container):
-        predicate = predicate.__contains__
-    headers_new: dict[str, str] = {}
-    for headers in (headers, kwargs):
-        if not headers:
-            continue
-        for k, v in iter_items(headers):
-            k = k.lower()
-            if v is None:
-                headers_new.pop(k, None)
-            elif predicate is None or predicate(k):
-                headers_new[k] = str(v)
-    return headers_new
-
-
-# TODO: 移动到 cookietools.py，允许 cookies1 和 cookies2 是任意类型，并且可以只比较某些字段
-def cookies_equal(cookies1: None | str, cookies2: None | str, /) -> bool:
-    if not (cookies1 and cookies2):
-        return False
-    if cookies1 == cookies2:
-        return True
-    cks1 = cookies_str_to_dict(cookies1)
-    cks2 = cookies_str_to_dict(cookies2)
-    return all(cks1.get(key, nan) == cks2.get(key, nan) for key in ("UID", "SEID"))
-
-
-# TODO: 移动到具体模块
-def convert_digest(digest, /):
-    if isinstance(digest, str):
-        if digest == "crc32":
-            from binascii import crc32
-            digest = lambda: crc32
-        elif digest == "ed2k":
-            digest = Ed2kHash()
-    return digest
-
-
-# TODO: 这个函数要移除
-def make_url(url: str, params, /):
-    query = ""
-    if isinstance(params, str):
-        query = params
-    elif isinstance(params, Iterable):
-        if not isinstance(params, (Mapping, Sequence)):
-            params = tuple(params)
-        query = urlencode(params)
-    if query:
-        if "?" in url:
-            urlp = urlsplit(url)
-            if urlp.query:
-                urlp = urlp._replace(query=urlp.query+"&"+query)
-            else:
-                urlp = urlp._replace(query=query)
-            url = urlunsplit(urlp)
-        else:
-            url += "?" + query
-    return url
-
-
-# TODO: 这个函数要移走
-def make_ed2k_url(
-    name: str, 
-    size: int | str, 
-    hash: str, 
-    /, 
-) -> str:
-    return f"ed2k://|file|{name.translate(ED2K_NAME_TRANSTAB)}|{size}|{hash}|/"
 
 
 @overload
@@ -1132,208 +1038,144 @@ def normalize_attr_simple[D: dict[str, Any]](
     )
 
 
-class IgnoreCaseDict[V](dict[str, V]):
-
-    def __contains__(self, key, /) -> bool:
-        if isinstance(key, str):
-            return super().__contains__(key.lower())
-        return False
-
-    def __delitem__(self, key: str, /):
-        return super().__delitem__(key.lower())
-
-    def __getitem__(self, key: str, /) -> V:
-        return super().__getitem__(key.lower())
-
-    def __setitem__(self, key: str, value: V, /):
-        super().__setitem__(key.lower(), value)
-
-    @overload # type: ignore
-    @classmethod
-    def fromkeys(cls, iterable: Iterable[str], value: None = None, /) -> IgnoreCaseDict[None | Any]:
-        ...
-    @overload
-    @classmethod
-    def fromkeys[T](cls, iterable: Iterable[str], value: T, /) -> IgnoreCaseDict[T]:
-        ...
-    @classmethod
-    def fromkeys(cls, iterable: Iterable[str], value=None, /) -> IgnoreCaseDict:
-        return cls(zip(map(str.lower, iterable), repeat(value)))
-
-    @overload
-    def get(self, key: str, default: None = None) -> None | V:
-        ...
-    @overload
-    def get[T](self, key: str, default: T) -> V | T:
-        ...
-    def get(self, key: str, default=None):
-        return super().get(key.lower(), default)
-
-    def pop(self, key: str, default=undefined) -> V:
-        if default is undefined:
-            return super().pop(key.lower())
-        return super().pop(key.lower(), default)
-
-    def setdefault(self, key: str, default = None, /) -> V:
-        return super().setdefault(key.lower(), default)
-
-    def update(self, /, *args, **kwargs):
-        update = super().update
-        for arg in args:
-            if not arg:
-                continue
-            update(((k.lower(), v) for k, v in iter_items(arg)))
-        if kwargs:
-            update(((k.lower(), v) for k, v in kwargs.items()))
-
-    def merge(self, *args, **kwargs):
-        setdefault = super().setdefault
-        for arg in args:
-            if not arg:
-                continue
-            for k, v in iter_items(arg):
-                setdefault(k, v)
-        if kwargs:
-            for k, v in kwargs.items():
-                setdefault(k, v)
-
-
 class ClientRequestMixin:
+    cookies_path: None | PurePath = None
 
-    @locked_cacheproperty
-    def session(self, /):
-        """同步请求的 session 对象
-        """
-        import httpx_request
-        from httpx import Client, HTTPTransport, Limits
-        session = Client(
-            limits=Limits(max_connections=256, max_keepalive_connections=64, keepalive_expiry=10), 
-            transport=HTTPTransport(retries=5), 
-            verify=False, 
-        )
-        setattr(session, "_headers", self.headers)
-        setattr(session, "_cookies", self.cookies)
-        return session
+    def _read_cookies(
+        self, 
+        /, 
+        encoding: str = "latin-1", 
+    ) -> P115Cookies:
+        if cookies_path := self.__dict__.get("cookies_path"):
+            try:
+                with cookies_path.open("rb") as f:
+                    cookies = str(f.read(), encoding)
+                if cookies:
+                    update_cookies(self.cookies, cookies_to_dict(cookies), domain=".115.com")
+            except OSError:
+                pass
+        return self.cookies_str
 
-    @locked_cacheproperty
-    def async_session(self, /):
-        """异步请求的 session 对象
-        """
-        import httpx_request
-        from httpx import AsyncClient, AsyncHTTPTransport, Limits
-        session = AsyncClient(
-            limits=Limits(max_connections=256, max_keepalive_connections=64, keepalive_expiry=10), 
-            transport=AsyncHTTPTransport(retries=5), 
-            verify=False, 
-        )
-        setattr(session, "_headers", self.headers)
-        setattr(session, "_cookies", self.cookies)
-        return session
+    def _write_cookies(
+        self, 
+        cookies: None | str = None, 
+        /, 
+        encoding: str = "latin-1", 
+    ):
+        if cookies_path := self.__dict__.get("cookies_path"):
+            if cookies is None:
+                cookies = self.cookies_str
+            cookies_bytes = bytes(cookies, encoding)
+            with cookies_path.open("wb") as f:
+                f.write(cookies_bytes)
 
     @property
-    def cookies(self, /):
+    def cookies(self, /) -> SimpleCookie:
         """请求所用的 Cookies 对象（同步和异步共用）
         """
         try:
             return self.__dict__["cookies"]
         except KeyError:
-            from httpx import Cookies
-            cookies = self.__dict__["cookies"] = Cookies()
+            cookies = self.__dict__["cookies"] = SimpleCookie()
             return cookies
 
     @cookies.setter
     def cookies(
         self, 
-        cookies: None | str | Mapping[str, None | str] | Iterable[Mapping | Cookie | Morsel] = None, 
+        cookies: None | str | CookieJar | SimpleCookie | Mapping[str, Any] | Iterable[Any] = None, 
         /, 
     ):
         """更新 cookies
         """
-        cookiejar = self.cookiejar
+        cookie_store = self.cookies
         if cookies is None:
-            cookiejar.clear()
+            cookie_store.clear()
+        elif isinstance(cookies, str):
+            cookies = cookies_to_dict(cookies.strip().rstrip(";"))
+        if not cookies:
+            self._write_cookies("")
             return
-        if isinstance(cookies, str):
-            cookies = cookies.strip().rstrip(";")
-            if not cookies:
-                return
-            cookies = cookies_str_to_dict(cookies)
-            if not cookies:
-                return
-        set_cookie = cookiejar.set_cookie
-        clear_cookie = cookiejar.clear
-        cookie: Mapping | Cookie | Morsel
-        if isinstance(cookies, Mapping):
-            if not cookies:
-                return
-            for key, val in iter_items(cookies):
-                if val:
-                    set_cookie(create_cookie(key, val, domain=".115.com"))
-                else:
-                    for cookie in cookiejar:
-                        if cookie.name == key:
-                            clear_cookie(domain=cookie.domain, path=cookie.path, name=cookie.name)
-                            break
-        else:
-            from httpx import Cookies
-            if isinstance(cookies, Cookies):
-                cookies = cookies.jar
-            for cookie in cookies:
-                set_cookie(create_cookie("", cookie))
-
-    @cookies.deleter
-    def cookies(self, /):
-        """请求所用的 Cookies 对象（同步和异步共用）
-        """
-        self.cookies = None
-
-    @property
-    def cookiejar(self, /) -> CookieJar:
-        """请求所用的 CookieJar 对象（同步和异步共用）
-        """
-        return self.cookies.jar
+        cookies_old = self.cookies_str
+        update_cookies(cookie_store, cookies, domain=".115.com")
+        cookies_new = self.cookies_str
+        try:
+            if self.user_id != cookies_new.user_id:
+                seen: set[str] = set()
+                pop_key = self.__dict__.pop
+                for cls in type(self).mro():
+                    if not isinstance(cls, ClientRequestMixin):
+                        seen.update(cls.__dict__)
+                        continue
+                    for key, val in cls.__dict__.items():
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        if isinstance(val, (cached_property, locked_cacheproperty)):
+                            pop_key(key, None)
+        except KeyError:
+            pass
+        if cookies_new != cookies_old:
+            self._write_cookies(cookies_new)
 
     @property
     def cookies_str(self, /) -> P115Cookies:
         """所有 .115.com 域下的 cookie 值
         """
-        return P115Cookies.from_cookiejar(self.cookiejar)
+        return P115Cookies.from_simple_cookie(self.cookies)
 
     @locked_cacheproperty
-    def headers(self, /) -> CIMultiDict:
-        """请求头，无论同步还是异步请求都共用这个请求头
+    def headers(self, /) -> KeyLowerDict[str, str]:
+        """请求头（同步和异步共用）
         """
-        return CIMultiDict({
+        return KeyLowerDict[str, str]({
             "accept": "*/*", 
             "accept-encoding": "gzip, deflate, br, zstd", 
             "connection": "keep-alive", 
             "user-agent": "Mozilla/5.0 AppleWebKit/600 Safari/600 Chrome/124.0.0.0", 
         })
 
+    @locked_cacheproperty
+    def user_id(self, /) -> int:
+        try:
+            return self.cookies_str.user_id
+        except KeyError:
+            if "authorization" in self.headers:
+                resp = check_response(P115OpenClient.user_info_open(cast(P115OpenClient, self)))
+                return int(resp["data"]["user_id"])
+            else:
+                return 0
+
     def request(
         self, 
         /, 
         url: str, 
         method: str = "GET", 
+        payload: Any = None, 
         *, 
         ecdh_encrypt: bool = False, 
+        request: None | Callable = None, 
         async_: Literal[False, True] = False, 
-        request: None | Callable[[Unpack[RequestKeywords]], Any] = None, 
         **request_kwargs, 
     ):
-        """帮助函数：可执行同步和异步的网络请求
+        """执行网络请求
 
         :param url: HTTP 的请求链接
         :param method: HTTP 的请求方法
-        :param ecdh_encrypt: 使用 ecdh 算法进行加密（返回值也要解密）
-        :param async_: 说明 `request` 是同步调用还是异步调用
-        :param request: HTTP 请求调用，如果为 None，则默认用 httpx 执行请求
+        :param payload: HTTP 的请求载体（如果 `method` 是 "POST"，则作为请求体，否则作为查询参数）
+        :param ecdh_encrypt: 是否使用 ecdh 算法对请求体进行加密（返回值需要解密）
+        :param request: HTTP 请求调用，如果为 None，则用默认设置
             如果传入调用，则必须至少能接受以下几个关键词参数：
 
             - url:     HTTP 的请求链接
             - method:  HTTP 的请求方法
+            - params:  HTTP 的请求链接附加的查询参数
             - data:    HTTP 的请求体
+            - json:    JSON 数据（往往未被序列化）作为请求体
+            - files:   要用 multipart 上传的若干文件
             - headers: HTTP 的请求头
+            - follow_redirects: 是否跟进重定向，默认值为 True
+            - raise_for_status: 是否对响应码 >= 400 时抛出异常
+            - cookies: 至少能接受 ``http.cookiejar.CookieJar`` 和 ``http.cookies.SimpleCookie``，会因响应头的 "set-cookie" 而更新
             - parse:   解析 HTTP 响应的方法，默认会构建一个 Callable，会把响应的字节数据视为 JSON 进行反序列化解析
 
                 - 如果为 None，则直接把响应对象返回
@@ -1344,100 +1186,104 @@ class ClientRequestMixin:
                     - 如果只接受 1 个位置参数，则把响应对象传给它
                     - 如果能接受 2 个位置参数，则把响应对象和响应得到的字节数据（响应体）传给它
 
-        :param request_kwargs: 其余的请求参数，会被传给 `request`
+        :param async_: 是否异步
+        :param request_kwargs: 其余请求参数
 
         :return: 直接返回 `request` 执行请求后的返回值
 
         .. note:: 
             `request` 可以由不同的请求库来提供，下面是封装了一些模块
 
-            1. `httpx_request <https://pypi.org/project/httpx_request/>`_，由 `httpx <https://pypi.org/project/httpx/>`_ 封装，支持同步和异步调用，本模块默认用的就是这个封装
+            1. `httpcore_request <https://pypi.org/project/httpcore_request/>`_，由 `httpcore <https://pypi.org/project/httpcore/>`_ 封装，支持同步和异步请求
+
+                .. code:: python
+
+                    from httpcore_request import request
+
+            2. `httpx_request <https://pypi.org/project/httpx_request/>`_，由 `httpx <https://pypi.org/project/httpx/>`_ 封装，支持同步和异步请求
 
                 .. code:: python
 
                     from httpx_request import request
 
-            2. `python-urlopen <https://pypi.org/project/python-urlopen/>`_，由 `urllib.request.urlopen <https://docs.python.org/3/library/urllib.request.html#urllib.request.urlopen>`_ 封装，支持同步调用，性能相对最差
+            3. `http_client_request <https://pypi.org/project/http_client_request/>`_，由 `http.client <https://docs.python.org/3/library/http.client.html>`_ 封装，支持同步请求
+
+                .. code:: python
+
+                    from http_client_request import request
+
+            4. `python-urlopen <https://pypi.org/project/python-urlopen/>`_，由 `urllib.request.urlopen <https://docs.python.org/3/library/urllib.request.html#urllib.request.urlopen>`_ 封装，支持同步请求
 
                 .. code:: python
 
                     from urlopen import request
 
-            3. `urllib3_request <https://pypi.org/project/urllib3_request/>`_，由 `urllib3 <https://pypi.org/project/urllib3/>`_ 封装，支持同步调用，性能相对较好，推荐使用
+            5. `urllib3_request <https://pypi.org/project/urllib3_request/>`_，由 `urllib3 <https://pypi.org/project/urllib3/>`_ 封装，支持同步请求
 
                 .. code:: python
 
                     from urllib3_request import request
 
-            4. `requests_request <https://pypi.org/project/requests_request/>`_，由 `requests <https://pypi.org/project/requests/>`_ 封装，支持同步调用
+            6. `requests_request <https://pypi.org/project/requests_request/>`_，由 `requests <https://pypi.org/project/requests/>`_ 封装，支持同步请求
 
                 .. code:: python
 
                     from requests_request import request
 
-            5. `aiohttp_client_request <https://pypi.org/project/aiohttp_client_request/>`_，由 `aiohttp <https://pypi.org/project/aiohttp/>`_ 封装，支持异步调用，异步并发能力最强，推荐使用
+            7. `aiohttp_client_request <https://pypi.org/project/aiohttp_client_request/>`_，由 `aiohttp <https://pypi.org/project/aiohttp/>`_ 封装，支持异步请求
 
                 .. code:: python
 
                     from aiohttp_client_request import request
 
-            6. `blacksheep_client_request <https://pypi.org/project/blacksheep_client_request/>`_，由 `blacksheep <https://pypi.org/project/blacksheep/>`_ 封装，支持异步调用
+            8. `blacksheep_client_request <https://pypi.org/project/blacksheep_client_request/>`_，由 `blacksheep <https://pypi.org/project/blacksheep/>`_ 封装，支持异步请求
 
                 .. code:: python
 
                     from blacksheep_client_request import request
 
-            7. `asks_request <https://pypi.org/project/asks_request/>`_，由 `asks <https://pypi.org/project/asks/>`_ 封装，支持异步调用
+            9. `asks_request <https://pypi.org/project/asks_request/>`_，由 `asks <https://pypi.org/project/asks/>`_ 封装，支持异步请求
 
                 .. code:: python
 
                     from asks_request import request
 
-            8. `httpcore_request <https://pypi.org/project/httpcore_request/>`_，由 `httpcore <https://pypi.org/project/httpcore/>`_ 封装，支持同步和异步调用
+            10. `pycurl_request <https://pypi.org/project/pycurl_request/>`_，由 `pycurl <https://pypi.org/project/pycurl/>`_ 封装，支持同步请求
 
                 .. code:: python
 
-                    from httpcore_request import request
+                    from pycurl_request import request
+
+            11. `curl_cffi_request <https://pypi.org/project/curl_cffi_request/>`_，由 `curl_cffi <https://pypi.org/project/curl_cffi/>`_ 封装，支持同步和异步请求
+
+                .. code:: python
+
+                    from curl_cffi_request import request
         """
-        if request is None:
-            request_kwargs["session"] = self.async_session if async_ else self.session
-            request_kwargs["async_"] = async_
-            headers: IgnoreCaseDict[str] = IgnoreCaseDict()
-            from httpx_request import request
-            request = cast(Callable, request)
-        else:
-            if iscoroutinefunction(request):
-                async_ = True
-            headers = IgnoreCaseDict(self.headers)
-            try:
-                params = signature(request).parameters
-            except (ValueError, TypeError):
-                pass
+        if payload is not None:
+            if method.upper() == "POST":
+                request_kwargs.setdefault("data", payload)
             else:
-                if ((param := params.get("async_")) and 
-                    param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY)
-                ):
-                    request_kwargs["async_"] = async_
-                if ("cookies" not in request_kwargs and 
-                    (param := params.get("cookies")) and 
-                    param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY)
-                ):
-                    request_kwargs["cookies"] = self.cookiejar
-        headers.update(request_kwargs.get("headers") or {})
-        request_kwargs["headers"] = headers
+                request_kwargs.setdefault("params", payload)
+        request_kwargs["request"] = request
+        request_kwargs.setdefault("cookies", self.cookies)
+        request = get_request(async_, request_kwargs)
+        headers = request_kwargs["headers"] = dict_update(
+            self.headers.copy(), request_kwargs.get("headers") or ())
         if ecdh_encrypt and (data := request_kwargs.get("data")):
-            url = make_url(url, _default_k_ec)
-            request_kwargs["data"] = ecdh_aes_encode(ensure_bytes(urlencode(data)) + b"&")
+            url = make_url(url, params=_default_k_ec)
+            if not isinstance(data, (Buffer, str, UserString)):
+                data = urlencode(data)
+            request_kwargs["data"] = ecdh_aes_encode(ensure_bytes(data) + b"&")
             headers["content-type"] = "application/x-www-form-urlencoded"
-        request_kwargs.setdefault("parse", default_parse)
         return request(url=url, method=method, **request_kwargs)
 
     ########## Qrcode API ##########
 
     @overload
     def login_authorize_open(
-        self, 
-        payload: dict, 
+        self: dict | ClientRequestMixin, 
+        payload: None | dict = None, 
         /, 
         base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
@@ -1447,8 +1293,8 @@ class ClientRequestMixin:
         ...
     @overload
     def login_authorize_open(
-        self, 
-        payload: dict, 
+        self: dict | ClientRequestMixin, 
+        payload: None | dict = None, 
         /, 
         base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
@@ -1457,8 +1303,8 @@ class ClientRequestMixin:
     ) -> Coroutine[Any, Any, dict]:
         ...
     def login_authorize_open(
-        self, 
-        payload: dict, 
+        self: dict | ClientRequestMixin, 
+        payload: None | dict = None, 
         /, 
         base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
         *, 
@@ -1467,14 +1313,17 @@ class ClientRequestMixin:
     ) -> dict | Coroutine[Any, Any, dict]:
         """授权码方式请求开放接口应用授权
 
-        .. note::
-            最多同时有 2 个授权登录，如果有新的授权加入，会先踢掉时间较早的那一个
-
         GET https://qrcodeapi.115.com/open/authorize
 
         .. admonition:: Reference
 
             https://www.yuque.com/115yun/open/okr2cq0wywelscpe#EiOrD
+
+        .. note::
+            可以作为 ``staticmethod`` 使用
+
+        .. note::
+            最多同时有 2 个授权登录，如果有新的授权加入，会先踢掉时间较早的那一个
 
         :payload:
             - client_id: int | str 💡 AppID
@@ -1483,6 +1332,10 @@ class ClientRequestMixin:
             - state: int | str = <default> 💡 随机值，会通过 redirect_uri 原样返回，可用于验证以防 MITM 和 CSRF
         """
         api = complete_url("/open/authorize", base_url=base_url)
+        if not isinstance(self, ClientRequestMixin):
+            payload = self
+        else:
+            assert payload is not None
         payload = {"response_type": "code", **payload}
         def parse(resp, content, /):
             if get_status_code(resp) == 302:
@@ -1496,7 +1349,8 @@ class ClientRequestMixin:
                 return json_loads(content)
         request_kwargs["parse"] = parse
         request_kwargs["follow_redirects"] = False
-        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+        return get_request(async_, request_kwargs, self=self)(
+            url=api, params=payload, **request_kwargs)
 
     @overload
     def login_authorize_access_token_open(
@@ -1846,7 +1700,7 @@ class ClientRequestMixin:
         :param app: 绑定的 app
         :param request: 自定义请求函数
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 接口返回值
         """
@@ -2163,7 +2017,7 @@ class ClientRequestMixin:
         :param console_qrcode: 在命令行输出二维码，否则在浏览器中打开
         :param base_url: 接口的基地址
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 响应信息，如果 `app` 为 None 或 ""，则返回二维码信息，否则返回绑定扫码后的信息（包含 cookies）
 
@@ -2347,7 +2201,7 @@ class ClientRequestMixin:
 
         :param console_qrcode: 在命令行输出二维码，否则在浏览器中打开
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 响应信息
         """
@@ -2544,14 +2398,17 @@ class ClientRequestMixin:
 
         :return: 文件的 ed2k 链接
         """
+        name = name.translate(ED2K_NAME_TRANSTAB)
         if async_:
             async def request():
                 async with self.open(url, headers=headers, async_=True) as file:
-                    return make_ed2k_url(name or file.name, *(await ed2k_hash_async(file)))
+                    size, hash = await ed2k_hash_async(file)
+                return f"ed2k://|file|{name}|{size}|{hash}|/"
             return request()
         else:
             with self.open(url, headers=headers) as file:
-                return make_ed2k_url(name or file.name, *ed2k_hash(file))
+                size, hash = ed2k_hash(file)
+            return f"ed2k://|file|{name}|{size}|{hash}|/"
 
     @overload
     def hash[T](
@@ -2606,7 +2463,6 @@ class ClientRequestMixin:
 
         :return: 元组，包含文件的 大小 和 hash 计算结果
         """
-        digest = convert_digest(digest)
         if async_:
             async def request():
                 nonlocal stop
@@ -2681,7 +2537,6 @@ class ClientRequestMixin:
 
         :return: 元组，包含文件的 大小 和一组 hash 计算结果
         """
-        digests = (convert_digest(digest), *map(convert_digest, digests))
         if async_:
             async def request():
                 nonlocal stop
@@ -2746,7 +2601,7 @@ class ClientRequestMixin:
         :param stop: 结束索引（不含），可以为负数（从文件尾部开始）
         :param headers: 请求头
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
         """
         def gen_step():
             def get_bytes_range(start, stop):
@@ -2823,7 +2678,7 @@ class ClientRequestMixin:
         :param bytes_range: 索引范围，语法符合 `HTTP Range Requests <https://developer.mozilla.org/en-US/docs/Web/HTTP/Range_requests>`_
         :param headers: 请求头
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
         """
         headers = dict(headers) if headers else {}
         if isinstance(url, P115URL) and (headers_extra := url.get("headers")):
@@ -2879,7 +2734,7 @@ class ClientRequestMixin:
         :param offset: 偏移索引，从 0 开始，可以为负数（从文件尾部开始）
         :param headers: 请求头
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
         """
         def gen_step():
             if size == 0:
@@ -3020,11 +2875,6 @@ class P115OpenClient(ClientRequestMixin):
         return token
 
     @locked_cacheproperty
-    def user_id(self, /) -> int:
-        resp = check_response(self.user_info_open())
-        return int(resp["data"]["user_id"])
-
-    @locked_cacheproperty
     def pickcode_stable_point(self, /) -> str:
         """获取 pickcode 的不动点
 
@@ -3149,7 +2999,7 @@ class P115OpenClient(ClientRequestMixin):
         :param strict: 如果为 True，当目标是目录时，会抛出 IsADirectoryError 异常
         :param user_agent: 如果不为 None，则作为请求头 "user-agent" 的值
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 下载链接
         """
@@ -3236,7 +3086,7 @@ class P115OpenClient(ClientRequestMixin):
         :param strict: 如果为 True，当目标是目录时，会直接忽略
         :param user_agent: 如果不为 None，则作为请求头 "user-agent" 的值
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 一批下载链接
         """
@@ -3324,12 +3174,11 @@ class P115OpenClient(ClientRequestMixin):
         api = complete_url("/open/ufile/downurl", base_url)
         if isinstance(payload, str):
             payload = {"pick_code": payload}
-        headers = extend_headers(request_kwargs.get("headers"))
+        headers = request_kwargs["headers"] = dict(request_kwargs.get("headers") or ())
         if user_agent is None:
             headers.setdefault("user-agent", "")
         else:
             headers["user-agent"] = user_agent
-        request_kwargs["headers"] = headers
         def parse(_, content: bytes, /) -> dict:
             json = json_loads(content)
             json["headers"] = headers
@@ -4882,7 +4731,7 @@ class P115OpenClient(ClientRequestMixin):
         :param read_range_bytes_or_hash: 调用以获取二次验证的数据或计算 sha1，接受一个数据范围，格式符合 `HTTP Range Requests <https://developer.mozilla.org/en-US/docs/Web/HTTP/Range_requests>`_，返回值如果是 str，则视为计算好的 sha1，如果为 Buffer，则视为数据（之后会被计算 sha1）
         :param pid: 上传文件到此目录的 id
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 接口响应
         """
@@ -5042,7 +4891,7 @@ class P115OpenClient(ClientRequestMixin):
                                 push((read_num, cur_t))
 
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 接口响应
         """
@@ -5499,7 +5348,6 @@ class P115Client(P115OpenClient):
     | 24    | S1       | harmony    | 115(Harmony端)          |
     +-------+----------+------------+-------------------------+
     """
-    cookies_path: None | PurePath = None
     app_id: int | str
     refresh_token: str
 
@@ -5530,117 +5378,9 @@ class P115Client(P115OpenClient):
     def __hash__(self, /) -> int:
         return id(self)
 
-    @property
-    def cookies(self, /):
-        """请求所用的 Cookies 对象（同步和异步共用）
-        """
-        try:
-            return self.__dict__["cookies"]
-        except KeyError:
-            from httpx import Cookies
-            cookies = self.__dict__["cookies"] = Cookies()
-            return cookies
-
-    @cookies.setter
-    def cookies(
-        self, 
-        cookies: None | str | Mapping[str, None | str] | Iterable[Mapping | Cookie | Morsel] = None, 
-        /, 
-    ):
-        """更新 cookies
-        """
-        cookies_old = self.cookies_str
-        cookiejar = self.cookiejar
-        if cookies is None:
-            cookiejar.clear()
-            if cookies_old != "":
-                self._write_cookies("")
-            return
-        if isinstance(cookies, str):
-            cookies = cookies.strip().rstrip(";")
-            if not cookies:
-                return
-            cookies = cookies_str_to_dict(cookies)
-            if not cookies:
-                return
-        set_cookie = cookiejar.set_cookie
-        clear_cookie = cookiejar.clear
-        cookie: Mapping | Cookie | Morsel
-        if isinstance(cookies, Mapping):
-            if not cookies:
-                return
-            for key, val in iter_items(cookies):
-                if val:
-                    set_cookie(create_cookie(key, val, domain=".115.com"))
-                else:
-                    for cookie in cookiejar:
-                        if cookie.name == key:
-                            clear_cookie(domain=cookie.domain, path=cookie.path, name=cookie.name)
-                            break
-        else:
-            from httpx import Cookies
-            if isinstance(cookies, Cookies):
-                cookies = cookies.jar
-            for cookie in cookies:
-                set_cookie(create_cookie("", cookie))
-        user_id = self.user_id
-        self.__dict__.pop("user_id", None)
-        if self.user_id != user_id:
-            self.__dict__.pop("user_key", None)
-        cookies_new = self.cookies_str
-        if not cookies_equal(cookies_old, cookies_new):
-            self._write_cookies(cookies_new)
-
-    @cookies.deleter
-    def cookies(self, /):
-        """请求所用的 Cookies 对象（同步和异步共用）
-        """
-        self.cookies = None
-
-    @locked_cacheproperty
-    def user_id(self, /) -> int:
-        cookie_uid = self.cookies.get("UID")
-        if cookie_uid:
-            return int(cookie_uid.split("_")[0])
-        elif "authorization" in self.headers:
-            resp = check_response(self.user_info_open())
-            return int(resp["data"]["user_id"])
-        else:
-            return 0
-
     @locked_cacheproperty
     def user_key(self, /) -> str:
         return check_response(self.upload_key())["data"]["userkey"]
-
-    def _read_cookies(
-        self, 
-        /, 
-        encoding: str = "latin-1", 
-    ) -> None | str:
-        cookies_path = self.__dict__.get("cookies_path")
-        if not cookies_path:
-            return self.cookies_str
-        try:
-            with cookies_path.open("rb") as f:
-                cookies = str(f.read(), encoding)
-            setattr(self, "cookies", cookies)
-            return cookies
-        except OSError:
-            return self.cookies_str
-
-    def _write_cookies(
-        self, 
-        cookies: None | str = None, 
-        /, 
-        encoding: str = "latin-1", 
-    ):
-        if not (cookies_path := self.__dict__.get("cookies_path")):
-            return
-        if cookies is None:
-            cookies = str(self.cookies_str)
-        cookies_bytes = bytes(cookies, encoding)
-        with cookies_path.open("wb") as f:
-            f.write(cookies_bytes)
 
     @overload # type: ignore
     @classmethod
@@ -5778,7 +5518,7 @@ class P115Client(P115OpenClient):
         :param app: 扫二维码后绑定的 `app` （或者叫 `device`），如果不指定，则根据 cookies 的 UID 字段来确定，如果不能确定，则用 "qandroid"
         :param console_qrcode: 在命令行输出二维码，否则在浏览器中打开
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 返回对象本身
 
@@ -5924,7 +5664,7 @@ class P115Client(P115OpenClient):
 
         :param app: 绑定的 `app` （或者叫 `device`），如果为 None 或 ""，则和当前 client 的登录设备相同
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 响应信息，包含 cookies
 
@@ -6056,7 +5796,7 @@ class P115Client(P115OpenClient):
 
         :param show_warning: 是否显示提示信息
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 二维码的 uid
         """
@@ -6114,7 +5854,7 @@ class P115Client(P115OpenClient):
 
         :param app_id: AppID
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 接口返回值
         """
@@ -6171,7 +5911,7 @@ class P115Client(P115OpenClient):
         :param app_id: AppID
         :param show_warning: 是否显示提示信息
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 接口返回值
         """
@@ -6249,7 +5989,7 @@ class P115Client(P115OpenClient):
 
         :param show_warning: 是否显示提示信息
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 客户端实例
 
@@ -6404,7 +6144,7 @@ class P115Client(P115OpenClient):
 
         :param show_warning: 是否显示提示信息
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 客户端实例
         """
@@ -6483,7 +6223,7 @@ class P115Client(P115OpenClient):
             - 如果为 collections.abc.Callable，则调用以判断，当返回值为 bool 类型且值为 True，或者值为 405 时重新登录，然后循环此流程，直到成功或不可重试
 
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 新的实例
 
@@ -6585,35 +6325,41 @@ class P115Client(P115OpenClient):
                 return None
         return self.logout_by_ssoent(ssoent, async_=async_, **request_kwargs)
 
-    # TODO: 需要进行简化
     def request(
         self, 
         /, 
         url: str, 
         method: str = "GET", 
+        payload: Any = None, 
         *, 
         ecdh_encrypt: bool = False, 
         fetch_cert_headers: None | Callable[..., Mapping] | Callable[..., Awaitable[Mapping]] = None, 
         revert_cert_headers: None | Callable[[Mapping], Any] = None, 
+        request: None | Callable = None, 
         async_: Literal[False, True] = False, 
-        request: None | Callable[[Unpack[RequestKeywords]], Any] = None, 
         **request_kwargs, 
     ):
-        """帮助函数：可执行同步和异步的网络请求
+        """执行网络请求
 
         :param url: HTTP 的请求链接
         :param method: HTTP 的请求方法
-        :param ecdh_encrypt: 使用 ecdh 算法进行加密（返回值也要解密）
+        :param payload: HTTP 的请求载体（如果 `method` 是 "POST"，则作为请求体，否则作为查询参数）
+        :param ecdh_encrypt: 是否使用 ecdh 算法进行加密（返回值需要解密）
         :param fetch_cert_headers: 调用以获取认证信息头
         :param revert_cert_headers: 调用以退还认证信息头
-        :param async_: 说明 `request` 是同步调用还是异步调用
-        :param request: HTTP 请求调用，如果为 None，则默认用 httpx 执行请求
+        :param request: HTTP 请求调用，如果为 None，则用默认设置
             如果传入调用，则必须至少能接受以下几个关键词参数：
 
             - url:     HTTP 的请求链接
             - method:  HTTP 的请求方法
-            - headers: HTTP 的请求头
+            - params:  HTTP 的请求链接附加的查询参数
             - data:    HTTP 的请求体
+            - json:    JSON 数据（往往未被序列化）作为请求体
+            - files:   要用 multipart 上传的若干文件
+            - headers: HTTP 的请求头
+            - follow_redirects: 是否跟进重定向，默认值为 True
+            - raise_for_status: 是否对响应码 >= 400 时抛出异常
+            - cookies: 至少能接受 ``http.cookiejar.CookieJar`` 和 ``http.cookies.SimpleCookie``，会因响应头的 "set-cookie" 而更新
             - parse:   解析 HTTP 响应的方法，默认会构建一个 Callable，会把响应的字节数据视为 JSON 进行反序列化解析
 
                 - 如果为 None，则直接把响应对象返回
@@ -6624,64 +6370,102 @@ class P115Client(P115OpenClient):
                     - 如果只接受 1 个位置参数，则把响应对象传给它
                     - 如果能接受 2 个位置参数，则把响应对象和响应得到的字节数据（响应体）传给它
 
-        :param request_kwargs: 其余的请求参数，会被传给 `request`
+        :param async_: 是否异步
+        :param request_kwargs: 其余请求参数
 
         :return: 直接返回 `request` 执行请求后的返回值
 
         .. note:: 
             `request` 可以由不同的请求库来提供，下面是封装了一些模块
 
-            1. `httpx_request <https://pypi.org/project/httpx_request/>`_，由 `httpx <https://pypi.org/project/httpx/>`_ 封装，支持同步和异步调用，本模块默认用的就是这个封装
+            1. `httpcore_request <https://pypi.org/project/httpcore_request/>`_，由 `httpcore <https://pypi.org/project/httpcore/>`_ 封装，支持同步和异步请求
+
+                .. code:: python
+
+                    from httpcore_request import request
+
+            2. `httpx_request <https://pypi.org/project/httpx_request/>`_，由 `httpx <https://pypi.org/project/httpx/>`_ 封装，支持同步和异步请求
 
                 .. code:: python
 
                     from httpx_request import request
 
-            2. `python-urlopen <https://pypi.org/project/python-urlopen/>`_，由 `urllib.request.urlopen <https://docs.python.org/3/library/urllib.request.html#urllib.request.urlopen>`_ 封装，支持同步调用，性能相对最差
+            3. `http_client_request <https://pypi.org/project/http_client_request/>`_，由 `http.client <https://docs.python.org/3/library/http.client.html>`_ 封装，支持同步请求
+
+                .. code:: python
+
+                    from http_client_request import request
+
+            4. `python-urlopen <https://pypi.org/project/python-urlopen/>`_，由 `urllib.request.urlopen <https://docs.python.org/3/library/urllib.request.html#urllib.request.urlopen>`_ 封装，支持同步请求
 
                 .. code:: python
 
                     from urlopen import request
 
-            3. `urllib3_request <https://pypi.org/project/urllib3_request/>`_，由 `urllib3 <https://pypi.org/project/urllib3/>`_ 封装，支持同步调用，性能相对较好，推荐使用
+            5. `urllib3_request <https://pypi.org/project/urllib3_request/>`_，由 `urllib3 <https://pypi.org/project/urllib3/>`_ 封装，支持同步请求
 
                 .. code:: python
 
                     from urllib3_request import request
 
-            4. `requests_request <https://pypi.org/project/requests_request/>`_，由 `requests <https://pypi.org/project/requests/>`_ 封装，支持同步调用
+            6. `requests_request <https://pypi.org/project/requests_request/>`_，由 `requests <https://pypi.org/project/requests/>`_ 封装，支持同步请求
 
                 .. code:: python
 
                     from requests_request import request
 
-            5. `aiohttp_client_request <https://pypi.org/project/aiohttp_client_request/>`_，由 `aiohttp <https://pypi.org/project/aiohttp/>`_ 封装，支持异步调用，异步并发能力最强，推荐使用
+            7. `aiohttp_client_request <https://pypi.org/project/aiohttp_client_request/>`_，由 `aiohttp <https://pypi.org/project/aiohttp/>`_ 封装，支持异步请求
 
                 .. code:: python
 
                     from aiohttp_client_request import request
 
-            6. `blacksheep_client_request <https://pypi.org/project/blacksheep_client_request/>`_，由 `blacksheep <https://pypi.org/project/blacksheep/>`_ 封装，支持异步调用
+            8. `blacksheep_client_request <https://pypi.org/project/blacksheep_client_request/>`_，由 `blacksheep <https://pypi.org/project/blacksheep/>`_ 封装，支持异步请求
 
                 .. code:: python
 
                     from blacksheep_client_request import request
 
-            7. `asks_request <https://pypi.org/project/asks_request/>`_，由 `asks <https://pypi.org/project/asks/>`_ 封装，支持异步调用
+            9. `asks_request <https://pypi.org/project/asks_request/>`_，由 `asks <https://pypi.org/project/asks/>`_ 封装，支持异步请求
 
                 .. code:: python
 
                     from asks_request import request
 
-            8. `httpcore_request <https://pypi.org/project/httpcore_request/>`_，由 `httpcore <https://pypi.org/project/httpcore/>`_ 封装，支持同步和异步调用
+            10. `pycurl_request <https://pypi.org/project/pycurl_request/>`_，由 `pycurl <https://pypi.org/project/pycurl/>`_ 封装，支持同步请求
 
                 .. code:: python
 
-                    from httpcore_request import request
+                    from pycurl_request import request
+
+            11. `curl_cffi_request <https://pypi.org/project/curl_cffi_request/>`_，由 `curl_cffi <https://pypi.org/project/curl_cffi/>`_ 封装，支持同步和异步请求
+
+                .. code:: python
+
+                    from curl_cffi_request import request
         """
         is_open_api = url.startswith("https://proapi.115.com/open/")
-        headers = IgnoreCaseDict(request_kwargs.get("headers") or {})
-        request_kwargs["headers"] = headers
+        if is_open_api:
+            ecdh_encrypt = False
+        if payload is not None:
+            if method.upper() == "POST":
+                request_kwargs.setdefault("data", payload)
+            else:
+                request_kwargs.setdefault("params", payload)
+        request_kwargs["request"] = request
+        request = get_request(async_, request_kwargs)
+        headers = request_kwargs["headers"] = dict_update(
+            self.headers.copy(), request_kwargs.get("headers") or ())
+        if is_open_api:
+            headers["cookie"] = ""
+        else:
+            request_kwargs.setdefault("cookies", self.cookies)
+        if ecdh_encrypt and (data := request_kwargs.get("data")):
+            url = make_url(url, params=_default_k_ec)
+            if not isinstance(data, (Buffer, str, UserString)):
+                data = urlencode(data)
+            request_kwargs["data"] = ecdh_aes_encode(ensure_bytes(data) + b"&")
+            headers["content-type"] = "application/x-www-form-urlencoded"
         check_for_relogin = self.check_for_relogin
         need_to_check = callable(check_for_relogin)
         if need_to_check and fetch_cert_headers is None:
@@ -6702,35 +6486,6 @@ class P115Client(P115OpenClient):
                 need_fetch_cert_first = "authorization" not in headers
             else:
                 need_fetch_cert_first = "cookie" not in headers
-        if request is None:
-            request_kwargs["session"] = self.async_session if async_ else self.session
-            request_kwargs["async_"] = async_
-            from httpx_request import request
-        else:
-            if iscoroutinefunction(request):
-                async_ = True
-            try:
-                params = signature(request).parameters
-            except (ValueError, TypeError):
-                pass
-            else:
-                if ((param := params.get("async_")) and 
-                    param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY)
-                ):
-                    request_kwargs["async_"] = async_
-                if ("cookies" not in request_kwargs and 
-                    (param := params.get("cookies")) and 
-                    param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY)
-                ):
-                    request_kwargs["cookies"] = self.cookiejar
-        headers.merge(self.headers)
-        if is_open_api:
-            headers["cookie"] = ""
-        if ecdh_encrypt and (data := request_kwargs.get("data")):
-            url = make_url(url, _default_k_ec)
-            request_kwargs["data"] = ecdh_aes_encode(urlencode(data).encode("latin-1") + b"&")
-            headers["content-type"] = "application/x-www-form-urlencoded"
-        request_kwargs.setdefault("parse", default_parse)
         def gen_step():
             cert_headers: None | Mapping = None
             if need_fetch_cert_first:
@@ -6807,10 +6562,10 @@ class P115Client(P115OpenClient):
                         yield lock.acquire()
                         try:
                             cookies_new: str = self.cookies_str
-                            if cookies_equal(cert, cookies_new):
+                            if cert == cookies_new:
                                 if self.__dict__.get("cookies_path"):
                                     cookies_new = self._read_cookies() or ""
-                                    if not cookies_equal(cert, cookies_new):
+                                    if cert != cookies_new:
                                         headers["cookie"] = cookies_new
                                         continue
                                 if i or is_auth_error:
@@ -7902,7 +7657,7 @@ class P115Client(P115OpenClient):
         :param user_agent: 如果不为 None，则作为请求头 "user-agent" 的值
         :param app: 使用此设备的接口
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 下载链接
         """
@@ -8022,7 +7777,7 @@ class P115Client(P115OpenClient):
         :param strict: 如果为 True，当目标是目录时，会直接忽略
         :param user_agent: 如果不为 None，则作为请求头 "user-agent" 的值
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 一批下载链接
         """
@@ -8113,12 +7868,11 @@ class P115Client(P115OpenClient):
                 payload = {"pick_code": payload}
             else:
                 payload = {"pick_code": payload["pickcode"]}
-        headers = extend_headers(request_kwargs.get("headers"))
+        headers = request_kwargs["headers"] = dict(request_kwargs.get("headers") or ())
         if user_agent is None:
             headers.setdefault("user-agent", "")
         else:
             headers["user-agent"] = user_agent
-        request_kwargs["headers"] = headers
         def parse(_, content: bytes, /) -> dict:
             json = json_loads(content)
             if json["state"]:
@@ -8179,12 +7933,11 @@ class P115Client(P115OpenClient):
         api = complete_url("/files/download", base_url=base_url)
         if isinstance(payload, str):
             payload = {"pickcode": payload}
-        headers = extend_headers(request_kwargs.get("headers"))
+        headers = request_kwargs["headers"] = dict(request_kwargs.get("headers") or ())
         if user_agent is None:
             headers.setdefault("user-agent", "")
         else:
             headers["user-agent"] = user_agent
-        request_kwargs["headers"] = headers
         def parse(resp, content: bytes, /) -> dict:
             json = json_loads(content)
             if "Set-Cookie" in resp.headers:
@@ -8346,7 +8099,7 @@ class P115Client(P115OpenClient):
         :param path: 文件在压缩包中的路径
         :param user_agent: 如果不为 None，则作为请求头 "user-agent" 的值
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 下载链接
         """
@@ -8426,12 +8179,11 @@ class P115Client(P115OpenClient):
             - dl: int = <default>
         """
         api = complete_url("/2.0/ufile/extract_down_file", base_url=base_url, app=app)
-        headers = extend_headers(request_kwargs.get("headers"))
+        headers = request_kwargs["headers"] = dict(request_kwargs.get("headers") or ())
         if user_agent is None:
             headers.setdefault("user-agent", "")
         else:
             headers["user-agent"] = user_agent
-        request_kwargs["headers"] = headers
         def parse(_, content: bytes, /) -> dict:
             json = json_loads(content)
             json["headers"] = headers
@@ -8482,12 +8234,11 @@ class P115Client(P115OpenClient):
             - full_name: str
         """
         api = complete_url("/files/extract_down_file", base_url=base_url)
-        headers = extend_headers(request_kwargs.get("headers"))
+        headers = request_kwargs["headers"] = dict(request_kwargs.get("headers") or ())
         if user_agent is None:
             headers.setdefault("user-agent", "")
         else:
             headers["user-agent"] = user_agent
-        request_kwargs["headers"] = headers
         def parse(resp, content: bytes, /) -> dict:
             json = json_loads(content)
             if "Set-Cookie" in resp.headers:
@@ -16223,7 +15974,7 @@ class P115Client(P115OpenClient):
             - 5: BD 4K
             - 100: 原画（尺寸和原始的相同）
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 接口返回值
         """
@@ -17674,10 +17425,9 @@ class P115Client(P115OpenClient):
     def login_ssoent(self, /) -> None | str:
         """获取当前的登录设备 ssoent，如果为 None，说明未能获得（会直接获取 Cookies 中名为 UID 字段的值，所以即使能获取，也不能说明登录未失效）
         """
-        cookie_uid = self.cookies.get("UID")
-        if cookie_uid:
-            return cookie_uid.split("_")[1]
-        else:
+        try:
+            return self.cookies_str.login_ssoent
+        except KeyError:
             return None
 
     ########## Logout API ##########
@@ -20493,7 +20243,7 @@ class P115Client(P115OpenClient):
         :param strict: 如果为 True，当目标是目录时，会抛出 IsADirectoryError 异常
         :param app: 使用此设备的接口
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 下载链接
         """
@@ -21261,7 +21011,7 @@ class P115Client(P115OpenClient):
         :param strict: 如果为 True，当目标是目录时，会抛出 IsADirectoryError 异常
         :param app: 使用此设备的接口
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 下载链接
         """
@@ -22388,7 +22138,7 @@ class P115Client(P115OpenClient):
         :param sign_key: 二次验证时读取文件的范围
         :param sign_val: 二次验证的签名值
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 接口响应
         """
@@ -22467,7 +22217,7 @@ class P115Client(P115OpenClient):
         :param read_range_bytes_or_hash: 调用以获取二次验证的数据或计算 sha1，接受一个数据范围，格式符合 `HTTP Range Requests <https://developer.mozilla.org/en-US/docs/Web/HTTP/Range_requests>`_，返回值如果是 str，则视为计算好的 sha1，如果为 Buffer，则视为数据（之后会被计算 sha1）
         :param pid: 上传文件到此目录的 id
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 接口响应
         """
@@ -22608,7 +22358,7 @@ class P115Client(P115OpenClient):
                                 push((read_num, cur_t))
 
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 接口响应
         """
@@ -22773,7 +22523,7 @@ class P115Client(P115OpenClient):
                                 push((read_num, cur_t))
 
         :param async_: 是否异步
-        :param request_kwargs: 其它请求参数
+        :param request_kwargs: 其余请求参数
 
         :return: 接口响应
         """

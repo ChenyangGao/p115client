@@ -35,6 +35,7 @@ from warnings import warn
 
 from asynctools import to_list
 from concurrenttools import run_as_thread, conmap
+from http_response import is_timeouterror
 from iterutils import (
     as_gen_step, bfs_gen, chunked, chain, chain_from_iterable, collect, foreach, 
     run_gen_step, run_gen_step_iter, through, with_iter_next, map as do_map, 
@@ -53,7 +54,7 @@ from posixpatht import splitext
 from .edit import update_desc, update_star, post_event
 from .fs_files import iter_fs_files
 from .life import iter_life_behavior_once, life_show
-from .util import is_timeouterror, posix_escape_name, share_extract_payload, unescape_115_charref
+from .util import posix_escape_name, share_extract_payload, unescape_115_charref
 
 
 @dataclass(frozen=True, unsafe_hash=True)
