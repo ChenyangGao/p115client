@@ -7,7 +7,7 @@ __author__ = "ChenyangGao <https://chenyanggao.github.io>"
 __all__ = [
     "check_response", "normalize_attr", "normalize_attr_simple", 
     "normalize_attr_web", "normalize_attr_app", "normalize_attr_app2", 
-    "P115OpenClient", "P115Client", 
+    "ClientRequestMixin", "P115OpenClient", "P115Client", 
 ]
 
 from asyncio import Lock as AsyncLock
