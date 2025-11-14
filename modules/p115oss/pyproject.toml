@@ -1,0 +1,51 @@
+[tool.poetry]
+name = "p115oss"
+version = "0.0.9"
+description = "115 oss upload."
+authors = ["ChenyangGao <wosiwujm@gmail.com>"]
+license = "MIT"
+readme = "readme.md"
+homepage = "https://github.com/ChenyangGao/p115client/tree/main/modules/p115oss"
+repository = "https://github.com/ChenyangGao/p115client/tree/main/modules/p115oss"
+keywords = ["python-115", "oss", "upload"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Development Status :: 5 - Production/Stable",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3 :: Only",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+include = [
+    "LICENSE",
+]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+http_client_request = ">=0.0.8"
+http_response = ">=0.0.9"
+httpcore_request = ">=0.0.5"
+integer_tool = ">=0.0.6"
+orjson = "*"
+p115cipher = ">=0.0.4"
+p115pickcode = ">=0.0.5.4"
+python-asynctools = ">=0.1.3.4"
+python-dicttools = ">=0.0.4"
+python-filewrap = ">=0.2.9"
+python-hashtools = ">=0.0.6"
+python-http_request = ">=0.1.6"
+python-httpfile = ">=0.0.5.2"
+python-iterutils = ">=0.2.10"
+yarl = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[[tool.poetry.packages]]
+include = "p115oss"
