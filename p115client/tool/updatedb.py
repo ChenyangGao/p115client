@@ -710,11 +710,7 @@ class P115QueryDB:
     """
     __slots__ = "con",
 
-    def __init__(
-        self, 
-        /, 
-        con: bytes | str | PathLike | Connection | Cursor, 
-    ):
+    def __init__(self, con, /):
         self.con = connect(con, check_same_thread=False, timeout=inf)
 
     def get_ancestors(

@@ -606,7 +606,6 @@ def _iter_fs_files(
     payload: int | str | dict = 0, 
     page_size: int = 0, 
     first_page_size: int = 0, 
-    with_dirname: bool = False, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = ..., 
     raise_for_changed_count: bool = False, 
@@ -627,7 +626,6 @@ def _iter_fs_files(
     payload: int | str | dict = 0, 
     page_size: int = 0, 
     first_page_size: int = 0, 
-    with_dirname: bool = False, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = ..., 
     raise_for_changed_count: bool = False, 
@@ -647,7 +645,6 @@ def _iter_fs_files(
     payload: int | str | dict = 0, 
     page_size: int = 0, 
     first_page_size: int = 0, 
-    with_dirname: bool = False, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = ..., 
     raise_for_changed_count: bool = False, 
@@ -667,7 +664,6 @@ def _iter_fs_files(
     :param payload: 请求参数（字典）或 id 或 pickcode
     :param page_size: 分页大小
     :param first_page_size: 首次拉取的分页大小，如果 <= 0，则和 `page_size` 相同
-    :param with_dirname: 是否要包含父目录的名字
     :param normalize_attr: 把数据进行转换处理，使之便于阅读
     :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
     :param raise_for_changed_count: 分批拉取时，发现总数发生变化后，是否报错
@@ -719,30 +715,6 @@ def _iter_fs_files(
         else:
             escape = posix_escape_name
     escape = cast(None | Callable[[str], str], escape)
-    if not isinstance(client, P115Client):
-        with_dirname = False
-    if with_dirname:
-        pid_to_name = {0: ""}
-        def get_pid(info: dict, /) -> int:
-            for key in ("parent_id", "pid", "cid"):
-                if key in info:
-                    return int(info[key])
-            raise KeyError("parent_id", "pid", "cid")
-        setitem = pid_to_name.__setitem__
-        def callback(resp: dict, /):
-            return foreach(
-                lambda info: setitem(info["file_id"], info["file_name"]), 
-                iter_nodes_skim(
-                    cast(P115Client, client), 
-                    (
-                        pid for info in resp["data"] 
-                        if (pid := get_pid(info)) and pid not in pid_to_name
-                    ), 
-                    async_=async_, 
-                    **request_kwargs, 
-                )
-            )
-        request_kwargs["callback"] = callback
     def gen_step():
         top_id = int(payload.get("cid") or 0)
         with with_iter_next(iter_fs_files(
@@ -781,8 +753,6 @@ def _iter_fs_files(
                             continue
                     elif ensure_file is False:
                         continue
-                    if with_dirname:
-                        info["dirname"] = pid_to_name[attr["parent_id"]]
                     if hold_top:
                         info["top_id"]        = top_id
                         info["top_ancestors"] = top_ancestors

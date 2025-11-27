@@ -2,111 +2,28 @@
 # encoding: utf-8
 
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
-__version__ = (0, 0, 4)
+__version__ = (0, 0, 5)
 __license__ = "GPLv3 <https://www.gnu.org/licenses/gpl-3.0.txt>"
 __all__ = ["P115FS"]
 
-import logging
-import time
-
-from collections.abc import Callable
-from functools import update_wrapper
-from inspect import signature
+from collections.abc import MutableMapping
 from os import stat_result, PathLike
 from pathlib import Path
 from posixpath import commonpath, join as joinpath, normpath, split as splitpath
-from stat import filemode, S_IFDIR, S_IFREG
-from _thread import allocate_lock
-from textwrap import indent
-from traceback import format_exc
-from typing import Any
+from stat import filemode, S_IFDIR
+from time import gmtime, localtime, strftime, time
 
-from cachedict import LRUDict
+from cachedict import TTLDict
 from errno2 import errno
-from p115client import check_response, P115Client, P115URL
-from p115client.exception import P115BusyOSError
-from p115client.tool import iterdir, normalize_attr, type_of_attr
+from p115client import P115Client, P115FileSystem
 from pyftpdlib.authorizers import DummyAuthorizer # type: ignore
 from pyftpdlib.handlers import FTPHandler # type: ignore
 from pyftpdlib.servers import FTPServer # type: ignore
-from rich.console import Console
-from yarl import URL
+from richlog_fs import access_log, get_logger
 
 
-LISTDIR_TTL: float = 5
-
-
-class ColoredLevelNameFormatter(logging.Formatter):
-
-    def format(self, record):
-        match record.levelno:
-            case logging.DEBUG:
-                # blue
-                record.levelname = f"\x1b[1;34m{record.levelname}\x1b[0m"
-            case logging.INFO:
-                # green
-                record.levelname = f"\x1b[1;32m{record.levelname}\x1b[0m"
-            case logging.WARNING:
-                # yellow
-                record.levelname = f"\x1b[1;33m{record.levelname}\x1b[0m"
-            case logging.ERROR:
-                # red
-                record.levelname = f"\x1b[1;31m{record.levelname}\x1b[0m"
-            case logging.CRITICAL:
-                # magenta
-                record.levelname = f"\x1b[1;35m{record.levelname}\x1b[0m"
-            case _:
-                # dark grey
-                record.levelname = f"\x1b[1;2m{record.levelname}\x1b[0m"
-        return super().format(record)
-
-
-logger = logging.getLogger("p115ftp")
-handler = logging.StreamHandler()
-formatter = ColoredLevelNameFormatter(
-    "[\x1b[1m%(asctime)s\x1b[0m] \x1b[1;36m%(name)s\x1b[0m(%(levelname)s) \x1b[5;31m➜\x1b[0m %(message)s"
-)
-handler.setFormatter(formatter)
-logger.addHandler(handler)
-
-
-def debug_access_log[I, *Args, T](func: Callable[[I, *Args], T], /) -> Callable[[I, *Args], T]:
-    args: list[str] = []
-    add_arg = args.append
-    defaults: dict[int, Any] = {}
-    params = tuple(signature(func).parameters.items())[1:]
-    for i, (key, val) in enumerate(params):
-        if val.default is not val.empty:
-            defaults[i] = val.default
-        add_arg(f"{key}=%r")
-    template = f"{func.__name__}({", ".join(args)})"
-    debug = logger.debug
-    error = logger.error
-    def wrapper(self: I, /, *args: *Args) -> T:
-        if len(args) < len(params):
-            extra = tuple(defaults[i] for i in range(len(args), len(params)))
-        else:
-            extra = ()
-        is_debug = logger.level is logging.DEBUG
-        if is_debug:
-            console = Console()
-            with console.capture() as capture:
-                console.print(template % (*args, *extra))
-            debug(capture.get().rstrip())
-        try:
-            return func(self, *args) # type: ignore
-        except BaseException as e:
-            console = Console()
-            with console.capture() as capture:
-                if is_debug:
-                    console.print(indent(format_exc().strip(), "    ├ "))
-                else:
-                    console.print(indent(f"[bold magenta]{type(e).__qualname__}[/bold magenta]: {e}", "    ├ "))
-            error(template+"\n%s", *args, *extra, capture.get().rstrip())
-            if isinstance(e, OSError):
-                raise
-            raise OSError(errno.EIO, "") from e
-    return update_wrapper(wrapper, func) # type: ignore
+logger = get_logger("p115ftp")
+log = access_log(logger=logger, level=None)
 
 
 def absnorm(path: str, /) -> str:
@@ -129,33 +46,11 @@ class P115FS:
         self.cwd = "/"
         self.root = absnorm(root)
         self.cmd_channel = cmd_channel
-        self.client: P115Client = getattr(cmd_channel, "client")
-        self._fs_cache: dict[str, dict[str, dict[str, Any]]] = LRUDict(65536)
-        self._attr_cache: dict[str, dict[str, Any]] = LRUDict(1024)
-        self._url_cache: LRUDict[int, P115URL] = LRUDict(1024)
-        self._listdir_last_called: dict[str, float] = {}
-        self._listdir_lock: LRUDict[str, Any] = LRUDict(1024, default_factory=allocate_lock)
-        self._move_lock = allocate_lock()
-        self._remove_lock = allocate_lock()
+        self.fs: P115FileSystem = getattr(cmd_channel, "fs")
 
-    @debug_access_log
-    def getattr(self, /, path: str) -> dict:
-        path = self.ftpnorm(path)
-        if path == "/":
-            return {"id": 0, "parent_id": 0, "is_dir": True, "size": 0}
-        if attr := self._attr_cache.get(path):
-            if attr["path"] == path:
-                return attr
-            else:
-                self._attr_cache.pop(path)
-        dir_, name = splitpath(path)
-        if not (siblings := self._fs_cache.get(dir_)):
-            self.listdirinfo(dir_)
-            siblings = self._fs_cache[dir_]
-        try:
-            return siblings[name]
-        except KeyError:
-            raise FileNotFoundError(errno.ENOENT, path) from None
+    @log
+    def getattr(self, /, path: str) -> MutableMapping:
+        return self.fs.get_attr(self.ftpnorm(path))
 
     def ftpnorm(self, /, ftppath: str) -> str:
         """Normalize a "virtual" ftp pathname (typically the raw string
@@ -219,233 +114,100 @@ class P115FS:
         root = self.root
         return commonpath((absnorm(path), root)) == root
 
-    @debug_access_log
-    def open(self, /, path: str, mode: str):
+    @log
+    def open(self, /, path: str, mode: str = "rb"):
         """Open a file returning its handler."""
-        if "w" in mode or "x" in mode:
-            raise OSError(errno.ENOTSUP, mode)
-        attr = self.getattr(path)
-        if attr["is_dir"]:
-            raise IsADirectoryError(errno.EISDIR, path)
-        client = self.client
-        if (self.cmd_channel.use_thumbs and 
-            type_of_attr(attr) == 2 and 
-            (thumb := attr.get("thumb"))
-        ):
-            url = thumb
-            try:
-                file = client.open(url)
-            except:
-                attr.pop("thumb", None)
-                raise
-        else:
-            cache = self._url_cache
-            fid = attr["id"]
-            if url := cache.get(fid):
-                if int(URL(url).query["t"]) - time.time() < 60 * 5:
-                    url = None
-            if not url:
-                if attr.get("is_collect"):
-                    if attr["size"] > 1024 * 1024 * 200:
-                        raise OSError(errno.EIO, f"file {path!r} (id={fid}) has been censored")
-                    url = cache[fid] = self.client.download_url(
-                        attr["pickcode"], headers={"user-agent": ""}, app="web")
-                else:
-                    url = cache[fid] = client.download_url(
-                        attr["pickcode"], headers={"user-agent": ""}, app="android")
-            try:
-                file = client.open(url, headers=url.headers)
-            except:
-                cache.pop(fid, None)
-                raise
-            if "b" not in mode:
-                return file.wrap(True)
-        return file
+        return self.fs.open(self.ftpnorm(path), mode=mode) # type: ignore
 
-    @debug_access_log
+    @log
     def chdir(self, /, path: str):
         """Change the current directory. If this method is overridden
         it is vital that `cwd` attribute gets set.
         """
         self.cwd = self.ftpnorm(path)
 
-    @debug_access_log
+    @log
     def mkdir(self, /, path: str):
         """Create the specified directory."""
         path = self.ftpnorm(path)
         dir_, name = splitpath(path)
-        dirattr = self.getattr(dir_)
-        if not dirattr["is_dir"]:
-            raise NotADirectoryError(errno.ENOTDIR, dir_)
-        resp = check_response(self.client.fs_mkdir_app(name, pid=dirattr["id"]))
-        attr = normalize_attr(resp["data"])
-        attr["path"] = path
-        self._attr_cache[path] = attr
-        try:
-            self._fs_cache[dir_][name] = attr
-        except KeyError:
-            pass
+        return self.fs.mkdir(dir_, name)
 
-    @debug_access_log
+    @log
     def listdir(self, /, path: str) -> list[str]:
         """List the content of a directory."""
         return [a["name"] for a in self.listdirinfo(path)]
 
-    @debug_access_log
-    def listdirinfo(self, /, path: str) -> list[dict]:
+    @log
+    def listdirinfo(self, /, path: str) -> list[MutableMapping]:
         """List the content of a directory."""
-        listdir_last_called = self._listdir_last_called
-        last_called = listdir_last_called.get(path)
-        with self._listdir_lock[path]:
-            if last_called and (
-                last_called != listdir_last_called.get(path) or 
-                last_called + LISTDIR_TTL > time.time()
-            ):
-                try:
-                    return list(self._fs_cache[path].values())
-                except KeyError:
-                    pass
-            attr_cache = self._attr_cache
-            if path == "/":
-                cid = 0
-            elif (attr := attr_cache.get(path)) and (path == attr["path"]):
-                cid = attr["id"]
-            else:
-                dir_, name = splitpath(path)
-                try:
-                    attr = self._fs_cache[dir_][name]
-                    cid = attr["id"]
-                except KeyError:
-                    resp = check_response(self.client.fs_dir_getid_app(path, base_url="http://pro.api.115.com"))
-                    cid = int(resp["id"])
-                    if not cid:
-                        raise FileNotFoundError(errno.ENOENT, path)
-            dir_ = path
-            if not dir_.endswith("/"):
-                dir_ += "/"
-            children: dict[str, dict[str, Any]] = {}
-            for attr in iterdir(self.client, cid, app="android"):
-                name = attr["name"]
-                attr_cache.pop(dir_ + name, None)
-                children[name] = attr
-            listdir_last_called[path] = time.time()
-            self._fs_cache[path] = children
-            return list(children.values())
+        return self.fs.readdir(path)
 
-    @debug_access_log
+    @log
     def rmdir(self, /, path: str):
         """Remove the specified directory."""
-        self.remove.__wrapped__(self, path) # type: ignore
+        return self.fs.remove(path)
 
-    @debug_access_log
+    @log
     def remove(self, /, path: str):
         """Remove the specified file."""
-        attr = self.getattr(path)
-        with self._remove_lock:
-            while True:
-                try:
-                    check_response(self.client.fs_delete_app(attr["id"]))
-                    break
-                except P115BusyOSError:
-                    pass
-        cache = self._fs_cache
-        cache.pop(path, None)
-        if path != "/":
-            dir_, name = splitpath(path)
-            try:
-                cache[dir_].pop(name, None)
-            except KeyError:
-                pass
+        return self.fs.remove(path)
 
-    @debug_access_log
+    @log
     def rename(self, /, src: str, dst: str):
         """Rename the specified src file to the dst filename."""
         src = self.ftpnorm(src)
         dst = self.ftpnorm(dst)
-        if src == dst:
-            return
-        client = self.client
-        src_dir, src_name = splitpath(src)
-        dst_dir, dst_name = splitpath(dst)
-        attr = self.getattr(src)
-        if src_dir != dst_dir:
-            if dst_dir == "/":
-                cid = 0
-            else:
-                dstdir_attr = self.getattr(dst_dir)
-                if not dstdir_attr["is_dir"]:
-                    raise NotADirectoryError(errno.ENOTDIR, dst_dir)
-                cid = dstdir_attr["id"]
-            with self._move_lock:
-                while True:
-                    try:
-                        check_response(client.fs_move_app(attr["id"], cid))
-                        break
-                    except P115BusyOSError:
-                        pass
-        if src_name != dst_name:
-            check_response(client.fs_rename_app((attr["id"], dst_name)))
-        self._attr_cache.pop(src, None)
-        cache = self._fs_cache
-        try:
-            cache[dst] = cache.pop(src)
-        except KeyError:
-            pass
-        try:
-            cache[dst_dir][dst_name] = cache[src_dir].pop(src_name)
-        except KeyError:
-            pass
+        if src != dst:
+            src_dir, src_name = splitpath(src)
+            dst_dir, dst_name = splitpath(dst)
+            attr = self.fs.get_attr(src)
+            if src_dir != dst_dir:
+                if dst_dir == "/":
+                    cid = 0
+                else:
+                    dstdir_attr = self.fs.get_attr(dst_dir)
+                    if not dstdir_attr["is_dir"]:
+                        raise NotADirectoryError(errno.ENOTDIR, dst_dir)
+                    cid = dstdir_attr["id"]
+                self.fs.move(attr, cid)
+            if src_name != dst_name:
+                self.fs.rename(attr, dst_name)
 
-    @debug_access_log
+    @log
     def stat(self, /, path: str) -> stat_result:
         """Perform a stat() system call on the given path."""
-        attr = self.getattr(path)
-        return stat_result((
-            (S_IFDIR if attr["is_dir"] else S_IFREG) | 0o555, 
-            attr["id"], 
-            0, 
-            1, 
-            self.client.user_id, 
-            115, 
-            attr["size"], 
-            attr.get("atime", 0) or attr.get("mtime", 0), 
-            attr.get("mtime", 0), 
-            attr.get("ctime", 0), 
-        ))
+        return self.fs.stat(path)
 
     lstat = stat
 
-    @debug_access_log
+    @log
     def isfile(self, /, path: str) -> bool:
         """Return True if path is a file."""
-        if not path or path == "/":
-            return False
-        return not self.getattr(path)["is_dir"]
+        return self.fs.isfile(path)
 
-    @debug_access_log
+    @log
     def islink(self, /, path: str) -> bool:
         """Return True if path is a symbolic link."""
         return False
 
-    @debug_access_log
+    @log
     def isdir(self, /, path: str) -> bool:
         """Return True if path is a directory."""
-        if not path or path == "/":
-            return True
-        return self.getattr(path)["is_dir"]
+        return self.fs.isdir(path)
 
-    @debug_access_log
+    @log
     def getsize(self, /, path: str) -> int:
         """Return the size of the specified file in bytes."""
-        return self.getattr(path)["size"]
+        return self.getattr(path).get("size", 0)
 
-    @debug_access_log
+    @log
     def getmtime(self, /, path: str) -> int:
         """Return the last modified time as a number of seconds since
         the epoch."""
-        return self.getattr(path)["mtime"]
+        return self.getattr(path).get("mtime", 0)
 
-    @debug_access_log
+    @log
     def realpath(self, /, path: str) -> str:
         """Return the canonical version of path eliminating any
         symbolic links encountered in the path (if they are
@@ -453,29 +215,15 @@ class P115FS:
         """
         return self.ftp2fs(path)
 
-    @debug_access_log
+    @log
     def exists(self, /, path: str) -> bool:
         """Return True if path refers to an existing path.
         """
-        try:
-            self.getattr(path)
-            return True
-        except FileNotFoundError:
-            return False
+        return self.fs.exists(path)
 
     lexists = exists
 
-    def get_user_by_uid(self, /, uid: int) -> str:
-        """Return the username associated with user id.
-        """
-        return str(self.client.user_id)
-
-    def get_group_by_gid(self, /, gid: int) -> str:
-        """Return the group name associated with group id.
-        """
-        return "115"
-
-    @debug_access_log
+    @log
     def format_list(
         self, 
         /, 
@@ -508,12 +256,12 @@ class P115FS:
             "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
         )
         if self.cmd_channel.use_gmt_times:
-            timefunc = time.gmtime
+            timefunc = gmtime
         else:
-            timefunc = time.localtime
+            timefunc = localtime
         SIX_MONTHS = 180 * 24 * 60 * 60
-        now = time.time()
-        uname = str(self.client.user_id)
+        now = time()
+        uname = str(self.fs.user_id)
         gname = "115"
         for basename in listing:
             file = joinpath(basedir, basename)
@@ -534,7 +282,7 @@ class P115FS:
             try:
                 mtimestr = "%s %s" % (
                     months[mtime.tm_mon],
-                    time.strftime(fmtstr, mtime),
+                    strftime(fmtstr, mtime),
                 )
             except ValueError:
                 # It could be raised if last mtime happens to be too
@@ -543,7 +291,7 @@ class P115FS:
                 mtime = timefunc()
                 mtimestr = "%s %s" % (
                     months[mtime.tm_mon],
-                    time.strftime("%d %H:%M", mtime),
+                    strftime("%d %H:%M", mtime),
                 )
             # formatting is matched with proftpd ls output
             line = "%s %3s %-8s %-8s %8s %s %s\r\n" % (
@@ -559,7 +307,7 @@ class P115FS:
                 self.cmd_channel.encoding, self.cmd_channel.unicode_errors
             )
 
-    @debug_access_log
+    @log
     def format_mlsx(
         self, 
         /, 
@@ -595,9 +343,9 @@ class P115FS:
         type=file;size=211;perm=r;modify=20071103093626;unique=192; module.py
         """
         if self.cmd_channel.use_gmt_times:
-            timefunc = time.gmtime
+            timefunc = gmtime
         else:
-            timefunc = time.localtime
+            timefunc = localtime
         permdir = "".join([x for x in perms if x not in "arw"])
         permfile = "".join([x for x in perms if x not in "celmp"])
         if ("w" in perms) or ("a" in perms) or ("f" in perms):
@@ -648,7 +396,7 @@ class P115FS:
             # last modification time
             if show_modify:
                 try:
-                    retfacts["modify"] = time.strftime(
+                    retfacts["modify"] = strftime(
                         "%Y%m%d%H%M%S", timefunc(st.st_mtime)
                     )
                 # it could be raised if last mtime happens to be too old
@@ -658,7 +406,7 @@ class P115FS:
             if show_create:
                 # on Windows we can provide also the creation time
                 try:
-                    retfacts["create"] = time.strftime(
+                    retfacts["create"] = strftime(
                         "%Y%m%d%H%M%S", timefunc(st.st_ctime)
                     )
                 except ValueError:
@@ -699,23 +447,24 @@ class P115FS:
         host: str = "0.0.0.0", 
         port: int = 7115, 
         authorizer = None, 
-        use_thumbs: bool = False, 
+        readdir_ttl: float = 60, 
     ):
         if not isinstance(client, P115Client):
             client = P115Client(client, check_for_relogin=True)
-        class Handler(FTPHandler):
-            abstracted_fs = P115FS
-        Handler.client = client
+        _P115FTPHandler.client = client
+        _P115FTPHandler.fs = client.get_fs(id_to_readdir=TTLDict(readdir_ttl))
         if authorizer is None:
             authorizer = DummyAuthorizer()
-            authorizer.add_anonymous("/")
-        Handler.authorizer = authorizer
-        Handler.use_thumbs = use_thumbs
-        server = FTPServer((host, port), Handler)
+            authorizer.add_anonymous("/", perm="elradfmw")
+        _P115FTPHandler.authorizer = authorizer
+        server = FTPServer((host, port), _P115FTPHandler)
         server.serve_forever()
 
 
+class _P115FTPHandler(FTPHandler):
+    abstracted_fs = P115FS
+
+
 if __name__ == "__main__":
-    logger.setLevel(logging.DEBUG)
     P115FS.run_forever()
 

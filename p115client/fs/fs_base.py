@@ -6,6 +6,7 @@ from __future__ import annotations
 __all__ = ["IDOrPathType", "P115PathBase", "P115FileSystemBase"]
 
 from abc import ABC, abstractmethod
+from asyncio import Lock as AsyncLock
 from collections.abc import (
     AsyncIterable, AsyncIterator, Awaitable, Callable, Coroutine, 
     Iterable, Iterator, Mapping, MutableMapping, Sequence, 
@@ -17,10 +18,9 @@ from operator import itemgetter
 from os import path as ospath, fsdecode, stat_result, PathLike
 from posixpath import splitext
 from re import compile as re_compile, escape as re_escape
-from shutil import COPY_BUFSIZE # type: ignore
-from sqlite3 import connect
 from stat import S_IFDIR, S_IFREG
 from threading import Lock
+from time import time
 from typing import (
     cast, overload, Any, ClassVar, Final, Literal, Self, TypedDict, 
 )
@@ -36,17 +36,16 @@ from hashtools import (
     HashObj, file_digest, file_mdigest, file_digest_async, file_mdigest_async, 
 )
 from httpfile import AsyncHTTPFileReader, HTTPFileReader
+from id2dirnode import IdToDirnode
 from iterdir import iterdir_generic, walk_generic
 from iterutils import (
     map as do_map, run_gen_step, run_gen_step_iter, with_iter_next, 
     Yield, YieldFrom, 
 )
 from posixpatht import escape, joinpath, joins, normpath, path_is_dir_form, splits
-from sqlitedict import SqliteTableDict
 from undefined import undefined, is_undefined, Undefined
 
 from ..client import P115Client
-from ..tool import P115QueryDB, lock_as_async
 from ..exception import throw
 from ..type import P115URL
 
@@ -1159,7 +1158,7 @@ class P115PathBase:
     def open(
         self, 
         /, 
-        mode: str = "r", 
+        mode: Literal["rb", "br"] = "rb", 
         buffering: None | int = None, 
         encoding: None | str = None, 
         errors: None | str = None, 
@@ -1171,13 +1170,31 @@ class P115PathBase:
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
-    ) -> HTTPFileReader | BufferedReader | TextIOWrapper:
+    ) -> HTTPFileReader | BufferedReader:
         ...
     @overload
     def open(
         self, 
         /, 
-        mode: str = "r", 
+        mode: Literal["r", "rt", "tr"], 
+        buffering: None | int = None, 
+        encoding: None | str = None, 
+        errors: None | str = None, 
+        newline: None | str = None, 
+        start: int = 0, 
+        seek_threshold: int = 1 << 20, 
+        http_file_reader_cls: None | type[HTTPFileReader] = None, 
+        refresh: None | bool = None, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> TextIOWrapper:
+        ...
+    @overload
+    def open(
+        self, 
+        /, 
+        mode: Literal["rb", "br"] = "rb", 
         buffering: None | int = None, 
         encoding: None | str = None, 
         errors: None | str = None, 
@@ -1189,12 +1206,30 @@ class P115PathBase:
         *, 
         async_: Literal[True], 
         **request_kwargs, 
-    ) -> AsyncHTTPFileReader | AsyncBufferedReader | AsyncTextIOWrapper:
+    ) -> AsyncHTTPFileReader | AsyncBufferedReader:
+        ...
+    @overload
+    def open(
+        self, 
+        /, 
+        mode: Literal["r", "rt", "tr"], 
+        buffering: None | int = None, 
+        encoding: None | str = None, 
+        errors: None | str = None, 
+        newline: None | str = None, 
+        start: int = 0, 
+        seek_threshold: int = 1 << 20, 
+        http_file_reader_cls: None | type[AsyncHTTPFileReader] = None, 
+        refresh: None | bool = None, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> AsyncTextIOWrapper:
         ...
     def open(
         self, 
         /, 
-        mode: str = "r", 
+        mode: Literal["r", "rt", "tr", "rb", "br"] = "rb", 
         buffering: None | int = None, 
         encoding: None | str = None, 
         errors: None | str = None, 
@@ -1209,7 +1244,7 @@ class P115PathBase:
     ) -> HTTPFileReader | BufferedReader | TextIOWrapper | AsyncHTTPFileReader | AsyncBufferedReader | AsyncTextIOWrapper:
         return self.fs.open(
             self, 
-            mode=mode, 
+            mode=mode, # type: ignore
             buffering=buffering, 
             encoding=encoding, 
             errors=errors, 
@@ -1573,27 +1608,13 @@ class P115FileSystemBase[P115PathType: P115PathBase](ABC):
                 id_to_readdir = LRUDict(maxsize)
         self.id_to_readdir: dict[int, dict[int, MutableMapping]] = id_to_readdir
         self.id_to_attr: MutableMapping[int, MutableMapping] = WeakValueDictionary()
-        self.con = con = connect(":memory:", autocommit=True, check_same_thread=False)
-        con.executescript("""\
-PRAGMA journal_mode = WAL;
-CREATE TABLE data (
-    id INTEGER NOT NULL PRIMARY KEY, 
-    parent_id INTEGER NOT NULL, 
-    name STRING NOT NULL, 
-    is_dir INTEGER AS (1) VIRTUAL, 
-    is_alive INTEGER AS (1) VIRTUAL
-);
-CREATE INDEX IF NOT EXISTS idx_pid_name ON data(parent_id, name);
-""")
-        self.id_to_dirnode: MutableMapping[int, tuple[str, int]] = SqliteTableDict(con, value=("name", "parent_id"))
+        self.id_to_dirnode = IdToDirnode()
+        self._pid_name_to_attr: MutableMapping[tuple[int, str], MutableMapping] = WeakValueDictionary()
         self._readdir_locks: LRUDict[int, Any] = LRUDict(1024, default_factory=Lock)
+        self._readdir_alocks: LRUDict[int, Any] = LRUDict(1024, default_factory=AsyncLock)
 
     def __contains__(self, id_or_path: IDOrPathType, /) -> bool:
         return self.exists(id_or_path)
-
-    def __del__(self, /):
-        if con := getattr(self, "con", None):
-            con.close()
 
     def __eq__(self, other, /) -> bool:
         return type(self) is type(other) and self.client == other.client
@@ -2164,34 +2185,26 @@ CREATE INDEX IF NOT EXISTS idx_pid_name ON data(parent_id, name);
             refresh = self.refresh
         def gen_step():
             nonlocal path, pid, ensure_file
-            go_up = 0
-            patht: Sequence[str]
             if pid is None:
                 pid = self.id
+            patht: Sequence[str]
             if isinstance(path, str):
-                if path.startswith("/"):
-                    pid = 0
-                if path in (".", "..", "/"):
-                    patht = ()
-                else:
-                    if ensure_file is None and path_is_dir_form(path):
-                        ensure_file = False
-                    patht, go_up = splits(path.lstrip("/"))
+                if ensure_file is None and path_is_dir_form(path):
+                    ensure_file = False
+                patht, go_up = splits(path)
             else:
-                patht = path
-                if patht and not patht[0]:
-                    pid = 0
-                    patht = patht[1:]
-            if go_up:
-                ancestors: list[AncestorDict] = yield self.get_ancestors(
+                patht, go_up = path, 0
+            if patht and not patht[0]:
+                pid = 0
+                patht = patht[1:]
+            get_parent_id = self.get_parent_id
+            while pid and go_up:
+                pid = yield get_parent_id(
                     pid, 
                     refresh=refresh, 
                     async_=async_, 
                     **request_kwargs, 
                 )
-                if go_up >= len(ancestors):
-                    return self._get_root_attr()
-                pid = ancestors[-go_up]["id"]
             if not patht:
                 if ensure_file:
                     throw(errno.ENOENT, path)
@@ -2204,41 +2217,14 @@ CREATE INDEX IF NOT EXISTS idx_pid_name ON data(parent_id, name);
                     async_=async_, 
                     **request_kwargs, 
                 )
-            i = 0
-            id_to_dirnode = self.id_to_dirnode
-            if not refresh and id_to_dirnode:
-                if i := len(patht) - bool(ensure_file):
-                    for i in range(i):
-                        if "/" in patht[i]:
-                            break
-                    else:
-                        i += 1
-                if i:
-                    for i in range(i):
-                        needle = (patht[i], pid)
-                        for fid, key in id_to_dirnode.items():
-                            if needle == key:
-                                pid = fid
-                                break
-                        else:
-                            break
-                    else:
-                        i += 1
-            if i == len(patht):
-                return self.get_attr(
-                    pid, 
-                    ensure_file=ensure_file, 
-                    refresh=refresh, 
-                    async_=async_, 
-                    **request_kwargs, 
-                )
+            get_id = self.id_to_dirnode.get_id
             readdir = self.readdir
-            for name in patht[i:-1]:
+            for name in patht[:-1]:
                 if not refresh:
                     try:
-                        pid = P115QueryDB(self.con).get_id(path=[name], parent_id=pid)
+                        pid = get_id([name], parent_id=pid)
                         continue
-                    except (ValueError, FileNotFoundError):
+                    except KeyError:
                         pass
                 found = False
                 for attr in (yield readdir(
@@ -2253,6 +2239,13 @@ CREATE INDEX IF NOT EXISTS idx_pid_name ON data(parent_id, name);
                 if not found:
                     throw(errno.ENOENT, path)
             name = patht[-1]
+            if not refresh and pid in self.id_to_readdir:
+                attr = self._pid_name_to_attr.get((pid, name))
+                if attr and attr["parent_id"] == pid and attr["name"] == name:
+                    return attr
+                else:
+                    self._pid_name_to_attr.pop((pid, name), None)
+                    throw(errno.ENOENT, path)
             for attr in (yield readdir(
                 pid, 
                 refresh=refresh, 
@@ -2409,8 +2402,8 @@ CREATE INDEX IF NOT EXISTS idx_pid_name ON data(parent_id, name);
             pancestors: None | list[dict] = None
             if not refresh:
                 try:
-                    pancestors = P115QueryDB(self.con).get_ancestors(pid)
-                except (ValueError, FileNotFoundError):
+                    pancestors = self.id_to_dirnode.get_ancestors(pid)
+                except KeyError:
                     pass
             if pancestors is None:
                 pancestors = yield self._get_ancestors_by_cid(
@@ -2462,8 +2455,8 @@ CREATE INDEX IF NOT EXISTS idx_pid_name ON data(parent_id, name);
                 return [{"id": 0, "parent_id": 0, "name": ""}]
             if not refresh:
                 try:
-                    return P115QueryDB(self.con).get_ancestors(cid)
-                except (ValueError, FileNotFoundError):
+                    return self.id_to_dirnode.get_ancestors(cid)
+                except KeyError:
                     pass
             attr = yield self.get_attr(
                 cid, 
@@ -2551,10 +2544,18 @@ CREATE INDEX IF NOT EXISTS idx_pid_name ON data(parent_id, name);
                     return pid
                 elif len(id_or_path) == 1 and not id_or_path[0]:
                     return 0
+            patht: Sequence[str]
             if not refresh:
                 try:
-                    return P115QueryDB(self.con).get_id(path=id_or_path, parent_id=pid)
-                except (ValueError, FileNotFoundError):
+                    if isinstance(id_or_path, str):
+                        patht, go_up = splits(id_or_path)
+                        while pid and go_up:
+                            pid = self.id_to_dirnode.get_parent_id(pid)
+                            go_up -= 1
+                    else:
+                        patht = id_or_path
+                    return self.id_to_dirnode.get_id(patht, pid)
+                except KeyError:
                     pass
             attr = yield self.get_attr(
                 id_or_path, 
@@ -2620,8 +2621,8 @@ CREATE INDEX IF NOT EXISTS idx_pid_name ON data(parent_id, name);
                 pid = self.id
             if not refresh and isinstance(id_or_path, int):
                 try:
-                    return P115QueryDB(self.con).get_parent_id(id_or_path)
-                except (ValueError, FileNotFoundError):
+                    return self.id_to_dirnode.get_parent_id(id_or_path)
+                except KeyError:
                     pass
             attr = yield self.get_attr(
                 id_or_path, 
@@ -2734,8 +2735,8 @@ CREATE INDEX IF NOT EXISTS idx_pid_name ON data(parent_id, name);
                     return [""]
                 if not refresh:
                     try:
-                        return P115QueryDB(self.con).get_patht(id)
-                    except (ValueError, FileNotFoundError):
+                        return self.id_to_dirnode.get_patht(id)
+                    except KeyError:
                         pass
                 ancestors = yield self.get_ancestors(
                     id, 
@@ -2747,13 +2748,15 @@ CREATE INDEX IF NOT EXISTS idx_pid_name ON data(parent_id, name);
             if pid is None:
                 pid = self.id
             id_or_path = cast(str | Sequence[str], id_or_path)
-            go_up = 0
             if isinstance(id_or_path, str):
                 id_or_path, go_up = splits(id_or_path)
+            else:
+                go_up = 0
             if id_or_path and not id_or_path[0]:
                 return id_or_path
             if pid == 0:
                 patht = [""]
+                go_up = 0
             else:
                 patht = yield self.get_patht(
                     pid, 
@@ -3045,6 +3048,8 @@ CREATE INDEX IF NOT EXISTS idx_pid_name ON data(parent_id, name);
                 async_=async_, 
                 **request_kwargs, 
             )
+            if attr["is_dir"]:
+                throw(errno.EISDIR, attr)
             return attr["url"]
         return run_gen_step(gen_step, async_)
 
@@ -3583,28 +3588,33 @@ CREATE INDEX IF NOT EXISTS idx_pid_name ON data(parent_id, name);
                 if children is None:
                     children = {}
                 if async_:
-                    async def request(children):
-                        async with lock_as_async(self._readdir_locks[id]):
-                            async for attr in self.iterdir(
-                                id, 
-                                async_=True, 
-                                **request_kwargs, 
-                            ):
-                                fid = attr["id"]
-                                try:
-                                    children[fid].update(attr)
-                                except KeyError:
-                                    children[fid] = attr
-                    yield request(children)
+                    lock: Any = self._readdir_alocks[id]
                 else:
-                    with self._readdir_locks[id]:
-                        for attr in self.iterdir(id, **request_kwargs):
+                    lock = self._readdir_locks[id]
+                timeout = 0.1 # 100 ms
+                start_t = time()
+                yield lock.acquire()
+                try:
+                    if time() - start_t >= timeout:
+                        children_new = id_to_readdir.get(id)
+                        if children_new is not None:
+                            return list(children_new.values())
+                    with with_iter_next(self.iterdir(
+                        id, 
+                        async_=async_, 
+                        **request_kwargs, 
+                    )) as get_next:
+                        while True:
+                            attr = yield get_next()
                             fid = attr["id"]
                             try:
                                 children[fid].update(attr)
                             except KeyError:
                                 children[fid] = attr
+                finally:
+                    lock.release()
                 id_to_readdir[id] = children
+                self._pid_name_to_attr.update(((id, attr["name"]), attr) for attr in children.values())
                 self.id_to_attr.update(children)
             return list(children.values())
         return run_gen_step(gen_step, async_)
@@ -3614,7 +3624,7 @@ CREATE INDEX IF NOT EXISTS idx_pid_name ON data(parent_id, name);
         self, 
         id_or_path: IDOrPathType, 
         /, 
-        mode: Literal["rb", "br"], 
+        mode: Literal["rb", "br"] = "rb", 
         buffering: None | int = None, 
         encoding: None | str = None, 
         errors: None | str = None, 
@@ -3634,7 +3644,7 @@ CREATE INDEX IF NOT EXISTS idx_pid_name ON data(parent_id, name);
         self, 
         id_or_path: IDOrPathType, 
         /, 
-        mode: Literal["r", "rt", "tr"] = "r", 
+        mode: Literal["r", "rt", "tr"], 
         buffering: None | int = None, 
         encoding: None | str = None, 
         errors: None | str = None, 
@@ -3654,7 +3664,7 @@ CREATE INDEX IF NOT EXISTS idx_pid_name ON data(parent_id, name);
         self, 
         id_or_path: IDOrPathType, 
         /, 
-        mode: Literal["rb", "br"], 
+        mode: Literal["rb", "br"] = "rb", 
         buffering: None | int = None, 
         encoding: None | str = None, 
         errors: None | str = None, 
@@ -3674,7 +3684,7 @@ CREATE INDEX IF NOT EXISTS idx_pid_name ON data(parent_id, name);
         self, 
         id_or_path: IDOrPathType, 
         /, 
-        mode: Literal["r", "rt", "tr"] = "r", 
+        mode: Literal["r", "rt", "tr"], 
         buffering: None | int = None, 
         encoding: None | str = None, 
         errors: None | str = None, 
@@ -3693,7 +3703,7 @@ CREATE INDEX IF NOT EXISTS idx_pid_name ON data(parent_id, name);
         self, 
         id_or_path: IDOrPathType, 
         /, 
-        mode: Literal["r", "rt", "tr", "rb", "br"] = "r", 
+        mode: Literal["r", "rt", "tr", "rb", "br"] = "rb", 
         buffering: None | int = None, 
         encoding: None | str = None, 
         errors: None | str = None, 
@@ -4188,3 +4198,6 @@ CREATE INDEX IF NOT EXISTS idx_pid_name ON data(parent_id, name);
 
 # TODO: 增加方法 id_to_path 和 path_to_id 以加快查询速度
 # TODO: 尽量先用数据库查一下，再去做下一步（如果不确定是不是目录，先用数据库查一下，成功就ok，不行再另外搞）
+# TODO: 有时还需要路径到 id 到映射，或者 id_to_dirnode 中 name 到 id 到映射
+# TODO: 如果是 NO_INCREMENT，那么自动构建 id 和 path 之间的映射，否则只构建 pid_to_names 的映射
+# TODO: id_to_dirnode 在并发写入时，会有 database is locked 的问题

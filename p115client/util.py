@@ -277,8 +277,13 @@ def posix_escape_name(name: str, /, repl: str = "|") -> str:
 
 @asynccontextmanager
 async def lock_as_async(lock, check_interval: float = 0.001):
-    while lock.acquire(blocking=False):
-        await async_sleep(check_interval)
+    acquire = lock.acquire
+    if check_interval <= 0:
+        while not acquire(False):
+            pass
+    else:
+        while not acquire(False):
+            await async_sleep(check_interval)
     try:
         yield
     finally:

@@ -5,8 +5,9 @@ from __future__ import annotations
 
 __all__ = ["P115Path", "P115FileSystem"]
 
+from asyncio import Lock as AsyncLock
 from collections.abc import (
-    AsyncIterable, AsyncIterator, Callable, Coroutine, Iterable, 
+    AsyncIterable, AsyncIterator, Coroutine, Iterable, 
     Iterator, MutableMapping, 
 )
 from os import PathLike
@@ -25,8 +26,8 @@ from yarl import URL
 from ..client import check_response, P115Client
 from ..exception import throw, P115BusyOSError
 from ..type import P115URL
-from ..tool import get_attr, get_ancestors, iterdir, normalize_attr_simple, P115QueryDB
-from ..util import call_with_lock, lock_as_async
+from ..tool import get_attr, get_ancestors, iterdir, normalize_attr_simple
+from ..util import call_with_lock
 from .fs_base import IDOrPathType, P115PathBase, P115FileSystemBase, AncestorDict
 
 
@@ -259,6 +260,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
     ):
         super().__init__(client, refresh=refresh, id_to_readdir=id_to_readdir)
         self._fs_lock = Lock()
+        self._fs_alock = AsyncLock()
 
     @overload
     def _get_attr_by_id(
@@ -362,8 +364,8 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
                 return [{"id": 0, "parent_id": 0, "name": ""}]
             if not refresh:
                 try:
-                    return P115QueryDB(self.con).get_ancestors(cid)
-                except (ValueError, FileNotFoundError):
+                    return self.id_to_dirnode.get_ancestors(cid)
+                except KeyError:
                     pass
             return (yield get_ancestors(
                 self.client, 
@@ -445,6 +447,8 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
         **request_kwargs, 
     ) -> P115URL | Coroutine[Any, Any, P115URL]:
         "获取下载链接"
+        if refresh is None:
+            refresh = self.refresh
         def gen_step():
             headers = request_kwargs["headers"] = dict(request_kwargs.get("headers") or ())
             dict_key_to_lower_update(headers)
@@ -465,8 +469,11 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
                 if attr["is_dir"]:
                     throw(errno.EISDIR, attr)
                 pickcode = attr["pickcode"]
-                if attr.get("is_collect", False) and attr["size"] <= 1024 * 1024 * 200:
-                    app = "web"
+                if attr.get("is_collect", False):
+                    if attr["size"] <= 1024 * 1024 * 200:
+                        app = "web"
+                    else:
+                        raise throw(errno.EIO, f"file {id_or_path!r} has been censored")
             return self.client.download_url(
                 pickcode, 
                 user_agent=user_agent, 
@@ -530,7 +537,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
                 async_=async_, 
                 **request_kwargs, 
             )
-            lock = lock_as_async(self._fs_lock) if async_ else self._fs_lock
+            lock = self._fs_alock if async_ else self._fs_lock
             while True:
                 resp = yield call_with_lock(
                     lock, 
@@ -613,9 +620,10 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
                 ctime=int(info["ptime"]), 
                 mtime=int(info["utime"]), 
             )
-            children = self.id_to_readdir.get(fid)
+            children = self.id_to_readdir.get(cid)
             if children is not None:
                 children[fid] = self.id_to_attr[fid] = attr
+                self._pid_name_to_attr[(cid, attr["name"])] = attr
                 self.id_to_dirnode[fid] = (cname, cid)
             return attr
         return run_gen_step(gen_step, async_)
@@ -674,7 +682,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
                 async_=async_, 
                 **request_kwargs, 
             )
-            lock = lock_as_async(self._fs_lock) if async_ else self._fs_lock
+            lock = self._fs_alock if async_ else self._fs_lock
             while True:
                 resp = yield call_with_lock(
                     lock, 
@@ -747,7 +755,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
                 **request_kwargs, 
             )
             fid = attr["id"]
-            lock = lock_as_async(self._fs_lock) if async_ else self._fs_lock
+            lock = self._fs_alock if async_ else self._fs_lock
             while True:
                 resp = yield call_with_lock(
                     lock, 
@@ -952,6 +960,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
             if children is not None:
                 fid = attr["id"]
                 children[fid] = self.id_to_attr[fid] = attr
+                self._pid_name_to_attr[(cid, attr["name"])] = attr
             return attr
         return run_gen_step(gen_step, async_)
 
@@ -959,3 +968,5 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
 # TODO: 允许手动指定一个 escape 方法
 # TODO: 增加多种方法: copy_many, move_many, rename_many, remove_many
 # TODO: 增加方法 copyfile、renamefile，可以改变用不同名字
+# TODO: 增加方法，moves，可以改名和移动，且文件的后缀名可以不同
+# TODO: 增加方法，copys，如果是目录，复制不可改名，但是文件则可以，而且后缀可以不同
