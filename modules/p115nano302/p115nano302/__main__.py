@@ -11,12 +11,13 @@ __doc__ = """\
     │                                                                              │
     │                      \x1b[32mlicense     \x1b[4;34mhttps://www.gnu.org/licenses/gpl-3.0.txt\x1b[0m    │
     │                                                                              │
-    │                      \x1b[32mversion     \x1b[1;36m0.1.2\x1b[0m                                       │
+    │                      \x1b[32mversion     \x1b[1;36m0.1.3\x1b[0m                                       │
     │                                                                              │
     ╰──────────────────────────────────────────────────────────────────────────────╯
 
-> 网盘文件支持用 \x1b[3;36mid\x1b[0m、\x1b[3;36mpickcode\x1b[0m、\x1b[3;36msha1\x1b[0m 或 \x1b[3;36mname\x1b[0m 查询（\x1b[1;31m照此优先级\x1b[0m），但不支持 \x1b[3;36mpath\x1b[0m 
+> 网盘文件支持用 \x1b[3;36mid\x1b[0m、\x1b[3;36mpickcode\x1b[0m、\x1b[3;36msha1\x1b[0m 或 \x1b[3;36mname\x1b[0m 查询（\x1b[1;31m照此优先级\x1b[0m），但不支持 \x1b[3;36mpath\x1b[0m
 > 分享文件支持用 \x1b[3;36mid\x1b[0m 或 \x1b[3;36mname\x1b[0m 查询
+> 网盘文件指定 \x1b[3;36mimage=1\x1b[0m 时，会获取图片的 CDN 链接
 > 用 \x1b[3;36msha1\x1b[0m 或 \x1b[3;36mname\x1b[0m 查询时，可以指定参数 \x1b[3;36mcid\x1b[0m，作为查询目标的顶层目录
 
 < 支持参数 \x1b[3;36muser_id\x1b[0m，以指定用户 id，并在实际执行时使用此用户的 cookies 和网盘数据（\x1b[1;31m未指定时，使用所传入的第 1 个 cookies\x1b[0m）

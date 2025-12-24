@@ -140,7 +140,7 @@ def reduce_image_url_layers(
 
     :return: 提取后的图片缩略图链接
     """
-    if not url.startswith("://thumb.115.com/"):
+    if "://thumb.115.com/" not in url:
         return url
     urlp = urlsplit(url)
     sha1, _, size0 = urlp.path.rsplit("/")[-1].partition("_")

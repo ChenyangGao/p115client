@@ -43,12 +43,13 @@ usage:  [-h] [-c COOKIES] [-cp COOKIES_PATH] [-p PASSWORD] [-t TOKEN] [-H HOST]
     │                                                                              │
     │                      license     https://www.gnu.org/licenses/gpl-3.0.txt    │
     │                                                                              │
-    │                      version     0.1.2                                       │
+    │                      version     0.1.3                                       │
     │                                                                              │
     ╰──────────────────────────────────────────────────────────────────────────────╯
 
-> 网盘文件支持用 id、pickcode、sha1 或 name 查询（照此优先级），但不支持 path 
+> 网盘文件支持用 id、pickcode、sha1 或 name 查询（照此优先级），但不支持 path
 > 分享文件支持用 id 或 name 查询
+> 网盘文件指定 image=1 时，会获取图片的 CDN 链接
 > 用 sha1 或 name 查询时，可以指定参数 cid，作为查询目标的顶层目录
 
 < 支持参数 user_id，以指定用户 id，并在实际执行时使用此用户的 cookies 和网盘数据（未指定时，使用所传入的第 1 个 cookies）

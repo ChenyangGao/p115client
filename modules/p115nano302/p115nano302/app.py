@@ -56,6 +56,12 @@ def get_user_id_from_cookies(cookies: str, /) -> str:
     return match[0].partition("_")[0]
 
 
+def reduce_image_url_layers(url: str, /) -> str:
+    urlp = urlsplit(url)
+    sha1 = urlp.path.rsplit("/")[-1].partition("_")[0]
+    return f"https://imgjump.115.com/?sha1={sha1}&{urlp.query}&size=0"
+
+
 def make_application(
     cookies: str, 
     debug: bool = False, 
@@ -73,6 +79,8 @@ def make_application(
     if cache_url:
         #: id 或 (id, user_agent) 或 (id, share_code) 对应下载 url
         DOWNLOAD_URL_CACHE: TLRUDict[int | tuple[int, str], tuple[float, str]] = TLRUDict(maxsize=cache_size)
+    #: id 对应图片 CDN 链接
+    IMAGE_URL_CACHE: TLRUDict[int, tuple[float, str]] = TLRUDict()
     #: 分享码 对应 接收码
     RECEIVE_CODE_MAP: dict[str, str] = {}
 
@@ -325,6 +333,31 @@ def make_application(
                 DOWNLOAD_URL_CACHE[(id, user_agent)] = (expire_ts, url)
         return url
 
+    async def image_get_url(
+        id: int, 
+        /, 
+        user_id: str = "", 
+        refresh: bool = False, 
+    ) -> str:
+        user_id, cookies = get_cookies(user_id)
+        if not refresh and (r := IMAGE_URL_CACHE.get(id)):
+            return r[1]
+        pickcode = await get_pickcode(id, user_id)
+        resp: dict = await urlopen(
+            "https://webapi.115.com/files/image", 
+            params={"pickcode": pickcode}, 
+            headers={"cookie": cookies}, 
+        )
+        if not resp["state"]:
+            raise FileNotFoundError(
+                errno.ENOENT, 
+                {"user_id": user_id, "id": id, "error": "not found"}, 
+            )
+        url = reduce_image_url_layers(resp["data"]["url"])
+        expire_ts = int(next(v for k, v in parse_qsl(urlsplit(url).query) if k == "t")) - 60
+        IMAGE_URL_CACHE[id] = (expire_ts, url)
+        return url
+
     async def share_get_url(
         file_id: int, 
         /, 
@@ -410,6 +443,7 @@ def make_application(
         size: int = -1, 
         cid: int = 0, 
         user_id: str = "", 
+        image: bool = False, 
         refresh: bool = False, 
         app: str = "", 
         sign: str = "", 
@@ -534,14 +568,21 @@ def make_application(
                     errno.ENOENT, 
                     f"not found: {str(request.url)!r}", 
                 )
-            user_agent = (request.get_first_header(b"user-agent") or b"").decode("latin-1")
-            url = await get_url(
-                id, 
-                user_agent=user_agent, 
-                user_id=user_id, 
-                refresh=refresh, 
-                app=app, 
-            )
+            if image:
+                url = await image_get_url(
+                    id, 
+                    user_id=user_id, 
+                    refresh=refresh, 
+                )
+            else:
+                user_agent = (request.get_first_header(b"user-agent") or b"").decode("latin-1")
+                url = await get_url(
+                    id, 
+                    user_agent=user_agent, 
+                    user_id=user_id, 
+                    refresh=refresh, 
+                    app=app, 
+                )
         return redirect(url)
 
     if PASSWORD:

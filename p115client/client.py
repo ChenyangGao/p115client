@@ -23339,7 +23339,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """上传一张图片，可用于作为头像
+        """上传一张图片，可用于作为头像（图片时效性很短，请尽快使用）
 
         POST https://ictxl.115.com/app/1.1/web/1.2/upload/set_avatar
 
@@ -23347,15 +23347,6 @@ class P115Client(P115OpenClient):
             此接口采用 multi-part 上传，其实是可以一次传多个文件的，但我做的封装只允许传一张图片。
 
             一次接口调用的上传流量，算上分片分隔符，大概是不能超过 32 MB，需要进一步测验。
-
-        .. note::
-            此接口可用来生成图床链接
-
-            .. code::
-
-                def upload_host_image(client, file):
-                    resp = client.upload_set_avatar(file)
-                    return resp["data"]["suc"][0]["url"].removesuffix("?x-oss-process=style/100")
 
         :param file: 待上传的文件
         :param app: 使用此设备的接口

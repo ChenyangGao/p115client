@@ -45,12 +45,13 @@ usage: p115tiny302 [-h] [-c COOKIES] [-cp COOKIES_PATH] [-t TOKEN] [-H HOST]
     │                                                                              │
     │                      license     https://www.gnu.org/licenses/gpl-3.0.txt    │
     │                                                                              │
-    │                      version     0.2.1                                       │
+    │                      version     0.2.3                                       │
     │                                                                              │
     ╰──────────────────────────────────────────────────────────────────────────────╯
 
 > 网盘文件支持用 id、pickcode、sha1、name 或 path 查询（此顺序即优先级从高到低）
 > 分享文件支持用 id、name 或 path 查询（此顺序即优先级从高到低）
+> 网盘文件指定 image=1 时，会获取图片的 CDN 链接
 > 支持参数 refresh，用于搜索 sha1、name 或 path 时忽略缓存（强制刷新）
 > 支持参数 size，用于搜索 sha1 或 name 时，要求文件大小等于此值
 > 支持参数 app，用于指定从此设备的接口获取下载链接

@@ -24,6 +24,7 @@ from orjson import dumps
 from posixpatht import normpath, joins
 from p115client import check_response, P115Client, P115ID, P115URL, P115OSError
 from p115client.tool import get_id_to_path, normalize_attr, share_get_id_to_path
+from p115client.util import reduce_image_url_layers
 from p115pickcode import is_valid_pickcode
 
 
@@ -58,6 +59,8 @@ def make_application(
     SHARE_NAME_TO_ID: LRUDict[tuple[str, str] | tuple[str, str, int], int] = LRUDict(maxsize=cache_size)
     #: (share_code, path) 对应 id
     SHARE_PATH_TO_ID: TTLDict[tuple[str, str], int] = TTLDict(maxsize=cache_size, ttl=3600)
+    #: id 对应图片 CDN 链接
+    IMAGE_URL_CACHE: TLRUDict[int, tuple[float, str]] = TLRUDict()
     if cache_url:
         #: (id, user_agent) 对应下载 url
         DOWNLOAD_URL_CACHE: TLRUDict[tuple[int, str], tuple[float, P115URL]] = TLRUDict(maxsize=cache_size)
@@ -252,12 +255,28 @@ def make_application(
         SHARE_PATH_TO_ID[key] = int(id)
         return id
 
+    async def image_get_url(
+        id: int, 
+        /, 
+        refresh: bool = False, 
+    ) -> str:
+        if not refresh and (r := IMAGE_URL_CACHE.get(id)):
+            return r[1]
+        pickcode = client.to_pickcode(id)
+        resp = await client.fs_image(pickcode, async_=True)
+        check_response(resp)
+        url = reduce_image_url_layers(resp["data"]["url"])
+        expire_ts = int(next(v for k, v in parse_qsl(urlsplit(url).query) if k == "t")) - 60
+        IMAGE_URL_CACHE[id] = (expire_ts, url)
+        return url
+
     async def get_downurl(
         id: int, 
         user_agent: str = "", 
         app: str = "", 
+        refresh: bool = False, 
     ) -> P115URL:
-        if (cache_url and (r := DOWNLOAD_URL_CACHE.get((id, user_agent)))
+        if not refresh and (cache_url and (r := DOWNLOAD_URL_CACHE.get((id, user_agent)))
             or (r := DOWNLOAD_URL_CACHE1.get(id))
             or (r := DOWNLOAD_URL_CACHE2.get((id, user_agent)))
         ):
@@ -283,8 +302,9 @@ def make_application(
         share_code: str, 
         receive_code: str = "", 
         app: str = "", 
+        refresh: bool = False, 
     ) -> P115URL:
-        if r := DOWNLOAD_URL_CACHE1.get((share_code, id)):
+        if not refresh and (r := DOWNLOAD_URL_CACHE1.get((share_code, id))):
             return r[1]
         payload = {"share_code": share_code, "receive_code": receive_code, "file_id": id}
         try:
@@ -325,6 +345,7 @@ def make_application(
         audio_track: int = -1, 
         definition: int = -1, 
         refresh: bool = False, 
+        image: bool = False, 
         app: str = "", 
         sign: str = "", 
         t: int = 0, 
@@ -398,7 +419,7 @@ def make_application(
                         )
             if not id:
                 raise FileNotFoundError(ENOENT, f"please specify id or name: share_code={share_code!r}")
-            url = await get_share_downurl(id, share_code, receive_code, app=app)
+            url = await get_share_downurl(id, share_code, receive_code, app=app, refresh=refresh)
         else:
             if id:
                 if resp := check_sign(id):
@@ -498,8 +519,12 @@ def make_application(
                     if not resp["data"]:
                         raise FileNotFoundError(ENOENT, {"id": id, "error": "not found"})
                     return json(normalize_attr(resp["data"][0]))
-            user_agent = (request.get_first_header(b"user-agent") or b"").decode("latin-1")
-            url = await get_downurl(id, user_agent, app=app)
+            if image:
+                url = await image_get_url(id, refresh=refresh)
+                return redirect(url)
+            else:
+                user_agent = (request.get_first_header(b"user-agent") or b"").decode("latin-1")
+                url = await get_downurl(id, user_agent, app=app, refresh=refresh)
         return Response(302, [
             (b"location", bytes(url, "utf-8")), 
             (b"content-Disposition", b'attachment; filename="%s"' % bytes(quote(url["name"], safe=""), "latin-1")), 

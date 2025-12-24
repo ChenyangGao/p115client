@@ -36,6 +36,7 @@ from p115pickcode import to_id
 from yarl import URL
 
 from ..client import check_response, P115Client, P115OpenClient
+from ..util import reduce_image_url_layers
 from .attr import normalize_attr_simple
 from .download import iter_download_files
 from .iterdir import iterdir, iter_files_with_path, unescape_115_charref
@@ -46,6 +47,7 @@ def upload_host_image(
     client: str | PathLike | P115Client, 
     file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
             SupportsRead | Iterable[Buffer] ), 
+    base_url: bool | str = False, 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -56,6 +58,7 @@ def upload_host_image(
     client: str | PathLike | P115Client, 
     file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
             SupportsRead | Iterable[Buffer] | AsyncIterable[Buffer] ), 
+    base_url: bool | str = False, 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -65,14 +68,21 @@ def upload_host_image(
     client: str | PathLike | P115Client, 
     file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
             SupportsRead | Iterable[Buffer] | AsyncIterable[Buffer] ), 
+    base_url: bool | str = False, 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
 ) -> str | Coroutine[str, Any, Any]:
-    """上传图片，可用来作为图床
+    """上传图片，然后可作为图床使用
 
     :param client: 115 网盘客户端对象
     :param file: 待上传的文件
+    :param base_url: 图片的基地址
+
+        - 如果为 False，上传到头像，获取一次性的图片链接，有效时间 1 小时
+        - 如果为 True，上传到 U_3_-15，获取一次性的图片链接，有效时间 1 小时（但可以得到 user_id、id 和 pickcode）
+        - 如果为 str，上传到 U_3_-15，，视为 302 代理，会把 user_id、id 和 pickcode 作为查询参数拼接到其后
+
     :param async_: 是否异步
     :param request_kwargs: 其余请求参数
 
@@ -81,13 +91,28 @@ def upload_host_image(
     if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
     def gen_step():
-        resp = yield client.upload_set_avatar(
+        if not base_url:
+            resp = yield client.upload_set_avatar(
+                file, # type: ignore
+                async_=async_, # type: ignore
+                **request_kwargs, 
+            )
+            check_response(resp)
+            return resp["data"]["suc"][0]["url"][:-3] + "0"
+        resp = yield client.upload_file_sample(
             file, # type: ignore
+            filename="1.jpg", 
+            pid="U_3_-15", 
             async_=async_, # type: ignore
             **request_kwargs, 
         )
         check_response(resp)
-        return resp["data"]["suc"][0]["url"].removesuffix("?x-oss-process=style/100")
+        data = resp["data"]
+        if isinstance(base_url, str):
+            url = base_url + "?&"["?" in base_url]
+        else:
+            url = reduce_image_url_layers(data["thumb_url"], 0) + "&"
+        return url + f"user_id={client.user_id}&id={data["file_id"]}&pickcode={data["pick_code"]}"
     return run_gen_step(gen_step, async_)
 
 

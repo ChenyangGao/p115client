@@ -11,11 +11,12 @@ __doc__ = """\
     │                                                                              │
     │                      \x1b[32mlicense     \x1b[4;34mhttps://www.gnu.org/licenses/gpl-3.0.txt\x1b[0m    │
     │                                                                              │
-    │                      \x1b[32mversion     \x1b[1;36m0.2.1\x1b[0m                                       │
+    │                      \x1b[32mversion     \x1b[1;36m0.2.3\x1b[0m                                       │
     │                                                                              │
     ╰──────────────────────────────────────────────────────────────────────────────╯
 
 > 网盘文件支持用 \x1b[3;36mid\x1b[0m、\x1b[3;36mpickcode\x1b[0m、\x1b[3;36msha1\x1b[0m、\x1b[3;36mname\x1b[0m 或 \x1b[3;36mpath\x1b[0m 查询（\x1b[1;3;31m此顺序即优先级从高到低\x1b[0m）
+> 分享文件支持用 \x1b[3;36mid\x1b[0m 或 \x1b[3;36mname\x1b[0m 查询
 > 分享文件支持用 \x1b[3;36mid\x1b[0m、\x1b[3;36mname\x1b[0m 或 \x1b[3;36mpath\x1b[0m 查询（\x1b[1;3;31m此顺序即优先级从高到低\x1b[0m）
 > 支持参数 \x1b[3;36mrefresh\x1b[0m，用于搜索 \x1b[3;36msha1\x1b[0m、\x1b[3;36mname\x1b[0m 或 \x1b[3;36mpath\x1b[0m 时忽略缓存（\x1b[1;3;31m强制刷新\x1b[0m）
 > 支持参数 \x1b[3;36msize\x1b[0m，用于搜索 \x1b[3;36msha1\x1b[0m 或 \x1b[3;36mname\x1b[0m 时，要求文件大小等于此值
