@@ -217,11 +217,14 @@ class P115RequestHandler(BaseRequestHandler):
         server_key = None, 
         tcp_server_class: type[BaseServer] = ThreadingTCPServer, 
     ):
+        if not server_key:
+            server_key = RSAKey.generate(1024)
         setattr(tcp_server_class, "allow_reuse_address", True)
         serv = tcp_server_class(
             (host, port), 
             partial(cls, client=client, readdir_ttl=readdir_ttl, server_key=server_key), 
         )
+        print(f"\x1b[1;5;36mSFTP\x1b[0m server running on \x1b[4;34msftp://{host}:{port}\x1b[m \x1b[1m(Press CTRL+C to quit)\x1b[0m")
         serv.serve_forever()
 
 

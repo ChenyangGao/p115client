@@ -5,8 +5,8 @@ from __future__ import annotations
 
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
 __all__ = [
-    "iter_115_to_115", "iter_115_to_115_resume", "upload_init", 
-    "P115MultipartUpload", 
+    "upload_host_image", "iter_115_to_115", "iter_115_to_115_resume", 
+    "upload_init", "P115MultipartUpload", 
 ]
 __doc__ = "这个模块提供了一些和上传有关的函数"
 
@@ -39,6 +39,56 @@ from ..client import check_response, P115Client, P115OpenClient
 from .attr import normalize_attr_simple
 from .download import iter_download_files
 from .iterdir import iterdir, iter_files_with_path, unescape_115_charref
+
+
+@overload
+def upload_host_image(
+    client: str | PathLike | P115Client, 
+    file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
+            SupportsRead | Iterable[Buffer] ), 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> str:
+    ...
+@overload
+def upload_host_image(
+    client: str | PathLike | P115Client, 
+    file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
+            SupportsRead | Iterable[Buffer] | AsyncIterable[Buffer] ), 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> Coroutine[str, Any, Any]:
+    ...
+def upload_host_image(
+    client: str | PathLike | P115Client, 
+    file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
+            SupportsRead | Iterable[Buffer] | AsyncIterable[Buffer] ), 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+) -> str | Coroutine[str, Any, Any]:
+    """上传图片，可用来作为图床
+
+    :param client: 115 网盘客户端对象
+    :param file: 待上传的文件
+    :param async_: 是否异步
+    :param request_kwargs: 其余请求参数
+
+    :return: 图片链接
+    """
+    if isinstance(client, (str, PathLike)):
+        client = P115Client(client, check_for_relogin=True)
+    def gen_step():
+        resp = yield client.upload_set_avatar(
+            file, # type: ignore
+            async_=async_, # type: ignore
+            **request_kwargs, 
+        )
+        check_response(resp)
+        return resp["data"]["suc"][0]["url"].removesuffix("?x-oss-process=style/100")
+    return run_gen_step(gen_step, async_)
 
 
 # TODO: 需要优化，减少代码量

@@ -1,13 +1,13 @@
 [tool.poetry]
-name = "p115sftp"
-version = "0.0.1.1"
-description = "Python 115 SFTP Server."
+name = "p115imghost"
+version = "0.0.1"
+description = "Using 115 for hosting image."
 authors = ["ChenyangGao <wosiwujm@gmail.com>"]
 license = "MIT"
 readme = "readme.md"
-homepage = "https://github.com/ChenyangGao/p115client/tree/main/modules/p115sftp"
-repository = "https://github.com/ChenyangGao/p115client/tree/main/modules/p115sftp"
-keywords = ["python", "115", "FTP"]
+homepage = "https://github.com/ChenyangGao/p115client/tree/main/modules/p115imghost"
+repository = "https://github.com/ChenyangGao/p115client/tree/main/modules/p115imghost"
+keywords = ["python-115", "webdav"]
 classifiers = [
     "License :: OSI Approved :: MIT License",
     "Development Status :: 5 - Production/Stable",
@@ -27,19 +27,14 @@ include = [
 
 [tool.poetry.dependencies]
 python = "^3.12"
-cachedict = ">=0.0.7"
-errno2 = ">=0.0.3"
-p115client = ">=0.0.8.2"
-python-decotools = ">=0.0.4"
-paramiko = "*"
-richlog_fs = ">=0.0.3"
+p115client = ">=0.0.8.3.1"
 
 [tool.poetry.scripts]
-p115sftp = "p115sftp.__main__:main"
+p115imghost = "p115imghost.__main__:main"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [[tool.poetry.packages]]
-include = "p115sftp"
+include = "p115imghost"

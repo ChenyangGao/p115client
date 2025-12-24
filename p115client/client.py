@@ -23303,6 +23303,74 @@ class P115Client(P115OpenClient):
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
+    def upload_set_avatar(
+        self, 
+        /, 
+        file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
+                SupportsRead | Iterable[Buffer] ), 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://ictxl.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def upload_set_avatar(
+        self, 
+        /, 
+        file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
+                SupportsRead | Iterable[Buffer] | AsyncIterable[Buffer] ), 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://ictxl.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def upload_set_avatar(
+        self, 
+        /, 
+        file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
+                SupportsRead | Iterable[Buffer] | AsyncIterable[Buffer] ), 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://ictxl.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """上传一张图片，可用于作为头像
+
+        POST https://ictxl.115.com/app/1.1/web/1.2/upload/set_avatar
+
+        .. attention::
+            此接口采用 multi-part 上传，其实是可以一次传多个文件的，但我做的封装只允许传一张图片。
+
+            一次接口调用的上传流量，算上分片分隔符，大概是不能超过 32 MB，需要进一步测验。
+
+        .. note::
+            此接口可用来生成图床链接
+
+            .. code::
+
+                def upload_host_image(client, file):
+                    resp = client.upload_set_avatar(file)
+                    return resp["data"]["suc"][0]["url"].removesuffix("?x-oss-process=style/100")
+
+        :param file: 待上传的文件
+        :param app: 使用此设备的接口
+        :param base_url: 接口的基地址
+        :param async_: 是否异步
+        :param request_kwargs: 其余请求参数
+
+        :return: 接口响应
+        """
+        api = complete_url(f"/app/1.1/{app}/1.2/upload/set_avatar", base_url=base_url)
+        if isinstance(file, str):
+            file = open(file, "rb")
+        return self.request(url=api, method="POST", files={"file": file}, async_=async_, **request_kwargs)
+
+    @overload
     def upload_sample_init(
         self, 
         payload: str | dict, 
@@ -23405,7 +23473,7 @@ class P115Client(P115OpenClient):
         else:
             target = f"U_1_{pid}"
         payload = {"filename": filename or str(uuid4()), "path": dirname, "target": target}
-        return self.upload_sample_init(payload, async_=async_, **request_kwargs)
+        return self.upload_sample_init(payload, async_=async_, base_url=base_url, **request_kwargs)
 
     @overload # type: ignore
     def upload_gettoken(
@@ -23636,7 +23704,7 @@ class P115Client(P115OpenClient):
 
         .. note::
             通过 `pid`，支持随意指定上传目标。特别是当格式为 f"U_{aid}_{pid}"，允许其中的 `aid != 1` 和 `pid < 0`（可能有特殊指代）。
-            例如把封面上传到 "U_3_-15"（等同于 `pid="U_15_0"`），把文档上传到 "U_3_-24"（等同于 `pid="U_1_0"` 且 `dirname="手机备份/文档备份"`）。
+            例如把封面上传到 `"U_3_-15"`（等同于 `pid="U_15_0"`），把文档上传到 `"U_3_-24"`（等同于 `pid="U_1_0"` 且 `dirname="手机备份/文档备份"`）。
 
         :param file: 待上传的文件
         :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 f"U_{aid}_{pid}"）

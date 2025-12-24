@@ -2399,7 +2399,7 @@ class P115FileSystemBase[P115PathType: P115PathBase](ABC):
                 **request_kwargs, 
             )
             pid = attr["parent_id"]
-            pancestors: None | list[dict] = None
+            pancestors: None | list[AncestorDict] = None
             if not refresh:
                 try:
                     pancestors = self.id_to_dirnode.get_ancestors(pid)
@@ -2412,7 +2412,7 @@ class P115FileSystemBase[P115PathType: P115PathBase](ABC):
                     async_=async_, 
                     **request_kwargs, 
                 )
-                pancestors = cast(list[dict], pancestors)
+                pancestors = cast(list[AncestorDict], pancestors)
             pancestors.append({"id": attr["id"], "parent_id": pid, "name": attr["name"]})
             return pancestors
         return run_gen_step(gen_step, async_)
