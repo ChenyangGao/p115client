@@ -37,7 +37,7 @@ from warnings import warn
 from argtools import argcount
 from asynctools import ensure_async
 from cookietools import cookies_to_dict, update_cookies
-from dicttools import get_first, dict_update, dict_key_to_lower_merge, KeyLowerDict
+from dicttools import get_first, dict_update, dict_key_to_lower_merge, iter_items, KeyLowerDict
 from errno2 import errno
 from filewrap import SupportsRead
 from http_request import complete_url as make_url, SupportsGeturl
@@ -85,6 +85,35 @@ _default_k_ec = {"k_ec": ecdh_encode_token(0).decode()}
 _default_code_verifier = "0" * 64
 _default_code_challenge = b64encode(md5(b"0" * 64).digest()).decode()
 _default_code_challenge_method = "md5"
+
+
+def expand_payload(
+    payload: dict[str, Any] | Iterable[tuple[str, Any]], 
+    prefix: str = "", 
+    enum_seq: bool | int = False, 
+    seq_types: type | tuple[type, ...] = (tuple, list), 
+    map_types: type | tuple[type, ...] = dict, 
+) -> Iterable[tuple[str, Any]]:
+    if prefix:
+        prefix = f"{prefix}["
+    for k, v in iter_items(payload):
+        if prefix and not k.startswith(prefix):
+            k = f"{prefix}{k}]"
+        if isinstance(v, seq_types):
+            if isinstance(enum_seq, bool):
+                if enum_seq:
+                    enum_seq = 0
+                else:
+                    for v2 in v:
+                        yield from expand_payload(v2, f"{k}[]")
+                    continue
+                for i, v2 in enumerate(v, enum_seq):
+                    yield from expand_payload(v2, f"{k}[{i}]")
+        elif isinstance(v, map_types):
+            for k2, v2 in iter_items(v):
+                yield from expand_payload(v2, f"{k}[{k2}]")
+        else:
+            yield k, v
 
 
 def json_loads(content: Buffer, /):
@@ -3001,7 +3030,7 @@ class P115OpenClient(ClientRequestMixin):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """设置文件或目录（备注、标签等）
+        """设置文件或目录（备注、标签、封面等）
 
         POST https://proapi.115.com/open/ufile/update
 
@@ -6363,6 +6392,631 @@ class P115Client(P115OpenClient):
             )
         return run_gen_step(gen_step, async_)
 
+    ########## Diary API ##########
+
+    @overload
+    def diary_add(
+        self, 
+        payload: str | dict | list, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def diary_add(
+        self, 
+        payload: str | dict | list, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def diary_add(
+        self, 
+        payload: str | dict | list, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """新建日记
+
+        POST https://life.115.com/api/1.0/web/1.0/diary/add
+
+        :payload:
+            - form[content]: str 💡 内容
+            - form[subject]: int | str = <default> 💡 标题
+            - form[user_time]: int | float = <default> 💡 时间戳，单位是秒
+            - form[weather]: int = <default> 💡 天气
+            - form[mood]: int = <default> 💡 心情
+            - form[moods]: int | str = <default> 💡 心情，多个用逗号 "," 隔开
+            - form[tags][]: str = <default> 💡 标签
+            - ...
+            - form[tags][0]: str = <default> 💡 标签
+            - ...
+            - form[index_image] = <default> 💡 封面图片链接
+            - form[address]: str = <default>           💡 地点
+            - form[location]: str = <default>          💡 地名
+            - form[longitude]: float | str = <default> 💡 经度
+            - form[latitude]: float | str = <default>  💡 纬度
+            - form[mid]: str = <default>               💡 位置编码
+            - form[maps]: list[dict] = <default>       💡 多个地图位置
+            - form[maps][0][address]: str = <default>
+            - form[maps][0][location]: str = <default>
+            - form[maps][0][latitude]: float | str = <default>
+            - form[maps][0][longitude] float | str = <default>
+            - form[maps][0][mid]: str = <default>
+            - ...
+        """
+        api = complete_url(f"/api/1.0/{app}/1.0/diary/add", base_url)
+        now = int(time())
+        if isinstance(payload, str):
+            payload = {"form[content]": payload, "form[user_time]": now}
+        elif isinstance(payload, dict):
+            payload = dict(expand_payload(payload, prefix="form", enum_seq=True))
+            payload.setdefault("form[user_time]", now)
+        elif isinstance(payload, list):
+            payload = [("form[user_time]", now), *expand_payload(payload, prefix="form")]
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def diary_del(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def diary_del(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def diary_del(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """删除日记
+
+        POST https://life.115.com/api/1.0/web/1.0/diary/delete
+
+        :payload:
+            - diary_id: int | str 💡 日记 id
+        """
+        api = complete_url(f"/api/1.0/{app}/1.0/diary/delete", base_url)
+        if isinstance(payload, (int, str)):
+            payload = {"diary_id": payload}
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def diary_detail(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def diary_detail(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def diary_detail(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取日记详情
+
+        GET https://life.115.com/api/1.0/web/1.0/diary/detail
+
+        :payload:
+            - diary_id: int | str 💡 日记 id
+            - format: str = html
+        """
+        api = complete_url(f"/api/1.0/{app}/1.0/diary/detail", base_url)
+        if isinstance(payload, (int, str)):
+            payload = {"diary_id": payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def diary_detail2(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def diary_detail2(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def diary_detail2(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取日记详情
+
+        GET https://life.115.com/api/1.0/web/1.0/life/diarydetail
+
+        :payload:
+            - diary_id: int | str 💡 日记 id
+            - format: str = html
+        """
+        api = complete_url(f"/api/1.0/{app}/1.0/life/diarydetail", base_url)
+        if isinstance(payload, (int, str)):
+            payload = {"diary_id": payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def diary_edit(
+        self, 
+        payload: dict | list, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def diary_edit(
+        self, 
+        payload: dict | list, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def diary_edit(
+        self, 
+        payload: dict | list, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """修改日记
+
+        POST https://life.115.com/api/1.0/web/1.0/diary/edit
+
+        :payload:
+            - form[diary_id]: str 💡 日记 id
+            - form[content]: str = <default> 💡 内容
+            - form[subject]: int | str = <default> 💡 标题
+            - form[user_time]: int | float = <default> 💡 时间戳，单位是秒
+            - form[weather]: int = <default> 💡 天气
+            - form[mood]: int = <default> 💡 心情
+            - form[moods]: int | str = <default> 💡 心情，多个用逗号 "," 隔开
+            - form[tags][]: str = <default> 💡 标签
+            - ...
+            - form[tags][0]: str = <default> 💡 标签
+            - ...
+            - form[index_image] = <default> 💡 封面图片链接
+            - form[address]: str = <default>           💡 地点
+            - form[location]: str = <default>          💡 地名
+            - form[longitude]: float | str = <default> 💡 经度
+            - form[latitude]: float | str = <default>  💡 纬度
+            - form[mid]: str = <default>               💡 位置编码
+            - form[maps]: list[dict] = <default>       💡 多个地图位置
+            - form[maps][0][address]: str = <default>
+            - form[maps][0][location]: str = <default>
+            - form[maps][0][latitude]: float | str = <default>
+            - form[maps][0][longitude] float | str = <default>
+            - form[maps][0][mid]: str = <default>
+            - ...
+        """
+        api = complete_url(f"/api/1.0/{app}/1.0/diary/edit", base_url)
+        if isinstance(payload, dict):
+            payload = dict(expand_payload(payload, prefix="form", enum_seq=True))
+        elif isinstance(payload, list):
+            payload = list(expand_payload(payload, prefix="form"))
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def diary_get_config(
+        self, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def diary_get_config(
+        self, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def diary_get_config(
+        self, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取日记可选项（例如天气、心情等）的取值集合
+
+        GET https://life.115.com/api/1.0/web/1.0/diary/get_diary_config
+        """
+        api = complete_url(f"/api/1.0/{app}/1.0/diary/get_diary_config", base_url)
+        return self.request(url=api, async_=async_, **request_kwargs)
+
+    @overload
+    def diary_get_latest_tags(
+        self, 
+        payload: int | str | dict = {}, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def diary_get_latest_tags(
+        self, 
+        payload: int | str | dict = {}, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def diary_get_latest_tags(
+        self, 
+        payload: int | str | dict = {}, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取最近使用过的标签列表
+
+        GET https://life.115.com/api/1.0/web/1.0/diary/getlatesttags
+
+        :payload:
+            - q: str = "" 💡 筛选关键词
+            - color: 0 | 1 = <default>
+            - limit: int = <default> 💡 最多返回数量，⚠️ 这个参数似乎无效
+        """
+        api = complete_url(f"/api/1.0/{app}/1.0/diary/getlatesttags", base_url)
+        if isinstance(payload, int):
+            payload = {"limit": payload}
+        elif isinstance(payload, str):
+            payload = {"q": payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def diary_get_tag_color(
+        self, 
+        payload: str | list | tuple | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def diary_get_tag_color(
+        self, 
+        payload: str | list | tuple | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def diary_get_tag_color(
+        self, 
+        payload: str | list | tuple | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取标签的颜色
+
+        POST https://life.115.com/api/1.0/web/1.0/diary/gettagcolor
+
+        :payload:
+            - tags: str 💡 标签文本
+            - tags[]: str
+            - ...
+            - tags[0]: str
+            - tags[1]: str
+            - ...
+        """
+        api = complete_url(f"/api/1.0/{app}/1.0/diary/gettagcolor", base_url)
+        if not isinstance(payload, dict):
+            if isinstance(payload, (list, tuple)):
+                payload = [t if isinstance(t, (list, tuple)) else ("tags[]", str(t)) for t in payload]
+            else:
+                payload = {"tags": str(payload)}
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def diary_list(
+        self, 
+        payload: int | dict = 0, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def diary_list(
+        self, 
+        payload: int | dict = 0, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def diary_list(
+        self, 
+        payload: int | dict = 0, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取日记列表，此接口是对 `life_glist` 的封装
+
+        :payload:
+            - start: int = 0 💡 开始索引，从 0 开始
+            - limit: int = <default> 💡 分页大小
+            - only_public: 0 | 1 = <default>
+            - msg_note: 0 | 1 = <default>
+            - option: 0 | 1 = <default>
+        """
+        if isinstance(payload, int):
+            payload = {"start": payload}
+        else:
+            payload = dict(payload)
+        payload.setdefault("type", 5)
+        return self.life_glist(payload, app=app, base_url=base_url, async_=async_, **request_kwargs)
+
+    @overload
+    def diary_search(
+        self, 
+        payload: str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def diary_search(
+        self, 
+        payload: str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def diary_search(
+        self, 
+        payload: str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """搜索日记
+
+        GET https://life.115.com/api/1.0/web/1.0/diary/search
+
+        :payload:
+            - q: str 💡 关键词
+            - start: int = 0 💡 开始索引，从 0 开始
+            - limit: int = <default> 💡 分页大小
+            - display_list: 0 | 1 = <default>
+        """
+        api = complete_url(f"/api/1.0/{app}/1.0/diary/search", base_url)
+        if isinstance(payload, str):
+            payload = {"q": payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def diary_settag(
+        self, 
+        payload: dict | list, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def diary_settag(
+        self, 
+        payload: dict | list, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def diary_settag(
+        self, 
+        payload: dict | list, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """设置日记标签
+
+        POST https://life.115.com/api/1.0/web/1.0/diary/settag
+
+        :payload:
+            - diary_id: int | str 💡 日记 id
+            - tags: str
+            - tags[]: str
+            - ...
+            - tags[0]: str
+            - tags[1]: str
+            - ...
+        """
+        api = complete_url(f"/api/1.0/{app}/1.0/diary/settag", base_url)
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def diary_settop(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def diary_settop(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def diary_settop(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """切换日记的置顶状态，此接口是对 `life_set_top` 的封装
+
+        .. attention::
+            这个接口会自动切换日记的置顶状态，但不支持手动指定是否置顶，只是在置顶和不置顶间来回切换。
+
+        :payload:
+            - relation_id: int | str 💡 日记 id
+        """
+        if isinstance(payload, (int, str)):
+            payload = {"relation_id": payload}
+        payload.setdefault("type", 5)
+        return self.life_set_top(payload, app=app, base_url=base_url, async_=async_, **request_kwargs)
+
     ########## Download API ##########
 
     @overload
@@ -6570,7 +7224,25 @@ class P115Client(P115OpenClient):
         :return: 下载链接
         """
         def gen_step():
-            if app in ("web", "desktop", "harmony"):
+            if app == "web2":
+                resp = yield self.download_url_web2(
+                    pickcode, 
+                    user_agent=user_agent, 
+                    async_=async_, 
+                    **request_kwargs, 
+                )
+                resp["pickcode"] = pickcode
+                check_response(resp)
+                url = resp["url"]
+                return P115URL(
+                    url, 
+                    id=self.to_id(pickcode), 
+                    pickcode=pickcode, 
+                    name=unquote(urlsplit(url).path.rsplit("/", 1)[-1]), 
+                    is_dir=False, 
+                    headers=resp["headers"], 
+                )
+            elif app in ("web", "desktop", "harmony"):
                 resp = yield self.download_url_web(
                     pickcode, 
                     user_agent=user_agent, 
@@ -6869,6 +7541,78 @@ class P115Client(P115OpenClient):
             json["headers"] = headers
             return json
         request_kwargs.setdefault("parse", parse)
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def download_url_web2(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://115.com", 
+        user_agent: None | str = None, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def download_url_web2(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://115.com", 
+        user_agent: None | str = None, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def download_url_web2(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://115.com", 
+        user_agent: None | str = None, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取文件的下载链接（网页版接口）
+
+        GET https://115.com/?ct=download&ac=video
+
+        .. note::
+            最大允许下载 200 MB 的文件，即使文件已被删除，也可以正常下载
+
+        :payload:
+            - pickcode: str
+        """
+        api = complete_url(base_url=base_url, query={"ct": "download", "ac": "video"})
+        if isinstance(payload, str):
+            payload = {"pickcode": payload}
+        headers = request_kwargs["headers"] = dict(request_kwargs.get("headers") or ())
+        if user_agent is None:
+            headers.setdefault("user-agent", "")
+        else:
+            headers["user-agent"] = user_agent
+        def parse(resp, _: bytes, /) -> dict:
+            if resp.status != 302:
+                return {"state": False, "response": {"status": resp.status, "headers": dict(resp.headers)}}
+            json = {"state": True, "url": resp.headers["location"]}
+            if "Set-Cookie" in resp.headers:
+                if isinstance(resp.headers, Mapping):
+                    match = CRE_SET_COOKIE.search(resp.headers["Set-Cookie"])
+                    if match is not None:
+                        headers["Cookie"] = match[0]
+                else:
+                    for k, v in reversed(resp.headers.items()):
+                        if k == "Set-Cookie" and CRE_SET_COOKIE.match(v) is not None:
+                            headers["Cookie"] = v
+                            break
+            json["headers"] = headers
+            return json
+        request_kwargs.setdefault("parse", parse)
+        request_kwargs.setdefault("follow_redirects", False)
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     ########## Extraction API ##########
@@ -8193,6 +8937,7 @@ class P115Client(P115OpenClient):
         :payload:
             - cid: int | str
             - aid: int | str = 1 💡 area_id。1:正常文件 7:回收站文件 12:瞬间文件 120:彻底删除文件、简历附件
+            - status: 0 | 1 = <default>
         """
         api = complete_url("/category/get", base_url=base_url)
         if isinstance(payload, (int, str)):
@@ -9090,7 +9835,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """设置文件或目录（备注、标签等）
+        """设置文件或目录（备注、标签、封面等）
 
         POST https://webapi.115.com/files/edit
 
@@ -9100,7 +9845,7 @@ class P115Client(P115OpenClient):
             - ...
             - file_desc: str = <default> 💡 可以用 html
             - file_label: int | str = <default> 💡 标签 id，多个用逗号 "," 隔开
-            - fid_cover: int | str = <default> 💡 封面图片的文件 id，多个用逗号 "," 隔开，如果要删除，值设为 0 即可
+            - fid_cover: int | str = <default>  💡 封面图片的文件 id，多个用逗号 "," 隔开，如果要删除，值设为 0 即可
             - show_play_long: 0 | 1 = <default> 💡 文件名称显示时长
             - ...
         """
@@ -9144,7 +9889,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """批量设置文件或目录（备注、标签等），此接口是对 `fs_edit` 的封装
+        """批量设置文件或目录（备注、标签、封面等），此接口是对 `fs_edit` 的封装
         """
         if isinstance(payload, (int, str)):
             payload = [("fid", payload), (attr, default)]
@@ -9198,7 +9943,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """批量设置文件或目录（备注、标签等），此接口是对 `fs_files_update_app` 的封装
+        """批量设置文件或目录（备注、标签、封面等），此接口是对 `fs_files_update_app` 的封装
         """
         if isinstance(payload, (int, str)):
             payload = [("file_id", payload), (attr, default)]
@@ -10085,6 +10830,95 @@ class P115Client(P115OpenClient):
         if isinstance(payload, str):
             payload = {"file_name": payload}
         payload = {"pid": 0, "type": 1, **payload}
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def fs_files_cover(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def fs_files_cover(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def fs_files_cover(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """查看是否有封面
+
+        GET https://webapi.115.com/files/cover
+
+        :payload:
+            - file_id: int | str 💡 文件或目录 id
+            - folder_as_file: 0 | 1 = <default>
+        """
+        api = complete_url("/files/cover", base_url=base_url)
+        if isinstance(payload, (int, str)):
+            payload = {"file_id": payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def fs_files_cover_set(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def fs_files_cover_set(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def fs_files_cover_set(
+        self, 
+        payload: int | str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """是否生成封面
+
+        POST https://webapi.115.com/files/cover
+
+        :payload:
+            - file_id: int | str 💡 文件或目录 id
+            - show: 0 | 1 = 1
+        """
+        api = complete_url("/files/cover", base_url=base_url)
+        if isinstance(payload, (int, str)):
+            payload = {"file_id": payload}
+        payload.setdefault("show", 1)
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -15648,6 +16482,130 @@ class P115Client(P115OpenClient):
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
+    def life_cdlist(
+        self, 
+        payload: int | dict = {}, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def life_cdlist(
+        self, 
+        payload: int | dict = {}, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def life_cdlist(
+        self, 
+        payload: int | dict = {}, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取节假日等
+
+        GET https://life.115.com/api/1.0/web/1.0/life/cdlist
+
+        :payload:
+            - start_time: int = <default>    💡 开始时间戳，单位是秒，默认为当年第一天零点
+            - end_time: int = <default>      💡 开始时间戳，单位是秒，默认为次年第一天零点前一秒
+            - holiday: 0 | 1 = <default>     💡 是否显示节假日
+            - only_public: 0 | 1 = <default>
+        """
+        api = complete_url(f"/api/1.0/{app}/1.0/life/cdlist", base_url)
+        if isinstance(payload, int):
+            payload = {"end_time": payload}
+        else:
+            payload = dict(payload)
+        if "start_time" not in payload:
+            this_year = date.today().year
+            payload["start_time"] = int(datetime(this_year, 1, 1).timestamp())
+        if "end_time" not in payload:
+            this_year = datetime.fromtimestamp(int(payload["start_time"])).year
+            payload["end_time"] = int(datetime(this_year + 1, 1, 1).timestamp()) - 1
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def life_get_pic_url(
+        self, 
+        payload: str | tuple[str, ...] | dict | list, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def life_get_pic_url(
+        self, 
+        payload: str | tuple[str, ...] | dict | list, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def life_get_pic_url(
+        self, 
+        payload: str | tuple[str, ...] | dict | list, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """批量获取图片的预览图链接
+
+        POST https://life.115.com/api/1.0/web/1.0/imgload/get_pic_url
+
+        .. hint::
+            这个接口获取的链接似乎长久有效，而且支持任何文件（只要有人上传过），但限制文件大小在 50 MB 以内
+
+        :payload:
+            - rs: str 💡 图片的 sha1 或者 f"{oss_bucket}_{oss_object}"（由 `upload_file_image` 接口的响应获得）
+            - rs[]: str
+            - ...
+            - rs[0]: str
+            - rs[1]: str
+            - ...
+            - module: int = <default>
+            - file_names[]: str = <default>
+            - ...
+            - type[]: int = <default>
+            - ...
+        """
+        api = complete_url(f"/api/1.0/{app}/1.0/imgload/get_pic_url", base_url=base_url)
+        if isinstance(payload, str):
+            payload = {"rs": payload}
+        elif not isinstance(payload, tuple):
+            payload = [("rs[]", s) for s in payload]
+        return self.request(
+            url=api, 
+            method="POST", 
+            data=payload, 
+            async_=async_, 
+            **request_kwargs, 
+        )
+
+    @overload
     def life_clear_history(
         self, 
         payload: int | dict = 0, 
@@ -15692,6 +16650,68 @@ class P115Client(P115OpenClient):
         if isinstance(payload, int):
             payload = {"tab_type": 0}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def life_glist(
+        self, 
+        payload: int | dict = 0, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def life_glist(
+        self, 
+        payload: int | dict = 0, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def life_glist(
+        self, 
+        payload: int | dict = 0, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取备忘（记录/笔记/记事）、日记或日程的列表
+
+        GET https://life.115.com/api/1.0/web/1.0/life/glist
+
+        .. note::
+            返回数据列表中，每一条都有个 `"type"` 字段，这个和请求参数里面的 `"type"` 含义并不同
+
+            - 2: 备忘
+            - 3: 日程
+            - 4: 瞬间
+            - 5: 日记
+
+        :payload:
+            - start: int = 0 💡 开始索引，从 0 开始
+            - limit: int = <default> 💡 分页大小
+            - type: int = 8 💡 分类：1,6:瞬间 2:日记+日程 3:备忘 4,7:瞬间+备忘 5:日记 8:所有（日记+备忘+日程）
+            - only_public: 0 | 1 = <default>
+            - msg_note: 0 | 1 = <default>
+            - option: 0 | 1 = <default>
+        """
+        api = complete_url(f"/api/1.0/{app}/1.0/life/glist", base_url)
+        if isinstance(payload, int):
+            payload = {"start": payload}
+        else:
+            payload = dict(payload)
+        payload.setdefault("type", 8)
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
     def life_has_data(
@@ -16069,6 +17089,54 @@ class P115Client(P115OpenClient):
         if isinstance(payload, int):
             payload = {"start": payload}
         payload.setdefault("limit", 1000)
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def life_set_top(
+        self, 
+        payload: dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def life_set_top(
+        self, 
+        payload: dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def life_set_top(
+        self, 
+        payload: dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://life.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """切换备忘（记录/笔记/记事）、日记或日程的置顶状态
+
+        GET https://life.115.com/api/1.0/web/1.0/life/set_top
+
+        .. attention::
+            这个接口会自动切换记录的置顶状态，但不支持手动指定是否置顶，只是在置顶和不置顶间来回切换。
+
+        :payload:
+            - relation_id: int | str 💡 备忘、日程或日记的 id
+            - type: int 💡 分类：2:备忘 3:日程 4:瞬间 5:日记
+        """
+        api = complete_url(f"/api/1.0/{app}/1.0/life/set_top", base_url)
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     ########## Login API ##########
@@ -18076,6 +19144,7 @@ class P115Client(P115OpenClient):
         :payload:
             - has_picknews: 0 | 1 = 1 💡 是否显示 id 为负数的分类
             - is_all: 0 | 1 = <default> 💡 是否显示全部
+            - has_msg: 0 | 1 = <default>
         """
         api = complete_url("/api/2.0/api.php", base_url=base_url, query={"ac": "get_category"})
         if isinstance(payload, bool):
@@ -18128,6 +19197,51 @@ class P115Client(P115OpenClient):
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
+    def note_del2(
+        self, 
+        payload: int | str | Iterable[int | str] | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def note_del2(
+        self, 
+        payload: int | str | Iterable[int | str] | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def note_del2(
+        self, 
+        payload: int | str | Iterable[int | str] | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """删除记录
+
+        POST https://note.115.com/api/2.0/api.php?ac=note_delete
+
+        :payload:
+            - nid: int | str 💡 记录 id，多个用逗号 "," 隔开
+        """
+        api = complete_url("/api/2.0/api.php", base_url=base_url, query={"ac": "note_delete"})
+        if isinstance(payload, (int, str)):
+            payload = {"nid": payload}
+        elif not isinstance(payload, dict):
+            payload = {"nid": ",".join(map(str, payload))}
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
     def note_detail(
         self, 
         payload: int | dict, 
@@ -18158,7 +19272,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """获取记录（笔记）数据
+        """获取备忘（记录/笔记/记事）数据
 
         GET https://note.115.com/?ct=note&ac=detail
 
@@ -18201,7 +19315,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """获取记录（笔记）数据
+        """获取备忘（记录/笔记/记事）数据
 
         GET https://note.115.com/api/2.0/api.php?ac=note_detail
 
@@ -18215,6 +19329,52 @@ class P115Client(P115OpenClient):
         if isinstance(payload, int):
             payload = {"nid": payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def note_edit_attaches(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def note_edit_attaches(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def note_edit_attaches(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """给记录修改附件
+
+        POST https://note.115.com/?ct=note&ac=edit_attaches
+
+        .. attention::
+            每个附件的大小必须控制在 200 MB 以内，这也是网页版所允许的单次下载的最大文件
+
+        :payload:
+            - nid: int 💡 记录 id
+            - pickcodes: str 💡 附件的提取码，多个用逗号 "," 隔开
+            - op: "add" | "del" | "save" = "add" 💡 操作类型："add":添加 "del":去除 "save":置换
+        """
+        api = complete_url(base_url=base_url, query={"ct": "note", "ac": "edit_attaches"})
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
     def note_fav_list(
@@ -18247,7 +19407,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """获取星标记录（笔记）列表
+        """获取星标备忘（记录/笔记/记事）列表
 
         GET https://note.115.com/?ct=note&ac=get_fav_note_list
 
@@ -18305,6 +19465,134 @@ class P115Client(P115OpenClient):
             payload = {"note_id": payload}
         payload.setdefault("op", "add")
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def note_get_pic_url(
+        self, 
+        payload: str | tuple[str, ...] | dict | list, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def note_get_pic_url(
+        self, 
+        payload: str | tuple[str, ...] | dict | list, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def note_get_pic_url(
+        self, 
+        payload: str | tuple[str, ...] | dict | list, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """批量获取图片的预览图链接
+
+        POST https://note.115.com?ct=note&ac=get_pic_url
+
+        .. hint::
+            这个接口获取的链接似乎长久有效，而且支持任何文件（只要有人上传过），但限制文件大小在 50 MB 以内
+
+        :payload:
+            - rs: str 💡 图片的 sha1 或者 f"{oss_bucket}_{oss_object}"（由 `upload_file_image` 接口的响应获得）
+            - rs[]: str
+            - ...
+            - rs[0]: str
+            - rs[1]: str
+            - ...
+            - module: int = <default>
+            - file_names[]: str = <default>
+            - ...
+            - type[]: int = <default>
+            - ...
+        """
+        api = complete_url(base_url=base_url, query={"ct": "note", "ac": "get_pic_url"})
+        if isinstance(payload, str):
+            payload = {"rs": payload}
+        elif not isinstance(payload, tuple):
+            payload = [("rs[]", s) for s in payload]
+        return self.request(
+            url=api, 
+            method="POST", 
+            data=payload, 
+            async_=async_, 
+            **request_kwargs, 
+        )
+
+    @overload
+    def note_get_pic_url2(
+        self, 
+        payload: str | tuple[str, ...] | dict | list, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def note_get_pic_url2(
+        self, 
+        payload: str | tuple[str, ...] | dict | list, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def note_get_pic_url2(
+        self, 
+        payload: str | tuple[str, ...] | dict | list, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """批量获取图片的预览图链接
+
+        POST https://note.115.com/api/2.0/api.php?ac=get_pic_url
+
+        .. hint::
+            这个接口获取的链接似乎长久有效，而且支持任何文件（只要有人上传过），但限制文件大小在 50 MB 以内
+
+        :payload:
+            - rs: str 💡 图片的 sha1 或者 f"{oss_bucket}_{oss_object}"（由 `upload_file_image` 接口的响应获得）
+            - rs[]: str
+            - ...
+            - rs[0]: str
+            - rs[1]: str
+            - ...
+            - module: int = <default>
+            - file_names[]: str = <default>
+            - ...
+            - type[]: int = <default>
+            - ...
+        """
+        api = complete_url("/api/2.0/api.php", base_url=base_url, query={"ac": "get_pic_url"})
+        if isinstance(payload, str):
+            payload = {"rs": payload}
+        elif not isinstance(payload, tuple):
+            payload = [("rs[]", s) for s in payload]
+        return self.request(
+            url=api, 
+            method="POST", 
+            data=payload, 
+            async_=async_, 
+            **request_kwargs, 
+        )
 
     @overload
     def note_is_fav(
@@ -18388,7 +19676,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """获取记录（笔记）列表
+        """获取备忘（记录/笔记/记事）列表
 
         GET https://note.115.com/?ct=note
 
@@ -18405,6 +19693,54 @@ class P115Client(P115OpenClient):
         if isinstance(payload, int):
             payload = {"start": payload}
         payload = {"ac": "all", "cid": 0, "has_picknews": 1, "page_size": 1150, "start": 0, **payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def note_list2(
+        self, 
+        payload: int | dict = 0, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def note_list2(
+        self, 
+        payload: int | dict = 0, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def note_list2(
+        self, 
+        payload: int | dict = 0, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取备忘（记录/笔记/记事）列表
+
+        GET https://note.115.com/api/2.0/api.php?ac=note_list
+
+        :payload:
+            - start: int = 0    💡 开始索引，从 0 开始
+            - limit: int = 1150 💡 分页大小
+            - cid: int = 0      💡 分类 id：0:全部 -10:云收藏 -15:消息备忘
+            - only_public: 0 | 1 = <default>
+            - msg_note: 0 | 1 = <default>
+        """
+        api = complete_url("/api/2.0/api.php", base_url=base_url, query={"ac": "note_list"})
+        if isinstance(payload, int):
+            payload = {"start": payload}
+        payload = {"cid": 0, "has_picknews": 1, "page_size": 1150, "start": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -18438,26 +19774,80 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """保存记录（笔记）
+        """保存备忘（记录/笔记/记事）
 
         POST https://note.115.com/?ct=note&ac=save
 
         :payload:
-            - content: str         💡 记录的文本，最多 50000 个字符
-            - cid: int = 0         💡 分类 id
-            - is_html: 0 | 1 = 0   💡 是否 HTML，如果为 1，则会自动加上标签（例如 <p>），以使内容成为合法的 HTML
-            - nid: int = <default> 💡 记录 id，如果提供就是更新，否则就是新建
-            - pickcodes: str = <default>
-            - subject: str = <default> 💡 标题，最多 927 个字节，可以为空
+            - nid: int = <default>       💡 记录 id，如果提供就是更新，否则就是新建
+            - content: str = <default>   💡 记录的文本，最多 50000 个字符
+            - title: str = <default>     💡 标题，最多 927 个字节，可以为空
+            - cid: int = 0               💡 分类 id
+            - is_html: 0 | 1 = 0         💡 是否 HTML，如果为 1，则会自动加上标签（例如 <p>），以使内容成为合法的 HTML
+            - pickcodes: str = <default> 💡 附件的提取码，多个用逗号 "," 隔开
+            - tags: str = <default>      💡 标签文本
+            - tags[]: str = <default>    💡 标签文本（多个用 "[]" 后缀）
+            - ...
+            - tags[0]: str = <default>   💡 标签文本（多个用 "[0]","[1]",... 后缀）
+            - tags[1]: str = <default>   💡 标签文本
+            - ...
             - toc_ids: int | str = <default>
-            - tags: str = <default>    💡 标签文本
-            - tags[]: str = <default>  💡 标签文本（多个用 "[]" 后缀）
-            - ...
-            - tags[0]: str = <default> 💡 标签文本（多个用 "[0]","[1]",... 后缀）
-            - tags[1]: str = <default> 💡 标签文本
-            - ...
         """
         api = complete_url(base_url=base_url, query={"ct": "note", "ac": "save"})
+        if isinstance(payload, str):
+            payload = {"content": payload}
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def note_save2(
+        self, 
+        payload: str | dict | list, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def note_save2(
+        self, 
+        payload: str | dict | list, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def note_save2(
+        self, 
+        payload: str | dict | list, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """编辑备忘（记录/笔记/记事）
+
+        POST https://note.115.com/api/2.0/api.php?ac=note_edit
+
+        :payload:
+            - nid: int = <default>       💡 记录 id，如果提供就是更新，否则就是新建
+            - content: str = <default>   💡 记录的文本，最多 50000 个字符
+            - title: str = <default>     💡 标题，最多 927 个字节，可以为空
+            - cid: int = <default>       💡 分类 id
+            - is_html: 0 | 1 = <default> 💡 是否 HTML，如果为 1，则会自动加上标签（例如 <p>），以使内容成为合法的 HTML
+            - pickcodes: str = <default> 💡 附件的提取码，多个用逗号 "," 隔开
+            - tags: str = <default>      💡 标签文本
+            - tags[]: str = <default>    💡 标签文本（多个用 "[]" 后缀）
+            - ...
+            - tags[0]: str = <default>   💡 标签文本（多个用 "[0]","[1]",... 后缀）
+            - tags[1]: str = <default>   💡 标签文本
+            - ...
+        """
+        api = complete_url("/api/2.0/api.php", base_url=base_url, query={"ac": "note_edit"})
         if isinstance(payload, str):
             payload = {"content": payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
@@ -18493,7 +19883,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """搜索记录（笔记）
+        """搜索备忘（记录/笔记/记事）
 
         .. note::
             这个接口支持 GET 和 POST 请求方法
@@ -18526,6 +19916,138 @@ class P115Client(P115OpenClient):
             return self.request(url=api, data=payload, async_=async_, **request_kwargs)
         else:
             return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def note_set_cate(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def note_set_cate(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def note_set_cate(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """修改记录的分类
+
+        POST https://note.115.com/?ct=note&ac=update_note_cate
+
+        :payload:
+            - cid: int 💡 分类 id
+            - nid: int | str 💡 记录 id，多个用逗号 "," 隔开
+        """
+        api = complete_url(base_url=base_url, query={"ct": "note", "ac": "update_note_cate"})
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def note_set_cate2(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def note_set_cate2(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def note_set_cate2(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """修改记录的分类
+
+        POST https://note.115.com/api/2.0/api.php?ac=set_note_cate
+
+        :payload:
+            - cid: int 💡 分类 id
+            - nid: int | str 💡 记录 id，多个用逗号 "," 隔开
+        """
+        api = complete_url("/api/2.0/api.php", base_url=base_url, query={"ac": "set_note_cate"})
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def note_set_tag(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def note_set_tag(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def note_set_tag(
+        self, 
+        payload: dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """修改记录的标签
+
+        POST https://note.115.com/api/2.0/api.php?ac=set_tag
+
+        :payload:
+            - nid: int    💡 记录 id
+            - tags: str   💡 标签文本
+            - tags[]: str 💡 标签文本（多个用 "[]" 后缀）
+            - ...
+            - tags[0]: str 💡 标签文本（多个用 "[0]","[1]",... 后缀）
+            - tags[1]: str 💡 标签文本
+            - ...
+            - has_picknews: 0 | 1 = <default>
+        """
+        api = complete_url("/api/2.0/api.php", base_url=base_url, query={"ac": "set_tag"})
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
     def note_tag_color(
@@ -18627,9 +20149,8 @@ class P115Client(P115OpenClient):
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
-    def note_update_cate(
+    def note_user_setting(
         self, 
-        payload: dict, 
         /, 
         base_url: str | Callable[[], str] = "https://note.115.com", 
         *, 
@@ -18638,9 +20159,8 @@ class P115Client(P115OpenClient):
     ) -> dict:
         ...
     @overload
-    def note_update_cate(
+    def note_user_setting(
         self, 
-        payload: dict, 
         /, 
         base_url: str | Callable[[], str] = "https://note.115.com", 
         *, 
@@ -18648,24 +20168,62 @@ class P115Client(P115OpenClient):
         **request_kwargs, 
     ) -> Coroutine[Any, Any, dict]:
         ...
-    def note_update_cate(
+    def note_user_setting(
         self, 
-        payload: dict, 
         /, 
         base_url: str | Callable[[], str] = "https://note.115.com", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """修改记录的分类
+        """获取记录的列表展示的配置(目前只有【每页数量设置】）
 
-        POST https://note.115.com/?ct=note&ac=update_note_cate
+        GET https://note.115.com/?ct=note&ac=get_user_setting
+        """
+        api = complete_url(base_url=base_url, query={"ct": "note", "ac": "get_user_setting"})
+        return self.request(url=api, async_=async_, **request_kwargs)
+
+    @overload
+    def note_user_setting_set(
+        self, 
+        payload: int | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def note_user_setting_set(
+        self, 
+        payload: int | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def note_user_setting_set(
+        self, 
+        payload: int | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://note.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """修改记录的列表展示的配置
+
+        POST https://note.115.com/?ct=note&ac=set_user_setting
 
         :payload:
-            - cid: int 💡 分类 id
-            - nid: int | str 💡 记录 id，多个用逗号 "," 隔开
+            - note_page_size: 20 | 25 | 50 | 100 💡 每页数量设置
         """
-        api = complete_url(base_url=base_url, query={"ct": "note", "ac": "update_note_cate"})
+        api = complete_url(base_url=base_url, query={"ct": "note", "ac": "set_user_setting"})
+        if isinstance(payload, int):
+            payload = {"note_page_size": payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     ########## Offline Download API ##########
@@ -23303,7 +24861,7 @@ class P115Client(P115OpenClient):
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
-    def upload_set_avatar(
+    def upload_avatar(
         self, 
         /, 
         file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
@@ -23316,7 +24874,7 @@ class P115Client(P115OpenClient):
     ) -> dict:
         ...
     @overload
-    def upload_set_avatar(
+    def upload_avatar(
         self, 
         /, 
         file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
@@ -23328,7 +24886,7 @@ class P115Client(P115OpenClient):
         **request_kwargs, 
     ) -> Coroutine[Any, Any, dict]:
         ...
-    def upload_set_avatar(
+    def upload_avatar(
         self, 
         /, 
         file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
@@ -23359,7 +24917,123 @@ class P115Client(P115OpenClient):
         api = complete_url(f"/app/1.1/{app}/1.2/upload/set_avatar", base_url=base_url)
         if isinstance(file, str):
             file = open(file, "rb")
-        return self.request(url=api, method="POST", files={"file": file}, async_=async_, **request_kwargs)
+        return self.request(url=api, method="POST", files={"file": ("a.jpg", file)}, async_=async_, **request_kwargs)
+
+    @overload
+    def upload_image(
+        self, 
+        /, 
+        file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
+                SupportsRead | Iterable[Buffer] ), 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://credentials.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def upload_image(
+        self, 
+        /, 
+        file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
+                SupportsRead | Iterable[Buffer] | AsyncIterable[Buffer] ), 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://credentials.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def upload_image(
+        self, 
+        /, 
+        file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
+                SupportsRead | Iterable[Buffer] | AsyncIterable[Buffer] ), 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://credentials.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """上传一张图片，可用于作为证件照
+
+        POST https://credentials.115.com/api/1.0/web/1.0/credentials/upload_images
+
+        .. attention::
+            此接口采用 multi-part 上传，其实是可以一次传多个文件的，但我做的封装只允许传一张图片，最大允许传 10 MB
+
+        :param file: 待上传的文件
+        :param app: 使用此设备的接口
+        :param base_url: 接口的基地址
+        :param async_: 是否异步
+        :param request_kwargs: 其余请求参数
+
+        :return: 接口响应
+        """
+        api = complete_url(f"/api/1.0/{app}/1.0/credentials/upload_images", base_url=base_url)
+        if isinstance(file, str):
+            file = open(file, "rb")
+        return self.request(url=api, method="POST", files={"image": ("a.jpg", file)}, async_=async_, **request_kwargs)
+
+    @overload
+    def upload_image_init(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://uplb.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def upload_image_init(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://uplb.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def upload_image_init(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://uplb.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """网页端的上传图片接口的初始化
+
+        POST https://uplb.115.com/3.0/imginitupload.php
+
+        .. caution::
+            此接口不支持秒传，最大支持上传 50 MB 的文件，上传成功后不占用空间
+
+        .. caution::
+            通过扩展名来识别，仅支持以下格式图片(jpg,jpeg,png,gif,svg,webp,heic,bmp,dng)
+
+        .. note::
+            `target` 随便设置，例如 "U_4_-1"、"U_5_-2"
+
+        :payload:
+            - filename: str = <default> 💡 文件名，默认为一个新的 uuid4 对象的字符串表示
+            - target: str = "U_4_-1" 💡 上传目标，格式为 f"U_{aid}_{pid}"
+            - filesize: int | str = <default> 💡 图片大小
+            - height: int = <default> 💡 图片高度
+            - width: int = <default>  💡 图片宽度
+        """
+        api = complete_url("/3.0/imginitupload.php", base_url=base_url)
+        if isinstance(payload, str):
+            payload = {"filename": payload}
+        elif "filename" not in payload:
+            payload["filename"] = str(uuid4()) + ".jpg"
+        payload.setdefault("target", "U_4_-1")
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
     def upload_sample_init(
@@ -23397,13 +25071,13 @@ class P115Client(P115OpenClient):
         POST https://uplb.115.com/3.0/sampleinitupload.php
 
         .. caution::
-            此接口不支持秒传        
+            此接口不支持秒传
 
         :payload:
             - filename: str = <default> 💡 文件名，默认为一个新的 uuid4 对象的字符串表示
             - target: str = "U_1_0" 💡 上传目标，格式为 f"U_{aid}_{pid}"
             - path: str = <default> 💡 保存目录，是在 `target` 对应目录下的相对路径，默认为 `target` 所对应目录本身
-            - filesize: int | str = <default> 💡 文件大小，可以省略
+            - filesize: int | str = <default> 💡 文件大小
         """
         api = complete_url("/3.0/sampleinitupload.php", base_url=base_url)
         if isinstance(payload, str):
@@ -23412,6 +25086,58 @@ class P115Client(P115OpenClient):
             payload["filename"] = str(uuid4())
         payload.setdefault("target", "U_1_0")
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def upload_file_image_init(
+        self, 
+        /, 
+        filename: str = "", 
+        pid: int | str = "U_4_-1", 
+        base_url: str | Callable[[], str] = "https://uplb.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def upload_file_image_init(
+        self, 
+        /, 
+        filename: str = "", 
+        pid: int | str = "U_4_-1", 
+        base_url: str | Callable[[], str] = "https://uplb.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def upload_file_image_init(
+        self, 
+        /, 
+        filename: str = "", 
+        pid: int | str = "U_4_-1", 
+        base_url: str | Callable[[], str] = "https://uplb.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """网页端的上传图片接口的初始化，不会秒传，此接口是对 `upload_image_init` 的封装
+
+        .. caution::
+            通过扩展名来识别，仅支持以下格式图片(jpg,jpeg,png,gif,svg,webp,heic,bmp,dng)
+
+        :param filename: 文件名，默认为一个新的 uuid4 对象的字符串表示
+        :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 f"U_{aid}_{pid}"）
+        :param base_url: 接口的基地址
+        :param async_: 是否异步
+        :param request_kwargs: 其它请求参数
+        """
+        if isinstance(pid, str) and pid.startswith("U_"):
+            target = pid
+        else:
+            target = f"U_1_{pid}"
+        payload = {"filename": filename or str(uuid4())+".jpg", "target": target}
+        return self.upload_image_init(payload, async_=async_, base_url=base_url, **request_kwargs)
 
     @overload
     def upload_file_sample_init(
@@ -23649,6 +25375,131 @@ class P115Client(P115OpenClient):
         return run_gen_step(gen_step, async_)
 
     @overload
+    def upload_file_image(
+        self, 
+        /, 
+        file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
+                SupportsRead | Iterable[Buffer] ), 
+        pid: int | str = "U_4_-1", 
+        filename: str = "", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def upload_file_image(
+        self, 
+        /, 
+        file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
+                SupportsRead | Iterable[Buffer] | AsyncIterable[Buffer] ), 
+        pid: int | str = "U_4_-1", 
+        filename: str = "", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def upload_file_image(
+        self, 
+        /, 
+        file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
+                SupportsRead | Iterable[Buffer] | AsyncIterable[Buffer] ), 
+        pid: int | str = "U_4_-1", 
+        filename: str = "", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """网页端的上传图片接口
+
+        .. caution::
+            不支持秒传，但也不必传文件大小和 sha1
+
+        :param file: 待上传的文件
+        :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 f"U_{aid}_{pid}"）
+        :param filename: 文件名，如果为空，则会自动确定
+        :param async_: 是否异步
+        :param request_kwargs: 其余请求参数
+
+        :return: 接口响应
+        """
+        if isinstance(pid, str) and not pid.startswith("U_"):
+            pid = self.to_id(pid)
+        def gen_step():
+            nonlocal file, filename
+            if not isinstance(file, (Buffer, SupportsRead)):
+                path = file
+                is_url: None | bool = None
+                if isinstance(path, str):
+                    is_url = path.startswith(("http://", "https://"))
+                elif isinstance(path, (URL, SupportsGeturl)):
+                    is_url = True
+                    if isinstance(path, URL):
+                        path = str(path)
+                    else:
+                        path = path.geturl()
+                elif isinstance(path, PathLike):
+                    is_url = False
+                    path = fsdecode(path)
+                if is_url is not None:
+                    path = cast(str, path)
+                    if is_url:
+                        if async_:
+                            from httpfile import AsyncHTTPFileReader
+                            async def process():
+                                return await AsyncHTTPFileReader.new(
+                                    cast(str, path), 
+                                    headers={"user-agent": "", "accept-encoding": "identity"}, 
+                                )
+                            file = yield process()
+                        else:
+                            from httpfile import HTTPFileReader
+                            file = HTTPFileReader(
+                                path, headers={"user-agent": "", "accept-encoding": "identity"})
+                        file = cast(HTTPFileReader, file)
+                        if not filename:
+                            filename = file.name
+                    else:
+                        file = open(path, "rb")
+                    if not filename:
+                        if is_url:
+                            from posixpath import basename
+                            from urllib.parse import unquote
+                            filename = basename(unquote(urlsplit(path).path))
+                        else:
+                            from os.path import basename
+                            filename = basename(path)
+                elif isinstance(file, SupportsRead):
+                    if not filename:
+                        from os.path import basename
+                        filename = getattr(file, "name", "")
+                        filename = basename(filename)
+            resp = yield self.upload_file_image_init(
+                filename, 
+                pid=pid, 
+                async_=async_, 
+                **request_kwargs, 
+            )
+            return self.request(
+                url=resp["host"], 
+                method="POST", 
+                data={
+                    "name": filename, 
+                    "key": resp["object"], 
+                    "policy": resp["policy"], 
+                    "OSSAccessKeyId": resp["accessid"], 
+                    "success_action_status": "200", 
+                    "callback": resp["callback"], 
+                    "signature": resp["signature"], 
+                }, 
+                files={"file": file}, 
+                async_=async_, 
+                **request_kwargs, 
+            )
+        return run_gen_step(gen_step, async_)
+
+    @overload
     def upload_file_sample(
         self, 
         /, 
@@ -23695,7 +25546,11 @@ class P115Client(P115OpenClient):
 
         .. note::
             通过 `pid`，支持随意指定上传目标。特别是当格式为 f"U_{aid}_{pid}"，允许其中的 `aid != 1` 和 `pid < 0`（可能有特殊指代）。
-            例如把封面上传到 `"U_3_-15"`（等同于 `pid="U_15_0"`），把文档上传到 `"U_3_-24"`（等同于 `pid="U_1_0"` 且 `dirname="手机备份/文档备份"`）。
+            这里有一些特殊的位置：
+
+            - `U_3_-15`: 上传封面到临时目录，等同于 `pid="U_15_0"`
+            - `U_3_-24`: 上传文件到根目录下的 "手机备份"
+            - `U_1_-11`: 上传附件到根目录下的 "记录文件"
 
         :param file: 待上传的文件
         :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 f"U_{aid}_{pid}"）

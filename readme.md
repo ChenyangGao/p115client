@@ -1,4 +1,3 @@
-[![Generic badge](https://img.shields.io/badge/Telegram%20Group-join-blue?logo=telegram)](https://t.me/WebTechTalk)
 ![license](https://img.shields.io/github/license/ChenyangGao/p115client)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/p115client)
 ![PyPI - Version](https://img.shields.io/pypi/v/p115client)
@@ -11,6 +10,11 @@
 [p115client](https://github.com/ChenyangGao/p115client) 是一个 [115 网盘](https://115.com) 的 [Python](https://python.org) 客户端模块，不过仅提供最直接的接口包装。
 
 支持同步和异步操作，全面封装了各种 **web**、**app** 和 **[open](https://www.yuque.com/115yun/open/)** 接口。
+
+## 原创玄幻小说《叶不凡修仙记》
+
+- GitHub: [https://github.com/chenyangGao/adventures-of-super-ye](https://github.com/chenyangGao/adventures-of-super-ye)
+- 博客：[https://open.forem.com/super-ye](https://open.forem.com/super-ye)
 
 ## 安装
 

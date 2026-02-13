@@ -92,7 +92,7 @@ def upload_host_image(
         client = P115Client(client, check_for_relogin=True)
     def gen_step():
         if not base_url:
-            resp = yield client.upload_set_avatar(
+            resp = yield client.upload_avatar(
                 file, # type: ignore
                 async_=async_, # type: ignore
                 **request_kwargs, 
