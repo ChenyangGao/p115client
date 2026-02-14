@@ -63,7 +63,7 @@ from .const import (
 from .exception import (
     throw, P115OSError, P115Warning, P115AccessTokenError, 
     P115AuthenticationError, P115LoginError, P115OpenAppAuthLimitExceeded, 
-    P115OperationalError,  
+    P115OperationalError, 
 )
 from .type import P115Cookies, P115URL
 from .util import complete_url, share_extract_payload
@@ -957,7 +957,7 @@ class ClientRequestMixin:
         POST https://qrcodeapi.115.com/open/deviceCodeToToken
 
         .. note::
-            可以作为 ``staticmethod`` 使用        
+            可以作为 ``staticmethod`` 使用
 
         .. admonition:: Reference
 
@@ -1543,11 +1543,11 @@ class ClientRequestMixin:
         +-------+----------+------------+----------------------+
         | 15    | O1       | qipad      | 115管理_苹果平板端   |
         +-------+----------+------------+----------------------+
-        | 16    | P1       | windows    | 115生活_Windows端    |
+        | 16    | P1       | os_windows | 115生活_Windows端    |
         +-------+----------+------------+----------------------+
-        | 17    | P2       | mac        | 115生活_macOS端      |
+        | 17    | P2       | os_mac     | 115生活_macOS端      |
         +-------+----------+------------+----------------------+
-        | 18    | P3       | linux      | 115生活_Linux端      |
+        | 18    | P3       | os_linux   | 115生活_Linux端      |
         +-------+----------+------------+----------------------+
         | 19    | R1       | wechatmini | 115生活_微信小程序端 |
         +-------+----------+------------+----------------------+
@@ -4129,11 +4129,11 @@ class P115Client(P115OpenClient):
     +-------+----------+------------+----------------------+
     | 15    | O1       | qipad      | 115管理_苹果平板端   |
     +-------+----------+------------+----------------------+
-    | 16    | P1       | windows    | 115生活_Windows端    |
+    | 16    | P1       | os_windows | 115生活_Windows端    |
     +-------+----------+------------+----------------------+
-    | 17    | P2       | mac        | 115生活_macOS端      |
+    | 17    | P2       | os_mac     | 115生活_macOS端      |
     +-------+----------+------------+----------------------+
-    | 18    | P3       | linux      | 115生活_Linux端      |
+    | 18    | P3       | os_linux   | 115生活_Linux端      |
     +-------+----------+------------+----------------------+
     | 19    | R1       | wechatmini | 115生活_微信小程序端 |
     +-------+----------+------------+----------------------+
@@ -4387,11 +4387,11 @@ class P115Client(P115OpenClient):
         +-------+----------+------------+----------------------+
         | 15    | O1       | qipad      | 115管理_苹果平板端   |
         +-------+----------+------------+----------------------+
-        | 16    | P1       | windows    | 115生活_Windows端    |
+        | 16    | P1       | os_windows | 115生活_Windows端    |
         +-------+----------+------------+----------------------+
-        | 17    | P2       | mac        | 115生活_macOS端      |
+        | 17    | P2       | os_mac     | 115生活_macOS端      |
         +-------+----------+------------+----------------------+
-        | 18    | P3       | linux      | 115生活_Linux端      |
+        | 18    | P3       | os_linux   | 115生活_Linux端      |
         +-------+----------+------------+----------------------+
         | 19    | R1       | wechatmini | 115生活_微信小程序端 |
         +-------+----------+------------+----------------------+
@@ -4514,11 +4514,11 @@ class P115Client(P115OpenClient):
         +-------+----------+------------+----------------------+
         | 15    | O1       | qipad      | 115管理_苹果平板端   |
         +-------+----------+------------+----------------------+
-        | 16    | P1       | windows    | 115生活_Windows端    |
+        | 16    | P1       | os_windows | 115生活_Windows端    |
         +-------+----------+------------+----------------------+
-        | 17    | P2       | mac        | 115生活_macOS端      |
+        | 17    | P2       | os_mac     | 115生活_macOS端      |
         +-------+----------+------------+----------------------+
-        | 18    | P3       | linux      | 115生活_Linux端      |
+        | 18    | P3       | os_linux   | 115生活_Linux端      |
         +-------+----------+------------+----------------------+
         | 19    | R1       | wechatmini | 115生活_微信小程序端 |
         +-------+----------+------------+----------------------+
@@ -4818,11 +4818,11 @@ class P115Client(P115OpenClient):
         +-------+----------+------------+----------------------+
         | 15    | O1       | qipad      | 115管理_苹果平板端   |
         +-------+----------+------------+----------------------+
-        | 16    | P1       | windows    | 115生活_Windows端    |
+        | 16    | P1       | os_windows | 115生活_Windows端    |
         +-------+----------+------------+----------------------+
-        | 17    | P2       | mac        | 115生活_macOS端      |
+        | 17    | P2       | os_mac     | 115生活_macOS端      |
         +-------+----------+------------+----------------------+
-        | 18    | P3       | linux      | 115生活_Linux端      |
+        | 18    | P3       | os_linux   | 115生活_Linux端      |
         +-------+----------+------------+----------------------+
         | 19    | R1       | wechatmini | 115生活_微信小程序端 |
         +-------+----------+------------+----------------------+
@@ -5056,11 +5056,11 @@ class P115Client(P115OpenClient):
         +-------+----------+------------+----------------------+
         | 15    | O1       | qipad      | 115管理_苹果平板端   |
         +-------+----------+------------+----------------------+
-        | 16    | P1       | windows    | 115生活_Windows端    |
+        | 16    | P1       | os_windows | 115生活_Windows端    |
         +-------+----------+------------+----------------------+
-        | 17    | P2       | mac        | 115生活_macOS端      |
+        | 17    | P2       | os_mac     | 115生活_macOS端      |
         +-------+----------+------------+----------------------+
-        | 18    | P3       | linux      | 115生活_Linux端      |
+        | 18    | P3       | os_linux   | 115生活_Linux端      |
         +-------+----------+------------+----------------------+
         | 19    | R1       | wechatmini | 115生活_微信小程序端 |
         +-------+----------+------------+----------------------+
@@ -6087,7 +6087,7 @@ class P115Client(P115OpenClient):
             返回的公钥是签名证书，并经过 BASE64 处理，可用下面步骤还原
 
             .. code::
-        
+
                 from base64 import b64decode
                 from p115client import P115Client
 
@@ -7923,7 +7923,7 @@ class P115Client(P115OpenClient):
         pickcode: str, 
         files: str | Iterable[str] = "", 
         dirs: str | Iterable[str] = "", 
-        dirname: str = "",  
+        dirname: str = "", 
         *, 
         to_pid: int | str = 0, 
         async_: Literal[False] = False, 
@@ -7937,7 +7937,7 @@ class P115Client(P115OpenClient):
         pickcode: str, 
         files: str | Iterable[str] = "", 
         dirs: str | Iterable[str] = "", 
-        dirname: str = "",  
+        dirname: str = "", 
         to_pid: int | str = 0, 
         *, 
         async_: Literal[True], 
@@ -8025,7 +8025,7 @@ class P115Client(P115OpenClient):
         pickcode: str, 
         files: str | Iterable[str] = "", 
         dirs: str | Iterable[str] = "", 
-        dirname: str = "",  
+        dirname: str = "", 
         *, 
         to_pid: int | str = 0, 
         async_: Literal[False] = False, 
@@ -8039,7 +8039,7 @@ class P115Client(P115OpenClient):
         pickcode: str, 
         files: str | Iterable[str] = "", 
         dirs: str | Iterable[str] = "", 
-        dirname: str = "",  
+        dirname: str = "", 
         to_pid: int | str = 0, 
         *, 
         async_: Literal[True], 
@@ -8052,7 +8052,7 @@ class P115Client(P115OpenClient):
         pickcode: str, 
         files: str | Iterable[str] = "", 
         dirs: str | Iterable[str] = "", 
-        dirname: str = "",  
+        dirname: str = "", 
         to_pid: int | str = 0, 
         *, 
         async_: Literal[False, True] = False, 
@@ -10184,7 +10184,7 @@ class P115Client(P115OpenClient):
 
         .. caution::
             仅当文件的 aid 是 1（网盘文件）、12（瞬间文件） 或 120（永久删除文件） 时，才能用此接口获取信息，否则请用 `client.fs_file_skim` 或 `client.fs_supervision` 获取信息（只能获取比较简略的版本）。
-        
+
             特别的，文件被移入回收站后，就不能用此接口获取信息了，除非将其还原或永久删除。
 
         :payload:
@@ -12430,7 +12430,7 @@ class P115Client(P115OpenClient):
         POST https://imgjump.115.com/getimgdata_url
 
         :payload:
-            - imgurl: str 💡 图片的访问链接，以 "https://thumb.115.com" 开头
+            - imgurl: str 💡 图片的访问链接
         """
         api = complete_url("/getimgdata_url", base_url=base_url)
         if isinstance(payload, str):
@@ -16579,8 +16579,11 @@ class P115Client(P115OpenClient):
         .. hint::
             这个接口获取的链接似乎长久有效，而且支持任何文件（只要有人上传过），但限制文件大小在 50 MB 以内
 
+        .. tip::
+            在获得的链接最后加上一个 `&i=1`，就可以获取原始尺寸（但不一定是原图）
+
         :payload:
-            - rs: str 💡 图片的 sha1 或者 f"{oss_bucket}_{oss_object}"（由 `upload_file_image` 接口的响应获得）
+            - rs: str 💡 图片的 sha1 （必须大写）或者 f"{oss_bucket}_{oss_object}"（由 `upload_file_image` 接口的响应获得），后者跳转次数更少、响应更快
             - rs[]: str
             - ...
             - rs[0]: str
@@ -16595,7 +16598,7 @@ class P115Client(P115OpenClient):
         api = complete_url(f"/api/1.0/{app}/1.0/imgload/get_pic_url", base_url=base_url)
         if isinstance(payload, str):
             payload = {"rs": payload}
-        elif not isinstance(payload, tuple):
+        elif isinstance(payload, tuple):
             payload = [("rs[]", s) for s in payload]
         return self.request(
             url=api, 
@@ -17670,11 +17673,11 @@ class P115Client(P115OpenClient):
         +-------+----------+------------+----------------------+
         | 15    | O1       | qipad      | 115管理_苹果平板端   |
         +-------+----------+------------+----------------------+
-        | 16    | P1       | windows    | 115生活_Windows端    |
+        | 16    | P1       | os_windows | 115生活_Windows端    |
         +-------+----------+------------+----------------------+
-        | 17    | P2       | mac        | 115生活_macOS端      |
+        | 17    | P2       | os_mac     | 115生活_macOS端      |
         +-------+----------+------------+----------------------+
-        | 18    | P3       | linux      | 115生活_Linux端      |
+        | 18    | P3       | os_linux   | 115生活_Linux端      |
         +-------+----------+------------+----------------------+
         | 19    | R1       | wechatmini | 115生活_微信小程序端 |
         +-------+----------+------------+----------------------+
@@ -17782,11 +17785,11 @@ class P115Client(P115OpenClient):
         +-------+----------+------------+----------------------+
         | 15    | O1       | qipad      | 115管理_苹果平板端   |
         +-------+----------+------------+----------------------+
-        | 16    | P1       | windows    | 115生活_Windows端    |
+        | 16    | P1       | os_windows | 115生活_Windows端    |
         +-------+----------+------------+----------------------+
-        | 17    | P2       | mac        | 115生活_macOS端      |
+        | 17    | P2       | os_mac     | 115生活_macOS端      |
         +-------+----------+------------+----------------------+
-        | 18    | P3       | linux      | 115生活_Linux端      |
+        | 18    | P3       | os_linux   | 115生活_Linux端      |
         +-------+----------+------------+----------------------+
         | 19    | R1       | wechatmini | 115生活_微信小程序端 |
         +-------+----------+------------+----------------------+
@@ -19505,7 +19508,7 @@ class P115Client(P115OpenClient):
             这个接口获取的链接似乎长久有效，而且支持任何文件（只要有人上传过），但限制文件大小在 50 MB 以内
 
         :payload:
-            - rs: str 💡 图片的 sha1 或者 f"{oss_bucket}_{oss_object}"（由 `upload_file_image` 接口的响应获得）
+            - rs: str 💡 图片的 sha1 （必须大写）或者 f"{oss_bucket}_{oss_object}"（由 `upload_file_image` 接口的响应获得），后者跳转次数更少、响应更快
             - rs[]: str
             - ...
             - rs[0]: str
@@ -19520,7 +19523,7 @@ class P115Client(P115OpenClient):
         api = complete_url(base_url=base_url, query={"ct": "note", "ac": "get_pic_url"})
         if isinstance(payload, str):
             payload = {"rs": payload}
-        elif not isinstance(payload, tuple):
+        elif isinstance(payload, tuple):
             payload = [("rs[]", s) for s in payload]
         return self.request(
             url=api, 
@@ -19569,7 +19572,7 @@ class P115Client(P115OpenClient):
             这个接口获取的链接似乎长久有效，而且支持任何文件（只要有人上传过），但限制文件大小在 50 MB 以内
 
         :payload:
-            - rs: str 💡 图片的 sha1 或者 f"{oss_bucket}_{oss_object}"（由 `upload_file_image` 接口的响应获得）
+            - rs: str 💡 图片的 sha1 （必须大写）或者 f"{oss_bucket}_{oss_object}"（由 `upload_file_image` 接口的响应获得），后者跳转次数更少、响应更快
             - rs[]: str
             - ...
             - rs[0]: str
@@ -19584,7 +19587,7 @@ class P115Client(P115OpenClient):
         api = complete_url("/api/2.0/api.php", base_url=base_url, query={"ac": "get_pic_url"})
         if isinstance(payload, str):
             payload = {"rs": payload}
-        elif not isinstance(payload, tuple):
+        elif isinstance(payload, tuple):
             payload = [("rs[]", s) for s in payload]
         return self.request(
             url=api, 
@@ -21660,7 +21663,7 @@ class P115Client(P115OpenClient):
             虽然被认为是图片的格式很多（你可以用这个方法 `client.fs_files_second_type({"type": 2})` 获得网盘中的所有图片格式），但仅支持以下格式图片添加到相册：jpg,jpeg,png,gif,svg,webp,heic,bmp,dng
 
         .. caution::
-            目前好像仅支持把图片添加到相册，却不支持从中移除         
+            目前好像仅支持把图片添加到相册，却不支持从中移除
 
         :payload:
             - to_album_id: int | str 💡 相册 id，如果为 -1，则添加到【默认加密相册】
@@ -25543,6 +25546,9 @@ class P115Client(P115OpenClient):
 
         .. caution::
             不支持秒传，但也不必传文件大小和 sha1
+
+        .. note::
+            只要上传后的 `aid` 或 `area_id` 不为 1，则不占用空间，这是 `upload_file` 所不能的（因为即使指定了 "U_{aid}_{pid}"，也会忽略其中的 `aid`，强行视为 1）
 
         .. note::
             通过 `pid`，支持随意指定上传目标。特别是当格式为 f"U_{aid}_{pid}"，允许其中的 `aid != 1` 和 `pid < 0`（可能有特殊指代）。

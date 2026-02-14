@@ -3,9 +3,10 @@
 
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
 __all__ = [
-    "batch_get_url", "iter_url_batches", "iter_files_with_url", "iter_images_with_url", 
-    "iter_subtitles_with_url", "iter_subtitle_batches", "make_db", "make_strm", 
-    "iter_download_nodes", "iter_download_files", "get_remaining_open_count", 
+    "get_pic_url", "batch_get_url", "iter_url_batches", "iter_files_with_url", 
+    "iter_images_with_url", "iter_subtitles_with_url", "iter_subtitle_batches", 
+    "make_db", "make_strm", "iter_download_nodes", "iter_download_files", 
+    "get_remaining_open_count", 
 ]
 __doc__ = "这个模块提供了一些和下载有关的函数"
 
@@ -31,7 +32,9 @@ from os import (
 )
 from os.path import abspath, dirname, join as joinpath, normpath, splitext
 from queue import SimpleQueue
+from re import compile as re_compile
 from sqlite3 import Connection, Cursor
+from string import hexdigits
 from sys import exc_info
 from threading import Lock
 from time import time
@@ -61,6 +64,90 @@ from .attr import normalize_attr, normalize_attr_simple
 from .iterdir import (
     iterdir, iter_files, iter_files_shortcut, unescape_115_charref, 
 )
+
+
+@overload
+def get_pic_url(
+    client: str | PathLike | P115Client, 
+    sha1: str, 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> str:
+    ...
+@overload
+def get_pic_url(
+    client: str | PathLike | P115Client, 
+    sha1: Iterable[str], 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> list[str]:
+    ...
+@overload
+def get_pic_url(
+    client: str | PathLike | P115Client, 
+    sha1: str, 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> Coroutine[Any, Any, str]:
+    ...
+@overload
+def get_pic_url(
+    client: str | PathLike | P115Client, 
+    sha1: Iterable[str], 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> Coroutine[Any, Any, list[str]]:
+    ...
+def get_pic_url(
+    client: str | PathLike | P115Client, 
+    sha1: str | Iterable[str], 
+    *, 
+    _match_fhn_prefix=re_compile("^fhn[a-z]+_").match, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+) -> str | list[str] | Coroutine[Any, Any, str] | Coroutine[Any, Any, list[str]]:
+    """单个或批量获取图片链接
+
+    .. note::
+        不仅限于图片，每个文件必须限制在 50 MB 以内（含）
+
+    :param client: 115 客户端或 cookies
+    :param sha1: 图片的 sha1 或 f"{bucket}_{object}"（`bucket` 是所在存储桶， `object`是对象 id）
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+
+    :return: 图片链接的单个或列表
+    """
+    def formalize_sha1(sha1):
+        if len(sha1) == 40 and not sha1.strip(hexdigits):
+            return sha1.upper()
+        elif not _match_fhn_prefix(sha1):
+            return "fhnfile_" + sha1
+        return sha1
+    if isinstance(client, (str, PathLike)):
+        client = P115Client(client, check_for_relogin=True)
+    def gen_step():
+        if isinstance(sha1, str):
+            resp = yield client.life_get_pic_url(
+                formalize_sha1(sha1), 
+                async_=async_, 
+                **request_kwargs, 
+            )
+            check_response(resp)
+            return resp["data"][0]["json"].replace("&i=0", "&i=1")
+        else:
+            resp = yield client.life_get_pic_url(
+                tuple(map(formalize_sha1, sha1)), 
+                async_=async_, 
+                **request_kwargs, 
+            )
+            check_response(resp)
+            return [u["json"].replace("&i=0", "&i=1") for u in resp["data"]]
+    return run_gen_step(gen_step, async_)
 
 
 # TODO: 之后加上并发拉取，以加快速度

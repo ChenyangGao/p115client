@@ -2,10 +2,11 @@
 # encoding: utf-8
 
 __all__ = [
-    "complete_url", "reduce_image_url_layers", "share_extract_payload", 
-    "unescape_115_charref", "determine_part_size", "to_cdn_url", 
-    "is_valid_id", "is_valid_sha1", "is_valid_name", "is_valid_pickcode", 
-    "posix_escape_name", "lock_as_async", "call_with_lock", 
+    "complete_url", "reduce_image_url_layers", "max_image_quality", 
+    "load_final_image", "share_extract_payload", "unescape_115_charref", 
+    "determine_part_size", "to_cdn_url", "is_valid_id", "is_valid_sha1", 
+    "is_valid_name", "is_valid_pickcode", "posix_escape_name", "lock_as_async", 
+    "call_with_lock", 
 ]
 __doc__ = "这个模块提供了一些工具函数，且不依赖于 p115client.client 中的实现"
 
@@ -17,10 +18,12 @@ from re import compile as re_compile
 from string import digits, hexdigits
 from typing import (
     cast, overload, Any, AsyncContextManager, ContextManager, Final, 
-    NotRequired, TypedDict, 
+    Literal, NotRequired, TypedDict, 
 )
-from urllib.parse import parse_qsl, urlencode, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from httpcore_request import request
+from iterutils import run_gen_step
 from p115pickcode import is_valid_pickcode
 from yarl import URL
 
@@ -140,13 +143,90 @@ def reduce_image_url_layers(
 
     :return: 提取后的图片缩略图链接
     """
-    if "://thumb.115.com/" not in url:
-        return url
     urlp = urlsplit(url)
+    if urlp.hostname not in ("thumb.115.com", "thumbapi.115.com"):
+        return url
     sha1, _, size0 = urlp.path.rsplit("/")[-1].partition("_")
     if size == "":
         size = size0 or "0"
-    return f"https://imgjump.115.com/?sha1={sha1}&{urlp.query}&size={size}"
+    return f"https://imgjump.115.com/?sha1={sha1}&size={size}&{urlp.query}"
+
+
+def max_image_quality(url: str, /) -> str:
+    """将图片的链接调整为最高画质
+
+    :param url: 图片缩略图链接
+
+    :return: 调整后的链接
+    """
+    urlp = urlsplit(url)
+    query = dict(parse_qsl(urlp.query))
+    if "x-oss-process" in query:
+        del query["x-oss-process"]
+    elif urlp.hostname == "imgjump.115.com":
+        query["size"] = "0"
+    elif urlp.hostname in ("thumb.115.com", "thumbapi.115.com"):
+        query["sha1"] = urlp.path.rsplit("/")[-1].partition("_")[0]
+        query["size"] = "0"
+        return "https://imgjump.115.com/?" + urlencode(query)
+    elif urlp.path.endswith("/imgload"):
+        query["i"] = "1"
+    else:
+        return url
+    return urlunsplit(urlp._replace(query=urlencode(query)))
+
+
+@overload
+def load_final_image(
+    url: str, 
+    async_: Literal[False] = False, 
+    request = request, 
+) -> None | str:
+    ...
+@overload
+def load_final_image(
+    url: str, 
+    async_: Literal[True], 
+    request = request, 
+) -> Coroutine[Any, Any, None | str]:
+    ...
+def load_final_image(
+    url: str, 
+    async_: Literal[False, True] = False, 
+    request = request, 
+) -> None | str | Coroutine[Any, Any, None | str]:
+    """逐次 3XX 重定向，以获取最终的图片链接
+
+    :param url: 图片链接
+    :param async_: 是否异步
+
+    :return: 最终的图片链接（如果期间发生错误，则返回 None）
+    """
+    def gen_step():
+        nonlocal url
+        while True:
+            urlp = urlsplit(url)
+            query = dict(parse_qsl(urlp.query))
+            if urlp.path.endswith("/imgload") or query.get("ct") == "imgload":
+                resp = yield request(url, "HEAD", follow_redirects=False, async_=async_)
+                url = resp.headers["location"]
+                if url.endswith("err/413.jpg"):
+                    return None
+                url = reduce_image_url_layers(url)
+            elif "x-oss-process" in query:
+                del query["x-oss-process"]
+                return urlunsplit(urlp._replace(query=urlencode(query)))
+            elif urlp.hostname in ("thumb.115.com", "thumbapi.115.com"):
+                query["sha1"], _, query["size"] = urlp.path.rsplit("/")[-1].partition("_")
+                url = "https://imgjump.115.com/?" + urlencode(query)
+            elif urlp.hostname == "imgjump.115.com":
+                resp = yield request(url, "HEAD", follow_redirects=False, async_=async_)
+                url = resp.headers["location"]
+                if url.endswith("err/413.jpg"):
+                    return None
+            else:
+                return url
+    return run_gen_step(gen_step, async_)
 
 
 def share_extract_payload(link: str, /) -> SharePayload:
