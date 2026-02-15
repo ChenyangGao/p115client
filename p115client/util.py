@@ -13,6 +13,7 @@ __doc__ = "这个模块提供了一些工具函数，且不依赖于 p115client.
 from asyncio import sleep as async_sleep
 from collections.abc import Callable, Coroutine, Mapping, Sequence
 from contextlib import asynccontextmanager, AbstractAsyncContextManager
+from http import HTTPStatus
 from inspect import isawaitable, iscoroutinefunction
 from re import compile as re_compile
 from string import digits, hexdigits
@@ -31,6 +32,7 @@ from yarl import URL
 URL_PATH_TRANSTAB: Final = {b: f"%{b:X}" for b in b"?#"}
 CRE_115_CHARREF_sub: Final = re_compile("\\[\x02([0-9]+)\\]").sub
 CRE_SHARE_LINK_search: Final = re_compile(r"(?:^|(?<=/))(?P<share_code>[a-z0-9]+)(?:-|\?password=|\?)(?P<receive_code>[a-z0-9]{4})(?!==)\b").search
+CRE_ERR_JPG_search: Final = re_compile(r"/err/([0-9]+).jpg$").search
 
 
 class SharePayload(TypedDict):
@@ -181,20 +183,20 @@ def load_final_image(
     url: str, 
     async_: Literal[False] = False, 
     request = request, 
-) -> None | str:
+) -> HTTPStatus | str:
     ...
 @overload
 def load_final_image(
     url: str, 
     async_: Literal[True], 
     request = request, 
-) -> Coroutine[Any, Any, None | str]:
+) -> Coroutine[Any, Any, HTTPStatus | str]:
     ...
 def load_final_image(
     url: str, 
     async_: Literal[False, True] = False, 
     request = request, 
-) -> None | str | Coroutine[Any, Any, None | str]:
+) -> int | str | Coroutine[Any, Any, HTTPStatus | str]:
     """逐次 3XX 重定向，以获取最终的图片链接
 
     :param url: 图片链接
@@ -210,10 +212,12 @@ def load_final_image(
             if urlp.path.endswith("/imgload") or query.get("ct") == "imgload":
                 resp = yield request(url, "HEAD", follow_redirects=False, async_=async_)
                 url = resp.headers["location"]
-                if url.endswith("err/413.jpg"):
-                    return None
+                if m := CRE_ERR_JPG_search(url):
+                    return HTTPStatus(int(m[1]))
                 url = reduce_image_url_layers(url)
             elif "x-oss-process" in query:
+                if m := CRE_ERR_JPG_search(urlp.path):
+                    return HTTPStatus(int(m[1]))
                 del query["x-oss-process"]
                 return urlunsplit(urlp._replace(query=urlencode(query)))
             elif urlp.hostname in ("thumb.115.com", "thumbapi.115.com"):
@@ -222,8 +226,8 @@ def load_final_image(
             elif urlp.hostname == "imgjump.115.com":
                 resp = yield request(url, "HEAD", follow_redirects=False, async_=async_)
                 url = resp.headers["location"]
-                if url.endswith("err/413.jpg"):
-                    return None
+                if m := CRE_ERR_JPG_search(url):
+                    return HTTPStatus(int(m[1]))
             else:
                 return url
     return run_gen_step(gen_step, async_)

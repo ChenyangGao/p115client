@@ -96,6 +96,7 @@ def upload_host_image(
         if isinstance(base_url, bool):
             resp = yield client.upload_file_image(
                 file, # type: ignore
+                filename="x.jpg", 
                 async_=async_, # type: ignore
                 **request_kwargs, 
             )
