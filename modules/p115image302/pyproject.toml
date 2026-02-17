@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "p115image302"
-version = "0.0.1"
+version = "0.0.2"
 description = "115 image 302 backend."
 authors = ["ChenyangGao <wosiwujm@gmail.com>"]
 license = "MIT"
@@ -32,7 +32,7 @@ blacksheep-rich-log = ">=0.0.2"
 cachedict = ">=0.0.7"
 errno2 = ">=0.0.5"
 orjson = "*"
-p115client = ">=0.0.8.4.2"
+p115client = ">=0.0.8.4.3"
 p115pickcode = ">=0.0.5.4"
 pyyaml = "*"
 python-sqlitedict = ">=0.0.3"

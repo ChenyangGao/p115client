@@ -36,7 +36,7 @@ def make_application(
     :return: blacksheep 服务对象
     """
     CACHE_KEY_TO_IMMOTAL_URL: MutableMapping[str, str] = SqliteDict(dbfile, uri=dbfile.startswith("file:"))
-    KEY_TO_URL: TTLDict[str, str] = TTLDict(3600-10)
+    KEY_TO_URL: TTLDict[str, str] = TTLDict(3600-30) # NOTE: 图片有效期 1 小时，我提前 30 秒将其失效
 
     app = Application(router=Router(), show_error_details=debug)
     if debug:
@@ -50,13 +50,15 @@ def make_application(
     middleware_access_log(app)
 
     @app.router.route("/<path:path>", methods=["GET"])
-    async def downlaod(path: str):
+    async def downlaod(path: str, permanent: bool = False):
         key = path.lstrip("/").split("/", 1)[0]
         if not key or key.lstrip(LETTERS):
             raise ValueError("please pass `id`, `pickcode`, `sha1` or `oss`")
-        if image_url := KEY_TO_URL.get(key):
+        key_lower = key.lower()
+        if not permanent and (image_url := KEY_TO_URL.get(key_lower)):
             return redirect(image_url)
-        permanent_url = CACHE_KEY_TO_IMMOTAL_URL.get(key)
+        permanent_url = CACHE_KEY_TO_IMMOTAL_URL.get(key_lower)
+        sha1 = ""
         if permanent_url == "":
             throw(errno.ENOENT, f"{key}: not found")
         elif not permanent_url:
@@ -64,26 +66,30 @@ def make_application(
                 try:
                     info = await get_attr(client, key, skim=True, async_=True)
                 except FileNotFoundError:
-                    CACHE_KEY_TO_IMMOTAL_URL[key] = ""
+                    CACHE_KEY_TO_IMMOTAL_URL[key_lower] = ""
                     raise
                 if info["is_dir"]:
                     throw(errno.EISDIR, f"{key}: is a directory")
                 elif info["size"] > 1024 * 1024 * 50:
                     throw(errno.E2BIG, f"{key}: file too big")
-                sha1 = info["sha1"]
+                sha1 = info["sha1"].lower()
             else:
-                sha1 = key
+                sha1 = key_lower
             permanent_url = await get_pic_url(client, sha1, async_=True)
+        elif permanent:
+            return redirect(permanent_url)
         url = await load_final_image(permanent_url, async_=True)
         if isinstance(url, str):
-            CACHE_KEY_TO_IMMOTAL_URL[key] = permanent_url
-            if key != sha1:
+            CACHE_KEY_TO_IMMOTAL_URL[key_lower] = permanent_url
+            if sha1 and key_lower != sha1:
                 CACHE_KEY_TO_IMMOTAL_URL[sha1] = permanent_url
-            KEY_TO_URL[key] = url
+            KEY_TO_URL[key_lower] = url
         else:
-            if url != 404 or len(sha1) != 40:
-                CACHE_KEY_TO_IMMOTAL_URL[key] = ""
+            if url != 404 or sha1 and len(sha1) != 40:
+                CACHE_KEY_TO_IMMOTAL_URL[key_lower] = ""
             throw(errno.EIO, f"{key}: {url} {url.phrase}")
+        if permanent:
+            redirect(permanent_url)
         return redirect(url)
 
     @app.router.route("/", methods=["PUT"])
@@ -95,7 +101,7 @@ def make_application(
             async_=True, 
         )
         check_response(resp)
-        sha1 = resp["img_info"]["sha1"]
+        sha1 = resp["img_info"]["sha1"].lower()
         oss = resp["data"]["sha1"]
         url = resp["data"]["thumb_url"]
         url = KEY_TO_URL[sha1] = KEY_TO_URL[oss] = url[:url.index("?")]

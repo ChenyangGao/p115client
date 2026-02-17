@@ -11,11 +11,11 @@ __doc__ = """\
     │                                                                              │
     │                      \x1b[32mlicense     \x1b[4;34mhttps://www.gnu.org/licenses/gpl-3.0.txt\x1b[0m    │
     │                                                                              │
-    │                      \x1b[32mversion     \x1b[1;36m0.0.1\x1b[0m                                       │
+    │                      \x1b[32mversion     \x1b[1;36m0.0.2\x1b[0m                                       │
     │                                                                              │
     ╰──────────────────────────────────────────────────────────────────────────────╯
 
-⚽️ 支持下载：用 \x1b[1;3;36mkey\x1b[0m 查询，可以是 \x1b[3;36msha1\x1b[0m、\x1b[3;36moss\x1b[0m、\x1b[3;36mid\x1b[0m 或者 \x1b[3;36mpickcode\x1b[0m，其中 \x1b[3;36moss\x1b[0m 是阿里云 OSS 对象存储的存储桶和对象 id 的组合，格式形如 f"\x1b[4;34m{\x1b[1;3;36mbucket\x1b[0m\x1b[4;34m}_{\x1b[1;3;36mobject\x1b[0m\x1b[4;34m}\x1b[0m"，例如 "\x1b[4;34mfhnimg_6991ce15fa60d3515b1eb7866a73b6b59a6b9598_0_0\x1b[0m"
+⚽️ 支持下载：用 \x1b[1;3;36mkey\x1b[0m 查询，可以是 \x1b[3;36msha1\x1b[0m、\x1b[3;36moss\x1b[0m、\x1b[3;36mid\x1b[0m 或者 \x1b[3;36mpickcode\x1b[0m，其中 \x1b[3;36moss\x1b[0m 是阿里云 OSS 对象存储的存储桶和对象 id 的组合，格式形如 f"\x1b[4;34m{\x1b[1;3;36mbucket\x1b[0m\x1b[4;34m}_{\x1b[1;3;36mobject\x1b[0m\x1b[4;34m}\x1b[0m"，例如 "\x1b[4;34mfhnimg_6991ce15fa60d3515b1eb7866a73b6b59a6b9598_0_0\x1b[0m"。支持查询参数 \x1b[1;3;36mpermanent=1\x1b[0m，以指定获取永久链接
 
     \x1b[1mGET\x1b[0m \x1b[4;34mhttp://localhost:8000/{\x1b[1;3;36mkey\x1b[0m\x1b[4;34m}\x1b[0m
     \x1b[1mGET\x1b[0m \x1b[4;34mhttp://localhost:8000/{\x1b[1;3;36mkey\x1b[0m\x1b[4;34m}/name\x1b[0m
@@ -31,6 +31,7 @@ __doc__ = """\
 from argparse import ArgumentParser, Namespace, RawTextHelpFormatter
 
 parser = ArgumentParser(description=__doc__, formatter_class=RawTextHelpFormatter)
+parser.add_argument("dbfile", nargs="?", help="缓存的数据库路径，默认为当前工作目录下的 'p115image302.db'")
 parser.add_argument("-c", "--cookies", default="", help="cookies 字符串，优先级高于 -cp/--cookies-path")
 parser.add_argument("-cp", "--cookies-path", default="", help="cookies 文件保存路径，默认为当前工作目录下的 115-cookies.txt")
 parser.add_argument("-H", "--host", default="0.0.0.0", help="ip 或 hostname，默认值：'0.0.0.0'")
@@ -114,7 +115,7 @@ def main(argv: None | list[str] | Namespace = None, /):
     from uvicorn import run
 
     print(__doc__)
-    app = make_application(client, debug=args.debug)
+    app = make_application(client, dbfile=args.dbfile or "p115image302.db", debug=args.debug)
     run(app, **run_config)
 
 

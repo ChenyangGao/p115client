@@ -273,6 +273,7 @@ def load_missing_ancestors(
     return run_gen_step(gen_step, async_)
 
 
+# BUG: 对于特别大的目录，并发时内存占用会持续增加（max_workers=0时就没问题），其中肯定有什么地方没有释放，亟待解决
 @overload
 def updatedb(
     client: str | PathLike | P115Client, 

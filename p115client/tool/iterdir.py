@@ -2166,7 +2166,7 @@ def iter_files_frament(
 def traverse_tree(
     client: str | PathLike | P115Client, 
     cid: int | str | Mapping = 0, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = ..., 
     app: str = "android", 
     max_workers: None | int = None, 
     max_files: int | None = 0, 
@@ -2180,7 +2180,7 @@ def traverse_tree(
 def traverse_tree(
     client: str | PathLike | P115Client, 
     cid: int | str | Mapping = 0, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = ..., 
     app: str = "android", 
     max_workers: None | int = None, 
     max_files: int | None = 0, 
@@ -2193,7 +2193,7 @@ def traverse_tree(
 def traverse_tree(
     client: str | PathLike | P115Client, 
     cid: int | str | Mapping = 0, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = ..., 
     app: str = "android", 
     max_workers: None | int = None, 
     max_files: int | None = 0, 
@@ -2220,8 +2220,6 @@ def traverse_tree(
         client = P115Client(client, check_for_relogin=True)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
-    elif id_to_dirnode is ...:
-        id_to_dirnode = {}
     from .download import iter_download_nodes
     to_pickcode = client.to_pickcode
     def fulfill_dir_node(attr: dict, /) -> dict:
@@ -2230,6 +2228,17 @@ def traverse_tree(
         attr["sha1"] = ""
         return attr
     def gen_step():
+        dirs = do_map(fulfill_dir_node, iter_download_nodes(
+            client, 
+            cid, 
+            files=False, 
+            id_to_dirnode=id_to_dirnode, 
+            app=app, 
+            max_workers=max_workers, 
+            max_page=max_dirs and -(-max_dirs // 3000), 
+            async_=async_, # type: ignore
+            **request_kwargs, 
+        ))
         files = iter_download_nodes(
             client, 
             cid, 
@@ -2239,31 +2248,23 @@ def traverse_tree(
             app=app, 
             max_workers=max_workers, 
             max_page=max_files and -(-max_files // 3000), 
-            async_=async_, 
+            async_=async_, # type: ignore
             **request_kwargs, 
         )
-        with cache_loading(files) as (cache, task):
-            yield YieldFrom(do_map(fulfill_dir_node, iter_download_nodes(
-                client, 
-                cid, 
-                files=False, 
-                id_to_dirnode=id_to_dirnode, 
-                app=app, 
-                max_workers=max_workers, 
-                max_page=max_dirs and -(-max_dirs // 3000), 
-                async_=async_, 
-                **request_kwargs, 
-            )))
-        if async_:
-            yield task
+        if max_workers == 0:
+            yield YieldFrom(dirs)
         else:
-            task.result()
-        yield YieldFrom(cache)
+            with cache_loading(files) as (cache, task):
+                yield YieldFrom(dirs)
+            if async_:
+                yield task
+            else:
+                task.result()
+            yield YieldFrom(cache)
         yield YieldFrom(files)
     return run_gen_step_iter(gen_step, async_)
 
 
-# TODO: 需要优化到 10 万条 2 秒内
 @overload
 def traverse_tree_with_path(
     client: str | PathLike | P115Client, 
@@ -2348,6 +2349,18 @@ def traverse_tree_with_path(
         attr["sha1"] = ""
         return attr
     def gen_step():
+        dirs = do_map(fulfill_dir_node, iter_dirs_with_path(
+            client, 
+            cid, 
+            with_ancestors=with_ancestors, 
+            escape=escape, 
+            id_to_dirnode=id_to_dirnode, 
+            app=app, 
+            max_workers=max_workers, 
+            max_dirs=max_dirs, 
+            async_=async_, # type: ignore
+            **request_kwargs, 
+        ))
         files = iter_download_nodes(
             client, 
             cid, 
@@ -2361,39 +2374,31 @@ def traverse_tree_with_path(
             **request_kwargs, 
         )
         add_top = _make_top_adder(to_id(cid), id_to_dirnode, escape)
-        with cache_loading(files) as (cache, task):
-            yield YieldFrom(do_map(fulfill_dir_node, iter_dirs_with_path(
-                client, 
-                cid, 
-                with_ancestors=with_ancestors, 
-                escape=escape, 
-                id_to_dirnode=id_to_dirnode, 
-                app=app, 
-                max_workers=max_workers, 
-                max_dirs=max_dirs, 
-                async_=async_, # type: ignore
-                **request_kwargs, 
-            )))
-            cache2 = cache.copy()
-            yield YieldFrom(do_map(add_top, ensure_attr_path(
-                client, 
-                cache2, 
-                with_ancestors=with_ancestors, 
-                escape=escape, 
-                id_to_dirnode=id_to_dirnode, 
-                app=app, 
-                async_=async_, 
-                **request_kwargs, 
-            )))
-        if async_:
-            yield task
+        if max_workers == 0:
+            yield YieldFrom(dirs)
         else:
-            task.result()
-        if len(cache2) < len(cache):
-            files = chain(cache[len(cache2):], files) # type: ignore
-        else:
-            del cache
-        del cache2
+            with cache_loading(files) as (cache, task):
+                yield YieldFrom(dirs)
+                cache2 = cache.copy()
+                yield YieldFrom(do_map(add_top, ensure_attr_path(
+                    client, 
+                    cache2, 
+                    with_ancestors=with_ancestors, 
+                    escape=escape, 
+                    id_to_dirnode=id_to_dirnode, 
+                    app=app, 
+                    async_=async_, 
+                    **request_kwargs, 
+                )))
+            if async_:
+                yield task
+            else:
+                task.result()
+            if len(cache2) < len(cache):
+                files = chain(cache[len(cache2):], files) # type: ignore
+            else:
+                del cache
+            del cache2
         yield YieldFrom(do_map(add_top, ensure_attr_path(
             client, 
             files, # type: ignore

@@ -107,11 +107,14 @@ def complete_url(
                 base_url = f"https://{domain}.115.com"
         else:
             base_url = "https://webapi.115.com"
+    if app in ("windows", "mac", "linux"):
+        app = "os_" + app
     if app and not path.startswith("/open/"):
         if app not in frozenset((
             "ios", "115ios", "ipad", "115ipad", 
             "android", "115android", "qandroid", "qios", 
             "wechatmini", "alipaymini", "tv", "apple_tv", 
+            "os_windows", "os_mac", "os_linux", 
         )):
             app = "android"
         path = "/" + app + path

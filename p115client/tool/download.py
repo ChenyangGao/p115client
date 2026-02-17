@@ -1358,6 +1358,7 @@ def make_strm(
 
 
 # TODO: 如果拉取 max_page 时发现，还存在下一页，则依然需要继续拉取
+# BUG: 目前有个问题，在并发时，内存用量会持续增加，我猜测是因为已经读取的数据没有被释放的缘故，需要想个办法解决一下
 @overload
 def iter_download_nodes(
     client: str | PathLike | P115Client, 
@@ -1430,7 +1431,7 @@ def iter_download_nodes(
         pickcode = cast(str | int, get_first(pickcode, "pickcode", "id"))
     if isinstance(client, (str, PathLike)):
         client = P115Client(client, check_for_relogin=True)
-    if max_workers is None or max_workers <= 0:
+    if max_workers is None or max_workers < 0:
         max_workers = 20 if async_ else min(32, (cpu_count() or 1) + 4)
     if files:
         get_nodes = client.download_files
@@ -1495,7 +1496,7 @@ def iter_download_nodes(
         **request_kwargs, 
         "parse": parse, 
     }
-    if max_workers == 1:
+    if max_workers in (0, 1):
         def iter_list(pickcode: str, /):
             if max_page and max_page > 0:
                 cnt: Iterable[int] = range(1, max_page + 1)

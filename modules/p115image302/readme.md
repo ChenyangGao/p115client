@@ -34,8 +34,7 @@ run(
 
 ```console
 $ p115image302 -h
-usage: p115image302 [-h] [-c COOKIES] [-cp COOKIES_PATH] [-H HOST] [-P PORT] [-d]
-                    [-uc UVICORN_RUN_CONFIG_PATH] [-v] [-l]
+usage: p115image302 [-h] [-c COOKIES] [-cp COOKIES_PATH] [-H HOST] [-P PORT] [-d] [-uc UVICORN_RUN_CONFIG_PATH] [-v] [-l] [dbfile]
 
     ╭───────────────────────── Welcome to 115 image 302 ───────────────────────────╮
     │                                                                              │
@@ -45,11 +44,11 @@ usage: p115image302 [-h] [-c COOKIES] [-cp COOKIES_PATH] [-H HOST] [-P PORT] [-d
     │                                                                              │
     │                      license     https://www.gnu.org/licenses/gpl-3.0.txt    │
     │                                                                              │
-    │                      version     0.0.1                                       │
+    │                      version     0.0.2                                       │
     │                                                                              │
     ╰──────────────────────────────────────────────────────────────────────────────╯
 
-⚽️ 支持下载：用 key 查询，可以是 sha1、oss、id 或者 pickcode，其中 oss 是阿里云 OSS 对象存储的存储桶和对象 id 的组合，格式形如 f"{bucket}_{object}"，例如 "fhnimg_6991ce15fa60d3515b1eb7866a73b6b59a6b9598_0_0"
+⚽️ 支持下载：用 key 查询，可以是 sha1、oss、id 或者 pickcode，其中 oss 是阿里云 OSS 对象存储的存储桶和对象 id 的组合，格式形如 f"{bucket}_{object}"，例如 "fhnimg_6991ce15fa60d3515b1eb7866a73b6b59a6b9598_0_0"。支持查询参数 permanent=1，以指定获取永久链接
 
     GET http://localhost:8000/{key}
     GET http://localhost:8000/{key}/name
@@ -60,6 +59,9 @@ usage: p115image302 [-h] [-c COOKIES] [-cp COOKIES_PATH] [-H HOST] [-P PORT] [-d
 
 ⚾️ 无论上传还是下载，文件大小不得超过 50 MB
 🥎 如果用 sha1 或 oss 下载图片（或者任何不大于 50 MB 的文件），则对应文件不必在你网盘中
+
+positional arguments:
+  dbfile                缓存的数据库路径，默认为当前工作目录下的 'p115image302.db'
 
 options:
   -h, --help            show this help message and exit
