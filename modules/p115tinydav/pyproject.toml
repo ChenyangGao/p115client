@@ -1,0 +1,49 @@
+[tool.poetry]
+name = "p115tinydav"
+version = "0.0.1"
+description = "115 tiny WebDAV."
+authors = ["ChenyangGao <wosiwujm@gmail.com>"]
+license = "MIT"
+readme = "readme.md"
+homepage = "https://github.com/ChenyangGao/p115client/tree/main/modules/p115tinydav"
+repository = "https://github.com/ChenyangGao/p115client/tree/main/modules/p115tinydav"
+keywords = ["python-115", "webdav"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Development Status :: 5 - Production/Stable",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3 :: Only",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+include = [
+    "LICENSE",
+]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+blacksheep = "*"
+blacksheep-rich-log = ">=0.0.1"
+cachedict = ">=0.0.6"
+datefmt = ">=0.0.1"
+errno2 = ">=0.0.5"
+p115client = ">=0.0.7.7.1"
+python-sqlitedict = ">=0.0.3"
+pyyaml = "*"
+uvicorn = "*"
+yarl = "*"
+
+[tool.poetry.scripts]
+p115tinydav = "p115tinydav.__main__:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[[tool.poetry.packages]]
+include = "p115tinydav"
