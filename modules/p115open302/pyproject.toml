@@ -1,0 +1,48 @@
+[tool.poetry]
+name = "p115open302"
+version = "0.0.5.4"
+description = "115 open 302 backend."
+authors = ["ChenyangGao <wosiwujm@gmail.com>"]
+license = "MIT"
+readme = "readme.md"
+homepage = "https://github.com/ChenyangGao/p115client/tree/main/modules/p115open302"
+repository = "https://github.com/ChenyangGao/p115client/tree/main/modules/p115open302"
+keywords = ["python-115", "302", "backend"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Development Status :: 5 - Production/Stable",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3 :: Only",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+include = [
+    "LICENSE",
+]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+blacksheep = "*"
+blacksheep-rich-log = ">=0.0.1"
+cachedict = ">=0.0.6"
+orjson = "*"
+p115client = ">=0.0.7.1"
+p115pickcode = ">=0.0.5.4"
+pyyaml = "*"
+python-dicttools = ">=0.0.4"
+uvicorn = "*"
+
+[tool.poetry.scripts]
+p115open302 = "p115open302.__main__:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[[tool.poetry.packages]]
+include = "p115open302"
