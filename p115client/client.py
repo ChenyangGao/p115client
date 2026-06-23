@@ -6287,7 +6287,7 @@ class P115Client(P115OpenClient):
         )
 
     @overload
-    def clouddownload_download_path(
+    def clouddownload_downpath(
         self, 
         /, 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
@@ -6297,7 +6297,7 @@ class P115Client(P115OpenClient):
     ) -> dict:
         ...
     @overload
-    def clouddownload_download_path(
+    def clouddownload_downpath(
         self, 
         /, 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
@@ -6306,7 +6306,7 @@ class P115Client(P115OpenClient):
         **request_kwargs, 
     ) -> Coroutine[Any, Any, dict]:
         ...
-    def clouddownload_download_path(
+    def clouddownload_downpath(
         self, 
         /, 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
@@ -6322,7 +6322,7 @@ class P115Client(P115OpenClient):
         return self.request(url=api, async_=async_, **request_kwargs)
 
     @overload
-    def clouddownload_download_path_set(
+    def clouddownload_downpath_set(
         self, 
         payload: int | str | dict, 
         /, 
@@ -6333,7 +6333,7 @@ class P115Client(P115OpenClient):
     ) -> dict:
         ...
     @overload
-    def clouddownload_download_path_set(
+    def clouddownload_downpath_set(
         self, 
         payload: int | str | dict, 
         /, 
@@ -6343,7 +6343,7 @@ class P115Client(P115OpenClient):
         **request_kwargs, 
     ) -> Coroutine[Any, Any, dict]:
         ...
-    def clouddownload_download_path_set(
+    def clouddownload_downpath_set(
         self, 
         payload: int | str | dict, 
         /, 
@@ -6363,6 +6363,66 @@ class P115Client(P115OpenClient):
         if isinstance(payload, (int, str)):
             payload = {"file_id": payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def clouddownload_get_id(
+        self, 
+        payload: dict | int = 1, 
+        /, 
+        method: str = "GET", 
+        type: Literal["", "web", "ssp"] = "web", 
+        base_url: str | Callable[[], str] = "https://clouddownload.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def clouddownload_get_id(
+        self, 
+        payload: dict | int = 1, 
+        /, 
+        method: str = "GET", 
+        type: Literal["", "web", "ssp"] = "web", 
+        base_url: str | Callable[[], str] = "https://clouddownload.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def clouddownload_get_id(
+        self, 
+        payload: dict | int = 1, 
+        /, 
+        method: str = "GET", 
+        type: Literal["", "web", "ssp"] = "web", 
+        base_url: str | Callable[[], str] = "https://clouddownload.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取和云下载有关的目录 id
+
+        GET https://clouddownload.115.com/?ac=get_id
+
+        .. note::
+            调用此接口后，如果相关目录不存在，则会自动创建。
+            响应数据里，"cid" 对应的是上传的种子文件的保存目录，"dest_cid" 是云下载的目录
+
+        :payload:
+            - torrent: int = 1
+        """
+        if isinstance(payload, int):
+            payload = {"torrent": payload}
+        return self._clouddownload_request(
+            payload, 
+            "get_id", 
+            method=method, 
+            type=type, 
+            base_url=base_url, 
+            async_=async_, 
+            **request_kwargs, 
+        )
 
     @overload # type: ignore
     def clouddownload_quota_info(
@@ -7326,62 +7386,6 @@ class P115Client(P115OpenClient):
         return self._clouddownload_request(
             payload, 
             "torrent", 
-            method=method, 
-            type=type, 
-            base_url=base_url, 
-            async_=async_, 
-            **request_kwargs, 
-        )
-
-    @overload
-    def clouddownload_upload_torrent_path(
-        self, 
-        payload: dict | int = 1, 
-        /, 
-        method: str = "GET", 
-        type: Literal["", "web", "ssp"] = "web", 
-        base_url: str | Callable[[], str] = "https://clouddownload.115.com", 
-        *, 
-        async_: Literal[False] = False, 
-        **request_kwargs, 
-    ) -> dict:
-        ...
-    @overload
-    def clouddownload_upload_torrent_path(
-        self, 
-        payload: dict | int = 1, 
-        /, 
-        method: str = "GET", 
-        type: Literal["", "web", "ssp"] = "web", 
-        base_url: str | Callable[[], str] = "https://clouddownload.115.com", 
-        *, 
-        async_: Literal[True], 
-        **request_kwargs, 
-    ) -> Coroutine[Any, Any, dict]:
-        ...
-    def clouddownload_upload_torrent_path(
-        self, 
-        payload: dict | int = 1, 
-        /, 
-        method: str = "GET", 
-        type: Literal["", "web", "ssp"] = "web", 
-        base_url: str | Callable[[], str] = "https://clouddownload.115.com", 
-        *, 
-        async_: Literal[False, True] = False, 
-        **request_kwargs, 
-    ) -> dict | Coroutine[Any, Any, dict]:
-        """获取当前的种子上传到的目录，当你添加种子任务后，这个种子会在此目录中保存
-
-        GET https://clouddownload.115.com/?ac=get_id
-
-        :payload:
-            - torrent: int = 1
-        """
-        if isinstance(payload, int):
-            payload = {"torrent": payload}
-        return self._clouddownload_request(
-            payload, 
-            "get_id", 
             method=method, 
             type=type, 
             base_url=base_url, 

@@ -31,10 +31,6 @@ pip install -U p115tinydav
   <source src="https://life.115.com/imgload?h=fhnimg_6a391dab80660f7b480d54cea335d1c91b99eb39_0_0&i=1&t=0&ss=81ca66e055dfde68d0f8bb0dd2e3c205298ae21e&tt=1782128051" type="video/mp4">
 </video>
 
-## 推荐阅读
-
-[教你如何获取 115 网盘的增量数据更新](https://p115client.readthedocs.io/en/latest/example/06.%E6%8B%89%E5%8F%96%E6%93%8D%E4%BD%9C%E4%BA%8B%E4%BB%B6.html)
-
 ## 原创玄幻小说《叶不凡修仙记》
 
 - GitHub: [https://github.com/chenyangGao/adventures-of-super-ye](https://github.com/chenyangGao/adventures-of-super-ye)
