@@ -2,38 +2,29 @@
 # encoding: utf-8
 
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
-__all__ = ["init_db", "updatedb_dir", "updatedb_tree", "updatedb_life"]
+__all__ = ["tinydb_initdb", "updatedb_dir", "updatedb_tree", "updatedb_life"]
+__doc__ = "这个模块提供了一些和更新小型数据库有关的函数"
 
 from asyncio import to_thread
 from itertools import batched
-from sqlite3 import connect, Connection, Cursor
+from sqlite3 import Connection, Cursor
 from time import time
 
 from asynctools import async_batched
 from p115client import P115Client
-from p115client.tool import (
+from sqlitetools import execute, query, upsert_items
+
+from .querydb import P115QueryDB
+from .iterdir import (
     iterdir, iter_life_behavior_once, iter_nodes_using_event, 
-    traverse_tree, P115QueryDB, 
+    traverse_tree, 
 )
-from sqlitetools import execute, query, upsert_items, AutoCloseConnection
 
 
 _init_ts = int(time())
 
 
-def get_con(path: str, /, **connect_kwds):
-    return connect(
-        path, 
-        **{
-            "check_same_thread": False, 
-            "factory": AutoCloseConnection, 
-            "uri": path.startswith("file:"), 
-            **connect_kwds, 
-        }
-    )
-
-
-def init_db(
+def tinydb_initdb(
     con: Connection | Cursor, 
     /, 
 ) -> Cursor:
@@ -73,7 +64,7 @@ CREATE INDEX IF NOT EXISTS idx_data_mtime ON data(mtime);
 """)
 
 
-async def updatedb_dir(
+async def tinydb_update_dir(
     client: P115Client, 
     con: Connection | Cursor, 
     cid: int | str = 0, 
@@ -100,14 +91,14 @@ async def updatedb_dir(
         pass
 
 
-async def updatedb_tree(
+async def tinydb_update_tree(
     client: P115Client, 
     con: Connection | Cursor, 
     cid: int | str = 0, 
     recursive: bool = True, 
 ):
     if not recursive:
-        return updatedb_dir(client, con, cid)
+        return tinydb_update_dir(client, con, cid)
     cid = client.to_id(cid)
     try:
         mtime = int(time())
@@ -147,7 +138,7 @@ UPDATE data SET is_alive=FALSE WHERE id IN (
 # 云下载：根本没有事件（但可以从历史获取）
 # 接收文件："receive_files", 14（因为不是立即完成）
 # 复制文件："copy_folder", 18（因为不是立即完成）
-async def updatedb_life(
+async def tinydb_updatedb_life(
     client: P115Client, 
     con: Connection | Cursor, 
 ):
