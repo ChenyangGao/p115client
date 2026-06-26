@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P115 Tiny WebDAV - 疯狂宇宙主题驾驶舱</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&display=swap');
+
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background-color: #05050f;
+            overflow-x: hidden;
+        }
+
+        .font-orbitron {
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        #canvas-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        /* 自定义高科技滚动条 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(10, 10, 25, 0.5);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, #00f2ff, #7000ff);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #00ffff;
+        }
+
+        /* 发光故障文字特效 */
+        .glitch-text {
+            position: relative;
+            color: #fff;
+            text-shadow: 0 0 10px #00f2ff, 0 0 20px #00f2ff, 0 0 40px #7000ff;
+        }
+
+        /* 玻璃拟态与科技面板 */
+        .sci-fi-panel {
+            background: rgba(10, 14, 35, 0.65);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(0, 242, 255, 0.2);
+            box-shadow: 0 0 25px rgba(0, 242, 255, 0.08), inset 0 0 15px rgba(0, 242, 255, 0.03);
+        }
+
+        .sci-fi-card {
+            background: rgba(15, 20, 45, 0.75);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(112, 0, 255, 0.3);
+            transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+            box-shadow: 0 0 15px rgba(112, 0, 255, 0.1);
+        }
+
+        .sci-fi-card:hover {
+            border-color: #00f2ff;
+            box-shadow: 0 0 30px rgba(0, 242, 255, 0.3), inset 0 0 10px rgba(0, 242, 255, 0.2);
+            transform: translateY(-4px) scale(1.01);
+        }
+        .space-normal {
+            white-space: normal;
+            word-wrap: break-word;
+        }
+        /* 抽屉式 tooltip 提示 */
+        .tooltip-box {
+            position: relative;
+        }
+        .tooltip-box .tooltip-content {
+            position: absolute;
+            visibility: hidden;
+            display: inline-block;
+            width: fit-content;
+            opacity: 0;
+            bottom: 100%;
+            margin-bottom: 8px;
+            z-index: 999;
+            left: 50%;
+            transform: translateX(-50%) translateY(10px);
+            transition: opacity 0.3s, transform 0.3s;
+        }
+        .tooltip-box:hover .tooltip-content {
+            visibility: visible;
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        /* 动态霓虹流光按钮 */
+        .neon-btn {
+            position: relative;
+            overflow: hidden;
+            transition: 0.5s;
+        }
+        .neon-btn:hover {
+            background: #00f2ff;
+            color: #05050f;
+            box-shadow: 0 0 20px #00f2ff, 0 0 40px #00f2ff, 0 0 80px #00f2ff;
+        }
+
+        .card-item-text:hover {
+            color: #00eeff;
+            /* 多层霓虹发光 */
+            text-shadow:
+                0 0 4px #fff,
+                0 0 10px #00eeff,
+                0 0 22px #00eeff,
+                0 0 45px #00aacc;
+        }
+
+        @keyframes cosmic-glow {
+            0%, 100% { filter: drop-shadow(0 0 10px rgba(74, 144, 226, 0.6)); }
+            50% { filter: drop-shadow(0 0 25px rgba(212, 175, 55, 0.8)); }
+        }
+        @keyframes gradient-shift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        .cosmic-title {
+            animation: cosmic-glow 5s infinite alternate;
+            background: linear-gradient(45deg, #ff7b00, #ff0055, #00ffff, #7b00ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-size: 300% 300%;
+            animation: gradient-shift 6s ease infinite;
+        }
+
+        @keyframes neonGlow {
+            0%, 100% { text-shadow: 0 0 5px #00ffff, 0 0 10px #00ffff, 0 0 20px #00ffff, 0 0 40px #0080ff; }
+            50% { text-shadow: 0 0 10px #ff00ff, 0 0 20px #ff00ff, 0 0 40px #ff00ff, 0 0 80px #ff00ff; }
+        }
+        .neon-title { animation: neonGlow 4s infinite; }
+        
+        @keyframes rotateC {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .cosmic-radar { animation: rotateC 20s linear infinite; }
+
+        /* 响应式断点折叠切换卡片 */
+        @media (min-width: 1024px) {
+            .desktop-table { display: table; }
+            .mobile-cards { display: none; }
+        }
+        @media (max-width: 1023px) {
+            .desktop-table { display: none; }
+            .mobile-cards { display: flex; }
+        }
+    </style>
+</head>
+<body class="text-slate-200 antialiased min-h-screen">
+
+    <div id="canvas-container"></div>
+
+    <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+
+        <header class="mb-10 text-center space-y-4">
+            <div class="inline-flex items-center space-x-3 bg-slate-900/80 px-6 py-2 rounded-full border border-cyan-500/30 shadow-inner">
+                <div class="w-3 h-3 bg-cyan-400 rounded-full animate-ping"></div>
+                <span class="text-cyan-400 font-mono tracking-widest text-sm uppercase">Pilot Status: Captain</span>
+            </div>
+            <h1 class="text-5xl md:text-7xl font-extrabold tracking-tighter uppercase cosmic-title">
+                P115 Tiny WebDAV: Crazy Universe
+            </h1>
+        </header>
+
+        <header class="sci-fi-panel rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between gap-4 border-l-4 border-l-cyan-400">
+            <div class="flex items-center space-x-6">
+                <div class="relative w-20 h-20 flex items-center justify-center">
+                    <div class="absolute inset-0 border-2 border-dashed border-cyan-400 rounded-full cosmic-radar"></div>
+                    <div class="absolute inset-2 border border-fuchsia-500 rounded-full"></div>
+                    <i class="fa-solid fa-rocket text-4xl text-cyan-300 drop-shadow-[0_0_12px_#00ffff]"></i>
+                </div>
+                <div>
+                    <h1 class="text-4xl font-extrabold tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-white to-fuchsia-500 neon-title uppercase">Control CGBabin</h1>
+                    <p class="text-cyan-400 font-medium tracking-wide mt-1">
+                        <i class="fa-solid fa-user-astronaut mr-2 "></i> 报告舰长，舱内一切正常，请下达指令
+                    </p>
+                </div>
+            </div>
+            <div class="mt-4 md:mt-0 bg-black/40 border border-cyan-500/40 rounded-xl px-5 py-3 font-mono text-xs text-cyan-200 backdrop-blur-xl space-y-2">
+                <div>
+                    <i class="fa-solid fa-location-crosshairs text-fuchsia-400 mr-2 fa-fade"></i>
+                    <span class="text-fuchsia-400">DEST:</span> 半人马座 α
+                </div>
+                <div>
+                    <i class="fa-solid fa-satellite-dish text-cyan-400 mr-2 fa-beat"></i>
+                    <span class="text-cyan-400">STAT:</span> 巡航曲速中
+                </div>
+                <div>
+                    <i class="fa-solid fa-gear text-yellow-400 mr-2 fa-spin"></i>
+                    <span class="text-yellow-400">SPEED:</span> <span id="speed">0</span> c
+                </div>
+            </div>
+            <div class="flex gap-4">
+                <button onclick="triggerWarp()" class="neon-btn font-orbitron px-6 py-3 rounded-xl border border-cyan-400 text-cyan-400 font-bold tracking-wider cursor-pointer flex items-center gap-2" style="width: max-content;">
+                    <i class="fa-solid fa-rocket animate-pulse"></i> 跃迁引擎点火
+                </button>
+            </div>
+        </header>
+
+        <nav class="sci-fi-panel rounded-xl px-5 py-4 flex items-center text-sm font-semibold overflow-x-auto whitespace-nowrap">
+            <span class="text-violet-400 mr-2 font-orbitron tracking-wider"><i class="fa-solid fa-map-location-dot mr-1"></i> 航行坐标:</span>
+            <div id="ancestors-trail" class="flex items-center space-x-2 text-slate-300"></div>
+            <div class="flex items-center space-x-2 text-xs bg-slate-900/80 border border-slate-700 rounded px-2 py-1 ml-auto">
+                <i class="fa-solid fa-circle-nodes text-green-400 animate-pulse"></i>
+                <span class="text-slate-400">Sub-Space Connected</span>
+            </div>
+        </nav>
+
+        <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            <div class="sci-fi-card rounded-2xl p-5 flex items-center justify-between">
+                <div>
+                    <h3 class="text-slate-400 text-sm font-bold uppercase tracking-wider font-orbitron">星际总量</h3>
+                    <p id="stat-total" class="text-3xl font-black text-cyan-300 mt-1 font-orbitron">0</p>
+                </div>
+                <div class="w-12 h-12 rounded-xl bg-cyan-950/60 border border-cyan-400/30 flex items-center justify-center text-cyan-400 text-xl">
+                    <i class="fa-solid fa-cubes"></i>
+                </div>
+            </div>
+            <div class="sci-fi-card rounded-2xl p-5 flex items-center justify-between">
+                <div>
+                    <h3 class="text-slate-400 text-sm font-bold uppercase tracking-wider font-orbitron">数据实体 (文件)</h3>
+                    <p id="stat-files" class="text-3xl font-black text-violet-300 mt-1 font-orbitron">0</p>
+                </div>
+                <div class="w-12 h-12 rounded-xl bg-violet-950/60 border border-violet-400/30 flex items-center justify-center text-violet-400 text-xl">
+                    <i class="fa-solid fa-file-invoice"></i>
+                </div>
+            </div>
+            <div class="sci-fi-card rounded-2xl p-5 flex items-center justify-between">
+                <div>
+                    <h3 class="text-slate-400 text-sm font-bold uppercase tracking-wider font-orbitron">空间驿站 (目录)</h3>
+                    <p id="stat-dirs" class="text-3xl font-black text-fuchsia-300 mt-1 font-orbitron">0</p>
+                </div>
+                <div class="w-12 h-12 rounded-xl bg-fuchsia-950/60 border border-fuchsia-400/30 flex items-center justify-center text-fuchsia-400 text-xl">
+                    <i class="fa-solid fa-folder-tree"></i>
+                </div>
+            </div>
+            <div class="sci-fi-card rounded-2xl p-5 flex items-center justify-between">
+                <div>
+                    <h3 class="text-slate-400 text-sm font-bold uppercase tracking-wider font-orbitron">占用空间</h3>
+                    <p id="stat-size" class="text-3xl font-black text-emerald-300 mt-1 font-orbitron">0 GB</p>
+                </div>
+                <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-emerald-400/30 flex items-center justify-center text-emerald-400 text-xl">
+                    <i class="fa-solid fa-server"></i>
+                </div>
+            </div>
+        </section>
+
+        <div class="flex flex-col sm:flex-row gap-4 justify-between items-center sci-fi-panel rounded-xl p-4">
+            <div class="relative w-full sm:w-96">
+                <i class="fa-solid fa-radar absolute left-4 top-3.5 text-cyan-400 animate-pulse"></i>
+                <input type="text" id="search-input" oninput="render()" placeholder="扫描雷达，搜索星际物质名称..." class="w-full pl-12 pr-4 py-3 bg-slate-900/60 border border-cyan-400/30 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500 font-medium tracking-wide text-white placeholder-slate-500">
+            </div>
+            <button onclick="resetView()" class="w-full sm:w-auto px-5 py-3 bg-slate-900/60 border border-slate-600 rounded-xl font-orbitron font-bold tracking-wider text-slate-400 hover:text-white hover:border-slate-400 transition cursor-pointer flex items-center justify-center gap-2">
+                <i class="fa-solid fa-rotate-right"></i> 重置雷达
+            </button>
+        </div>
+
+        <div class="sci-fi-panel rounded-2xl overflow-hidden p-1">
+            <div class="desktop-table overflow-x-auto w-full">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="border-b border-cyan-500/30 text-cyan-400 font-orbitron tracking-wider text-sm">
+                            <th class="p-4 w-12 text-center">图标 (icon)</th>
+                            <th class="p-4 cursor-pointer hover:text-white select-none" onclick="sortBy('name')">星体名称 (name) <i id="sort-icon-name" class="fa-solid fa-sort ml-1 text-xs"></i></th>
+                            <th class="p-4 cursor-pointer hover:text-white select-none w-44" onclick="sortBy('sha1')">哈希标识 (sha1)<i id="sort-icon-sha1" class="fa-solid fa-sort ml-1 text-xs"></i></th>
+                            <th class="p-4 cursor-pointer hover:text-white select-none w-32 text-right" onclick="sortBy('size')">字节容积 (size)<i id="sort-icon-size" class="fa-solid fa-sort ml-1 text-xs"></i></th>
+                            <th class="p-4 cursor-pointer hover:text-white select-none w-44 text-right" onclick="sortBy('mtime')">时空记录 (mtime)<i id="sort-icon-mtime" class="fa-solid fa-sort ml-1 text-xs"></i></th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body" class="divide-y divide-slate-800/40">
+                        </tbody>
+                </table>
+            </div>
+
+            <div id="mobile-cards-container" class="mobile-cards flex-col gap-4 p-4">
+                </div>
+        </div>
+
+        <div id="toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col gap-3 pointer-events-none"></div>
+
+    </div>
+
+    <script>
+        // 本示例内置的前端 mimetype 大类及精准匹配图标库 (模拟完整 mime-types 模块)
+        const mimeIconMap = {
+            // 精准扩展名映射
+            ext: {
+                'mp4': 'fa-file-video text-rose-400',
+                'mkv': 'fa-file-video text-rose-500',
+                'mp3': 'fa-file-audio text-amber-400',
+                'wav': 'fa-file-audio text-amber-500',
+                'jpg': 'fa-file-image text-emerald-400',
+                'jpeg': 'fa-file-image text-emerald-400',
+                'png': 'fa-file-image text-teal-400',
+                'gif': 'fa-file-image text-lime-400',
+                'pdf': 'fa-file-pdf text-red-500',
+                'zip': 'fa-file-zipper text-orange-400',
+                'rar': 'fa-file-zipper text-orange-500',
+                'txt': 'fa-file-lines text-slate-300',
+                'md': 'fa-file-lines text-sky-400',
+                'json': 'fa-file-code text-yellow-400',
+                'js': 'fa-file-code text-yellow-500',
+                'html': 'fa-file-code text-orange-500',
+                'css': 'fa-file-code text-indigo-400',
+            },
+            // 大类兜底映射
+            type: {
+                'video': 'fa-file-video text-rose-400',
+                'audio': 'fa-file-audio text-amber-400',
+                'image': 'fa-file-image text-emerald-400',
+                'application': 'fa-file-code text-indigo-400',
+                'text': 'fa-file-lines text-slate-300'
+            }
+        };
+
+        // 获取文件对应图标的函数（集成 mime-types 理念）
+        function getFileIcon(filename, isDir) {
+            // 1. 尝试通过后缀名获取
+            if (isDir) {
+                return `<i class="fa-solid fa-folder text-rose-400 text-xl"></i>`;
+            }
+            const extMatch = filename.split('.').pop()?.toLowerCase();
+            if (extMatch && mimeIconMap.ext[extMatch]) {
+                return `<i class="fa-solid ${mimeIconMap.ext[extMatch]} text-xl"></i>`;
+            }
+            // 2. 尝试通过 mimetype 大类获取
+            //if (mimeType) {
+            //    const mainType = mimeType.split('/')[0]?.toLowerCase();
+            //    if (mainType && mimeIconMap.type[mainType]) {
+            //        return `<i class="fa-solid ${mimeIconMap.type[mainType]} text-xl"></i>`;
+            //    }
+            //}
+            // 3. 兜底文件图标
+            return '<i class="fa-solid fa-file text-slate-400 text-xl"></i>';
+        }
+    </script>
+
+    <script>
+        let currentSort = { field: 'name', asc: true };
+
+        // 格式化 Size
+        function formatSize(bytes, showOriginal = false) {
+            if (showOriginal) return bytes + ' B';
+            if (bytes === 0) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(1024));
+            return (bytes / Math.pow(1024, i)).toFixed(2) + ' ' + units[i];
+        }
+
+        // 格式化时间戳 -> yyyy-mm-dd hh:mm:ss
+        function formatTime(timestamp, showOriginal = false) {
+            if (showOriginal) return timestamp;
+            const date = new Date(timestamp * 1000);
+            const yyyy = date.getFullYear();
+            const mm = String(date.getMonth() + 1).padStart(2, '0');
+            const dd = String(date.getDate()).padStart(2, '0');
+            const hh = String(date.getHours()).padStart(2, '0');
+            const min = String(date.getMinutes()).padStart(2, '0');
+            const ss = String(date.getSeconds()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+        }
+
+        // 初始化加载与面包屑渲染
+        function initAncestors() {
+            const trail = document.getElementById('ancestors-trail');
+            let html = '';
+            const len = currentDirData.ancestors.length;
+            currentDirData.ancestors.forEach((anc, idx) => {
+                if (idx+1==len)
+                    html += `
+                        <span class="text-slate-600">/</span>
+                        <span class="font-orbitron font-semibold">${anc.name || '根目录'}</span>
+                    `;
+                else
+                    html += `
+                        <span class="text-slate-600">/</span>
+                        <a href="/?id=${anc.id}" onclick="jumpToFolder('${anc.id}')" class="text-cyan-400 hover:text-blue-400 transition font-orbitron font-semibold">
+                            ${anc.name || '根目录'}
+                        </a>
+                    `;
+            });
+            trail.innerHTML = html;
+        }
+
+        // 统计卡片计算
+        function updateStats() {
+            const files = currentDirData.children.filter(f => !f.is_dir);
+            const dirs = currentDirData.children.filter(f => f.is_dir);
+            const totalSize = currentDirData.children.reduce((acc, f) => acc + f.size, 0);
+
+            document.getElementById('stat-total').innerText = currentDirData.children.length;
+            document.getElementById('stat-files').innerText = files.length;
+            document.getElementById('stat-dirs').innerText = dirs.length;
+            document.getElementById('stat-size').innerText = formatSize(totalSize);
+        }
+
+        // Toast 抽屉式弹出弹窗 (漂亮的提示气泡)
+        function showToast(message) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = "sci-fi-panel text-cyan-300 font-bold text-sm px-5 py-3 rounded-xl border border-cyan-400/60 shadow-lg flex items-center gap-3 animate-fade-in";
+            toast.innerHTML = `<i class="fa-solid fa-satellite-dish text-cyan-400 animate-ping"></i> ${message}`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.remove();
+            }, 2500);
+        }
+
+        // 复制函数 + 气泡提示
+        async function copyText(text, event) {
+            event.stopPropagation();
+            if (navigator.clipboard && window.isSecureContext)
+                await navigator.clipboard.writeText(text);
+            else {
+                const temp = document.createElement('textarea');
+                temp.value = text;
+                temp.style.left = '-9999px';
+                document.body.appendChild(temp);
+                temp.select();
+                const ok = document.execCommand('copy');
+                document.body.removeChild(temp);
+            }
+            showToast(`<span style="color:white; font-weight: bold;">${text}</span> 已加载到曲率驱动仪`);
+        }
+
+        // 点击文件（下载文件 / 进入对应文件夹）
+        function handleItemClick(file) {
+            if (file.is_dir) {
+                showToast(`已请求进入子星域：${file.name}`);
+                window.location.href = file.path;
+            } else {
+                showToast(`正在从母舰下载引擎数据：${file.name}`);
+                // 模拟下载行为
+                const a = document.createElement('a');
+                a.href = file.path;
+                a.download = file.name;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }
+        }
+
+        // 表格排序控制
+        function sortBy(field) {
+            if (currentSort.field === field) {
+                currentSort.asc = !currentSort.asc;
+            } else {
+                currentSort.field = field;
+                currentSort.asc = true;
+            }
+            // 更新排序图标
+            document.querySelectorAll('[id^="sort-icon-"]').forEach(icon => {
+                icon.className = "fa-solid fa-sort ml-1 text-xs opacity-50";
+            });
+            const activeIcon = document.getElementById(`sort-icon-${field}`);
+            if (activeIcon) {
+                activeIcon.className = `fa-solid fa-sort-${currentSort.asc ? 'up' : 'down'} ml-1 text-xs text-cyan-400`;
+            }
+            render();
+        }
+
+        // 搜索过滤
+        function getFilteredFiles() {
+            const keyword = document.getElementById('search-input').value.toLowerCase();
+            return currentDirData.children.filter(f => f.name.toLowerCase().includes(keyword));
+        }
+
+        // 渲染主函数：组装数据和界面
+        function render() {
+            const files = [...getFilteredFiles()];
+            
+            // 排序
+            files.sort((a, b) => {
+                let valA = a[currentSort.field];
+                let valB = b[currentSort.field];
+                if (currentSort.field === 'name') {
+                    valA = valA.toLowerCase();
+                    valB = valB.toLowerCase();
+                }
+                if (valA < valB) return currentSort.asc ? -1 : 1;
+                if (valA > valB) return currentSort.asc ? 1 : -1;
+                return 0;
+            });
+
+            // --- 渲染桌面端表格 ---
+            const tbody = document.getElementById('table-body');
+            let tableHtml = '';
+            files.forEach(file => {
+                const iconHtml = getFileIcon(file.name, file.is_dir);
+                tableHtml += `
+                    <tr class="hover:bg-slate-900/30 transition cursor-pointer text-sm font-medium border-b border-slate-800/20">
+                        <td class="tooltip-box p-4 text-center" onclick="copyText('${window.location.origin}?id=${file.id}', event)">
+                            ${iconHtml}
+                            <span class="tooltip-content absolute bg-slate-900 text-cyan-400 border border-cyan-500 text-xs px-3 py-1.5 rounded-lg shadow-xl whitespace-nowrap z-50">
+                                点击复制链接
+                            </span>
+                        </td>
+                        <td class="tooltip-box p-4 font-semibold text-sky-200 hover:text-cyan-300 transition underline decoration-cyan-500/0 hover:underline-offset-4 hover:decoration-cyan-400">
+                            <span class="cursor-pointer" onclick="handleItemClick(${JSON.stringify(file).replace(/"/g, '&quot;')})">
+                                ${file.is_dir ? '<i class="fa-solid fa-arrow-up-right-from-square ml-1 text-xs text-cyan-400 animate-pulse"></i>' : '<i class="fa-solid fa-download ml-1 text-xs text-cyan-400 animate-pulse"></i>'} &nbsp; ${file.name}
+                                <span class="tooltip-content space-normal absolute bg-slate-900 text-cyan-400 border border-cyan-500 text-xs px-3 py-1.5 rounded-lg shadow-xl whitespace-nowrap z-50">
+                                    ${file.path}
+                                </span>
+                            </span>
+                        </td>
+                        <td class="p-4 font-mono text-xs text-violet-400">
+                            <span class="tooltip-box cursor-pointer" onclick="copyText('${file.sha1}', event)">
+                                ${file.sha1} ${file.is_dir ? '' : '<i class="fa-solid fa-copy ml-1 opacity-70 hover:text-cyan-400"></i>'}
+                            </span>
+                        </td>
+                        <td class="p-4 text-right font-mono text-xs text-emerald-400 relative group select-none" onclick="copyText('${file.size}', event)">
+                            <span class="group-hover:hidden">${formatSize(file.size)}</span>
+                            <span class="hidden group-hover:inline">${formatSize(file.size, true)}</span>
+                        </td>
+                        <td class="p-4 text-right font-mono text-xs text-amber-300 relative group select-none" onclick="copyText('${file.mtime}', event)">
+                            <span class="group-hover:hidden">${formatTime(file.mtime)}</span>
+                            <span class="hidden group-hover:inline">${formatTime(file.mtime, true)}</span>
+                        </td>
+                    </tr>
+                `;
+            });
+            tbody.innerHTML = tableHtml;
+
+            // --- 渲染移动端名片 (手机屏幕下自适应折叠成卡片) ---
+            const cardsContainer = document.getElementById('mobile-cards-container');
+            let cardsHtml = '';
+            files.forEach(file => {
+                const iconHtml = getFileIcon(file.name, file.is_dir);
+                cardsHtml += `
+                    <div class="sci-fi-card rounded-xl p-4 flex flex-col gap-3 cursor-pointer">
+                        <div class="flex items-center justify-between border-b border-violet-500/20 pb-2">
+                            <div class="flex items-center gap-3">
+                                <div class="tooltip-box w-10 h-10 rounded-lg bg-slate-900 border border-slate-700 flex items-center justify-center" onclick="copyText('${window.location.origin}?id=${file.id}', event)">
+                                    ${iconHtml}
+                                    <span class="tooltip-content absolute bg-slate-900 text-cyan-400 border border-cyan-500 text-xs px-3 py-1.5 rounded-lg shadow-xl whitespace-nowrap z-50">
+                                        点击复制链接
+                                    </span>
+                                </div>
+                                <div onclick="handleItemClick(${JSON.stringify(file).replace(/"/g, '&quot;')})">
+                                    <h4 class="font-bold text-sky-200 text-base font-orbitron card-item-text">${file.name} ${file.is_dir ? '<i class="fa-solid fa-arrow-up-right-from-square ml-1 text-xs text-cyan-400 animate-pulse"></i>' : '<i class="fa-solid fa-download ml-1 text-xs text-cyan-400 animate-pulse"></i>'}</h4>
+                                    <span class="text-xs text-slate-400 uppercase">${file.is_dir ? '目录基站' : '数据文件'}</span>
+                                </div>
+                            </div>
+                            ${file.is_dir ? '<i class="fa-solid fa-arrow-right-long text-cyan-400"></i>' : ''}
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2 text-xs bg-slate-950/50 p-3 rounded-lg border border-slate-800/50">
+                            <div>
+                                <span class="text-slate-500 font-bold block">ID</span>
+                                <span class="text-slate-300 font-mono card-item-text" onclick="copyText('${file.id}', event)">${file.id}</span>
+                            </div>
+                            <div>
+                                <span class="text-slate-500 font-bold block">父级 ID</span>
+                                <span class="text-slate-300 font-mono card-item-text" onclick="copyText('${file.parent_id}', event)">${file.parent_id}</span>
+                            </div>
+                            <div class="col-span-2">
+                                <span class="text-slate-500 font-bold block">星际路径 Path</span>
+                                <span class="text-violet-300 text-[10px] font-mono break-all card-item-text" onclick="copyText('${file.path}', event)">${file.path}</span>
+                            </div>
+                            ${file.is_dir ? '' : `
+                            <div class="col-span-2 border-t border-slate-800/80 mt-1 pt-1 flex justify-between items-center">
+                                <div>
+                                    <span class="text-slate-500 font-bold block">哈希载荷 SHA1</span>
+                                    <span onclick="copyText('${file.sha1}', event)" class="text-cyan-400 font-mono cursor-pointer hover:underline text-[10px] card-item-text">
+                                        ${file.sha1} <i class="fa-regular fa-copy"></i>
+                                    </span>
+                                </div>
+                            </div>`}
+                        </div>
+
+                        <div class="flex justify-between items-center bg-indigo-950/30 px-3 py-2 rounded-lg border border-indigo-900/40 text-xs">
+                            <div class="flex flex-col" onclick="copyText('${file.size}', event)">
+                                <span class="text-slate-500 text-[10px] font-bold">实体容积 Size</span>
+                                <span class="text-emerald-300 font-mono font-semibold" onmouseover="this.innerText='${formatSize(file.size, true)}'" onmouseout="this.innerText='${formatSize(file.size)}'">
+                                    ${formatSize(file.size)}
+                                </span>
+                            </div>
+                            <div class="flex flex-col text-right" onclick="copyText('${file.mtime}', event)">
+                                <span class="text-slate-500 text-[10px] font-bold">时间节点 Mtime</span>
+                                <span class="text-amber-300 font-mono text-[10px] font-semibold" onmouseover="this.innerText='${formatTime(file.mtime, true)}'" onmouseout="this.innerText='${formatTime(file.mtime)}'">
+                                    ${formatTime(file.mtime)}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            cardsContainer.innerHTML = cardsHtml;
+            updateStats();
+        }
+
+        // 顶部重置雷达操作
+        function resetView() {
+            document.getElementById('search-input').value = '';
+            showToast("雷达已归零，星际物质阵列已刷新。");
+            render();
+        }
+
+        const speedDom = document.getElementById("speed");
+        let lastSpeed = 0.3;
+
+        function randomPlusMinus(n=0.01) {
+            return (Math.random() * n * 2) - 1.1 * n;
+        }
+
+        // 更新飞船航行速度
+        function updateSpeed(speedup=0) {
+            lastSpeed = Math.max(0.1, Math.min(1, lastSpeed + speedup + randomPlusMinus()));
+            speedDom.textContent = lastSpeed.toFixed(6);
+        }
+        setInterval(updateSpeed, 100);
+
+        // 跃迁引擎点火 (触发全景黑洞动效或警报)
+        function triggerWarp() {
+            updateSpeed(0.1);
+            showToast("🚀 空间跳跃引擎已点火，超光速跃迁中...");
+            if (typeof window.startWarpDrive === 'function') {
+                window.startWarpDrive();
+            }
+        }
+
+        // 模拟跳转到任一祖先目录部分
+        function jumpToFolder(folderId) {
+            showToast(`请求跃迁至指定航标: [节点ID: ${folderId}]`);
+            window.location.href = "/?id=" + folderId
+        }
+
+        // 页面初始化执行
+        window.onload = async () => {
+            const url = new URL(location.href);
+            url.searchParams.set('format', 'json');
+            const resp = await fetch(url.href);
+            currentDirData = await resp.json();
+            initAncestors();
+            render();
+        };
+    </script>
+
+    <script>
+        let scene, camera, renderer, particles, starField;
+        
+        function initThreeBackground() {
+            const container = document.getElementById('canvas-container');
+            
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x05050f, 0.0015);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 500;
+
+            renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
+
+            // 生成色彩缤纷宇宙星空背景
+            const geometry = new THREE.BufferGeometry();
+            const count = 3000;
+            const positions = new Float32Array(count * 3);
+            const colors = new Float32Array(count * 3);
+
+            for(let i = 0; i < count * 3; i += 3) {
+                // 散布于整个宇宙黑洞周围
+                positions[i] = (Math.random() - 0.5) * 2000;
+                positions[i+1] = (Math.random() - 0.5) * 2000;
+                positions[i+2] = (Math.random() - 0.5) * 2000;
+
+                // 缤纷彩色粒子：霓虹色、深空紫、电光蓝
+                colors[i] = Math.random() * 0.5 + 0.5;   // R
+                colors[i+1] = Math.random() * 0.8 + 0.2; // G
+                colors[i+2] = 1.0;                       // B
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            // 基础粒子材质
+            const material = new THREE.PointsMaterial({
+                size: 3.5,
+                transparent: true,
+                opacity: 0.75,
+                vertexColors: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+
+            particles = new THREE.Points(geometry, material);
+            scene.add(particles);
+
+            // 制造黑洞引力涡旋（线条光环）
+            const ringGeo = new THREE.BufferGeometry();
+            const ringCount = 300;
+            const ringPos = new Float32Array(ringCount * 3);
+            for (let i = 0; i < ringCount * 3; i += 3) {
+                const radius = i * 2 + 50;
+                const theta = Math.random() * Math.PI * 2;
+                ringPos[i] = Math.cos(theta) * radius;
+                ringPos[i+1] = (Math.random() - 0.5) * 20;
+                ringPos[i+2] = Math.sin(theta) * radius;
+            }
+            ringGeo.setAttribute('position', new THREE.BufferAttribute(ringPos, 3));
+            const ringMat = new THREE.PointsMaterial({ size: 2, color: 0x7000ff });
+            starField = new THREE.Points(ringGeo, ringMat);
+            scene.add(starField);
+
+            window.addEventListener('resize', onWindowResize);
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = Date.now() * 0.00005;
+
+            // 粒子云缓慢漂移与旋转（疯狂宇宙状态）
+            particles.rotation.x = time * 0.2;
+            particles.rotation.y = time * 0.3;
+
+            // 涡旋中心牵引光环旋转
+            starField.rotation.y = -time * 1.5;
+            starField.rotation.x = Math.sin(time) * 0.1;
+
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // 跃迁引擎转动动画
+        window.startWarpDrive = function() {
+            gsapWarpEffect();
+        };
+
+        // 通过改变视角呈现光速穿梭和空间跃迁体验
+        function gsapWarpEffect() {
+            let t = 0;
+            const interval = setInterval(() => {
+                t += 0.05;
+                particles.material.size = 3.5 + Math.sin(t) * 20;
+                if (t >= Math.PI * 2) {
+                    clearInterval(interval);
+                    particles.material.size = 3.5;
+                }
+            }, 50);
+        }
+
+        initThreeBackground();
+    </script>
+</body>
+</html>

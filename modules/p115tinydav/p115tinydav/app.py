@@ -4,11 +4,11 @@
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
 __all__ = ["make_application"]
 
-from asyncio import create_task, sleep, Task, Queue
-from collections.abc import Iterator
+from asyncio import create_task, sleep, to_thread, Task, Queue
 from contextlib import suppress
 from email.utils import formatdate
 from html import escape
+from io import BytesIO
 from mimetypes import guess_type
 from os import fsdecode, PathLike
 from posixpath import join as joinpath
@@ -18,8 +18,10 @@ from time import time, perf_counter
 from urllib.parse import quote
 
 from blacksheep import Application, Request, Response, Router
-from blacksheep.contents import Content
+from blacksheep.contents import Content, StreamedContent
+from blacksheep.server.compression import use_gzip_compression
 from blacksheep.server.remotes.forwarding import ForwardedHeadersMiddleware
+from blacksheep.server.responses import json
 from blacksheep_rich_log import middleware_access_log
 from cachedict import TTLDict
 from p115client import P115Client
@@ -38,6 +40,9 @@ with suppress(ImportError, AttributeError):
 from .db import get_con, init_db, updatedb_tree, updatedb_life
 
 
+theme = (Path(__file__).parent / "themes" / "crazy-universe.html").open("rb").read()
+
+
 def guess_mimetype(name: str, /) -> bytes:
     mimetype = guess_type(name)[0] 
     if not mimetype:
@@ -45,11 +50,23 @@ def guess_mimetype(name: str, /) -> bytes:
     return bytes(mimetype, "ascii")
 
 
+def ensure_str_id(attr, /):
+    attr["id"] = str(attr["id"])
+    attr["parent_id"] = str(attr["parent_id"])
+    if "ancestors" in attr:
+        for subattr in attr["ancestors"]:
+            ensure_str_id(subattr)
+    if "children" in attr:
+        for subattr in attr["children"]:
+            ensure_str_id(subattr)
+
+
 def make_application(
     client: str | PathLike | P115Client = Path("~/115-cookies.txt").expanduser(), 
     dbfile: str | PathLike = "", 
     debug: bool = False, 
     cache_url: bool = True, 
+    use_gzip: bool = True, 
 ) -> Application:
     CACHE_IMAGE_URL: TTLDict[str, str] = TTLDict(3600-60, maxsize=4096)
     CACHE_URL: TTLDict[tuple[int, str], str] = TTLDict(3600, maxsize=1024)
@@ -63,6 +80,8 @@ def make_application(
     DB_READ_URI  = f"file:{quote(dbfile)}?mode=ro"
     DB_WRITE_URI = f"file:{quote(dbfile)}?mode=rwc"
     app = Application(router=Router(), show_error_details=debug)
+    if use_gzip:
+        use_gzip_compression(app)
     app.services.register(P115Client, instance=client)
     middleware_access_log(app)
     logger = getattr(app, "logger")
@@ -145,31 +164,31 @@ def make_application(
         background_tasks = app.services.resolve(Task)
         background_tasks.cancel()
 
-    def iter_attr_content(attr: dict, /) -> Iterator[bytes]:
+    def write_attr_content(write, attr: dict, /):
         name = attr["name"]
-        yield b"<d:response><d:href>"
-        yield escape(quote(attr["path"])).encode("utf-8")
-        yield b"</d:href><d:propstat><d:prop>"
-        yield b"<d:displayname>"
-        yield escape(quote(name)).encode("utf-8")
-        yield b"</d:displayname>"
-        yield b"<d:getlastmodified>"
-        yield formatdate(attr.get("mtime", 0), usegmt=True).encode("ascii")
-        yield b"</d:getlastmodified>"
+        write(b"<d:response><d:href>")
+        write(escape(quote(attr["path"])).encode("utf-8"))
+        write(b"</d:href><d:propstat><d:prop>")
+        write(b"<d:displayname>")
+        write(escape(quote(name)).encode("utf-8"))
+        write(b"</d:displayname>")
+        write(b"<d:getlastmodified>")
+        write(formatdate(attr.get("mtime", 0), usegmt=True).encode("ascii"))
+        write(b"</d:getlastmodified>")
         if attr["is_dir"]:
-            yield b"<d:resourcetype><d:collection/></d:resourcetype>"
+            write(b"<d:resourcetype><d:collection/></d:resourcetype>")
         else:
-            yield b"<d:getetag>&quot;"
-            yield attr.get("sha1", "").encode("ascii")
-            yield b"&quot;</d:getetag>"
-            yield b"<d:getcontentlength>"
-            yield str(attr.get("size", 0)).encode("ascii")
-            yield b"</d:getcontentlength>"
-            yield b"<d:getcontenttype>"
-            yield guess_mimetype(name)
-            yield b"</d:getcontenttype>"
-            yield b"<d:resourcetype></d:resourcetype>"
-        yield b"</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"
+            write(b"<d:getetag>&quot;")
+            write(attr.get("sha1", "").encode("ascii"))
+            write(b"&quot;</d:getetag>")
+            write(b"<d:getcontentlength>")
+            write(str(attr.get("size", 0)).encode("ascii"))
+            write(b"</d:getcontentlength>")
+            write(b"<d:getcontenttype>")
+            write(guess_mimetype(name))
+            write(b"</d:getcontenttype>")
+            write(b"<d:resourcetype></d:resourcetype>")
+        write(b"</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>")
 
     @app.router.route("/<path:path>", methods=["PROPFIND"])
     async def propfind(
@@ -192,10 +211,11 @@ def make_application(
             top_path = querydb.get_path(id)
         attr["path"] = top_path
         depth = request.headers.get_first(b"depth")
-        async def iter_content():
-            yield b'<?xml version="1.0" ?>\n<d:multistatus xmlns:d="DAV:">'
-            for part in iter_attr_content(attr):
-                yield part
+        def make_content():
+            file = BytesIO()
+            write = file.write
+            write(b'<?xml version="1.0" ?>\n<d:multistatus xmlns:d="DAV:">')
+            write_attr_content(write, attr)
             if depth != b"0" and attr["is_dir"]:
                 if depth == b"1":
                     relpath_key = "name"
@@ -205,12 +225,10 @@ def make_application(
                     it = querydb.iter_descendants(id, fields=("id", "parent_id", "name", "sha1", "size", "mtime", "is_dir", "relpath"))
                 for sub_attr in it:
                     sub_attr["path"] = joinpath(top_path, sub_attr[relpath_key])
-                    for part in iter_attr_content(sub_attr):
-                        yield part
-            yield b"</d:multistatus>"
-        # NOTE: 本想流式发送数据 blacksheep.contents.StreamedContent，但总是报错，说数据未发送完响应已经关闭，只好自己拼接了
-        text = b"".join([p async for p in iter_content()])
-        return Response(207, content=Content(b"application/xml; charset=utf-8", text))
+                    write_attr_content(write, sub_attr)
+            write(b"</d:multistatus>")
+            return file.getvalue()
+        return Response(207, content=Content(b"application/xml", await to_thread(make_content)))
 
     async def get_image_url(sha1: str, /) -> str:
         if cache_url and (url := CACHE_IMAGE_URL.get(sha1)):
@@ -238,9 +256,8 @@ def make_application(
             CACHE_URL[(id, user_agent)] = url
         return url
 
-    # TODO: 后续此方法对于目录，会返回一个网页
-    @app.router.route("/<path:path>", methods=["GET", "HEAD", "POST"])
-    async def get(
+    @app.router.route("/<path:path>", methods=["HEAD"])
+    async def head(
         request: Request, 
         id: int = -1, 
         pickcode: str = "", 
@@ -254,7 +271,41 @@ def make_application(
                 id = querydb.get_id(path=path)
         attr = querydb.get_attr(id)
         if attr["is_dir"]:
-            raise IsADirectoryError(21, attr)
+            return b""
+        name = attr["name"]
+        async def fake_gen():
+            yield
+        return Response(200, [
+            (b"accept-ranges", b"bytes"), 
+            (b"content-disposition", b'''attachment; filename*=UTF-8''%s''' % quote(name).encode("ascii")), 
+            (b"etag", b'"%s"'%attr["sha1"].encode("ascii")), 
+        ], content=StreamedContent(guess_mimetype(name), fake_gen, attr["size"]))
+
+    @app.router.route("/<path:path>", methods=["GET", "POST"])
+    async def get(
+        request: Request, 
+        id: int = -1, 
+        pickcode: str = "", 
+        path: str = "/", 
+        format: str = "", 
+    ):
+        querydb = P115QueryDB(get_con(DB_READ_URI))
+        if id <= 0:
+            if pickcode:
+                id = client.to_id(pickcode)
+            else:
+                id = querydb.get_id(path=path)
+        attr = querydb.get_attr(id)
+        attr["path"] = querydb.get_path(id)
+        if attr["is_dir"]:
+            if format == "json":
+                attr["ancestors"] = list(querydb.get_ancestors(id))
+                attr["children"] = list(querydb.iter_children(id))
+                ensure_str_id(attr)
+                for subattr in attr["children"]:
+                    subattr["path"] = joinpath(attr["path"], subattr["name"])
+                return json(attr)
+            return Response(200, content=Content(b"text/html", theme))
         if attr["size"] <= 1024 * 1024 * 50:
             url = await get_image_url(attr["sha1"])
         else:
@@ -265,8 +316,8 @@ def make_application(
             (b"accept-ranges", b"bytes"), 
             (b"cache-control", b"max-age=300, must-revalidate"), 
             (b"content-disposition", b'''attachment; filename*=UTF-8''%s''' % quote(name).encode("ascii")), 
-            (b"content-type", guess_mimetype(attr["name"])), 
-            (b"etag", attr["sha1"].encode("ascii")), 
+            (b"content-type", guess_mimetype(name)), 
+            (b"etag", b'"%s"'%attr["sha1"].encode("ascii")), 
             (b"location", url.encode("utf-8")), 
         ])
 

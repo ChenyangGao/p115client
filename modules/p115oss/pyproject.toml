@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "p115oss"
-version = "0.1.0.1"
+version = "0.1.0.2"
 description = "115 oss upload."
 authors = ["ChenyangGao <wosiwujm@gmail.com>"]
 license = "MIT"

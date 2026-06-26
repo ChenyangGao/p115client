@@ -1,5 +1,8 @@
 # 115 tiny WebDAV.
 
+![stats](https://life.115.com/imgload?h=fhnimg_6a3e2a2dabe87e86f7e98216bc26a56433a57212_0_0&i=1&t=0&ss=8f24ee198ce4485c902ba4586890e9ad679a845c&tt=1782458926)
+![files](https://life.115.com/imgload?h=fhnimg_6a3e2a7438c36dd1410eff2acd9531a173501f4d_0_0&i=1&t=0&ss=f7d43c462527df909606f73ae6b0171e8b1a9a36&tt=1782458996)
+
 ## 安装
 
 你可以通过 [pypi](https://pypi.org/project/p115tinydav/) 安装
@@ -44,7 +47,7 @@ usage: p115tinydav [-h] [-c COOKIES] [-cp COOKIES_PATH] [-H HOST] [-P PORT] [-nc
     │                                                                              │
     │                      license     https://www.gnu.org/licenses/gpl-3.0.txt    │
     │                                                                              │
-    │                      version     0.0.3                                       │
+    │                      version     0.0.4                                       │
     │                                                                              │
     ╰──────────────────────────────────────────────────────────────────────────────╯
 

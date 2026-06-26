@@ -8,8 +8,7 @@ from collections.abc import Buffer, Callable, Coroutine
 from hashlib import sha1
 from inspect import isawaitable
 from os import fsdecode, fstat, stat, PathLike
-from re import compile as re_compile
-from typing import cast, overload, Any, Final, Literal
+from typing import cast, overload, Any, Literal
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -27,9 +26,6 @@ from .oss import (
     DEFAULT_BUCKET, DEFAULT_ENDPOINT, oss_multipart_part_iter, oss_upload, 
     oss_multipart_upload_init, oss_multipart_upload, oss_multipart_upload_complete, 
 )
-
-
-CRE_UID_in_COOKIE_search: Final = re_compile(r"(?<=\bUID=)\w+").search
 
 
 class MultipartUploadAbort(OSError):

@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 # encoding: utf-8
 
+if __name__ == "__main__":
+    from pathlib import Path
+    from sys import path
+
+    path[0] = str(Path(__file__).parents[1])
+
 __author__ = "ChenyangGao <https://chenyanggao.github.io>"
-__doc__ = """\
+__doc__ = f"""\
     ╭───────────────────────── \x1b[31mWelcome to \x1b[1m115 tiny dav\x1b[0m ────────────────────────────╮
     │                                                                              │
     │  \x1b[1;35mmaintained by\x1b[0m \x1b[3;5;31m❤\x1b[0m     \x1b[32mChenyangGao \x1b[4;34mhttps://chenyanggao.github.io\x1b[0m               │
@@ -11,7 +17,7 @@ __doc__ = """\
     │                                                                              │
     │                      \x1b[32mlicense     \x1b[4;34mhttps://www.gnu.org/licenses/gpl-3.0.txt\x1b[0m    │
     │                                                                              │
-    │                      \x1b[32mversion     \x1b[1;36m0.0.3\x1b[0m                                       │
+    │                      \x1b[32mversion     \x1b[1;36m{'.'.join(map(str, __import__("p115tinydav").__version__))}\x1b[0m                                       │
     │                                                                              │
     ╰──────────────────────────────────────────────────────────────────────────────╯
 """
@@ -114,9 +120,5 @@ def main(argv: None | list[str] | Namespace = None, /):
 
 
 if __name__ == "__main__":
-    from pathlib import Path
-    from sys import path
-
-    path[0] = str(Path(__file__).parents[1])
     main()
 

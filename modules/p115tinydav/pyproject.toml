@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "p115tinydav"
-version = "0.0.3.2"
+version = "0.0.4"
 description = "115 tiny WebDAV."
 authors = ["ChenyangGao <wosiwujm@gmail.com>"]
 license = "MIT"

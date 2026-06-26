@@ -223,6 +223,7 @@ def oss_request(
         return request(
             url=url, 
             method=method, 
+            async_=async_, 
             **request_kwargs, 
         )
     return run_gen_step(gen_step, async_)

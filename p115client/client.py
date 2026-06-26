@@ -5035,7 +5035,7 @@ class P115Client(P115OpenClient):
             所以你可以用一个设备的 cookies 专门用于扫码登录，获取另一个设备的 cookies 执行网盘操作，第 2 个 cookies 失效了，则用第 1 个 cookies 扫码，如此可避免单个 cookies 失效后，不能自动获取新的
 
         :param app: 要登录的 app，如果为 None，则用当前登录设备，如果无当前登录设备，则报错
-        :param replace: 替换某个 client 对象的 cookie
+        :param replace: 替换某个 ``P115Client`` 对象的 cookie
 
             - 如果为 ``P115Client``, 则更新到此对象
             - 如果为 True，则更新到 `self`
