@@ -31,6 +31,9 @@ pip install -U p115tinydav
   <source src="https://life.115.com/imgload?h=fhnimg_6a391dab80660f7b480d54cea335d1c91b99eb39_0_0&i=1&t=0&ss=81ca66e055dfde68d0f8bb0dd2e3c205298ae21e&tt=1782128051" type="video/mp4">
 </video>
 
+![stats](https://life.115.com/imgload?h=fhnimg_6a3e2a2dabe87e86f7e98216bc26a56433a57212_0_0&i=1&t=0&ss=8f24ee198ce4485c902ba4586890e9ad679a845c&tt=1782458926)
+![files](https://life.115.com/imgload?h=fhnimg_6a3e2a7438c36dd1410eff2acd9531a173501f4d_0_0&i=1&t=0&ss=f7d43c462527df909606f73ae6b0171e8b1a9a36&tt=1782458996)
+
 ## 原创玄幻小说《叶不凡修仙记》
 
 - GitHub: [https://github.com/chenyangGao/adventures-of-super-ye](https://github.com/chenyangGao/adventures-of-super-ye)
