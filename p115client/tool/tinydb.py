@@ -1,41 +1,33 @@
 #!/usr/bin/env python3
 # encoding: utf-8
 
-__author__ = "ChenyangGao <https://chenyanggao.github.io>"
-__all__ = ["tinydb_initdb", "updatedb_dir", "updatedb_tree", "updatedb_life"]
+__all__ = ["tinydb_initdb", "tinydb_update", "tinydb_update_event"]
 __doc__ = "这个模块提供了一些和更新小型数据库有关的函数"
 
-from asyncio import to_thread
-from itertools import batched
-from sqlite3 import Connection, Cursor
+from collections.abc import Callable, Coroutine
+from os import PathLike
 from time import time
+from typing import overload, Any, Literal
 
-from asynctools import async_batched
-from p115client import P115Client
-from sqlitetools import execute, query, upsert_items
+from iterutils import foreach, run_gen_step
+from sqlitetools import connect, execute, executescript, query, upsert_items
 
+from .history import iter_history_once
+from .iterdir import iter_dirs, iter_life_behavior_once
 from .querydb import P115QueryDB
-from .iterdir import (
-    iterdir, iter_life_behavior_once, iter_nodes_using_event, 
-    traverse_tree, 
-)
+from .updatedb import locked_gen_step, updatedb, event_normalize_attr, wrap_async
+
+
+from ..client import P115Client
 
 
 _init_ts = int(time())
 
 
-def tinydb_initdb(
-    con: Connection | Cursor, 
-    /, 
-) -> Cursor:
+def tinydb_initdb(con, /):
     """执行一些 SQL 语句以初始化数据库，并返回游标
     """
-    if isinstance(con, Connection):
-        conn = con
-    else:
-        conn = con.connection
-    return conn.executescript(
-        """\
+    sql = """\
 PRAGMA journal_mode = WAL;
 PRAGMA auto_vacuum  = NONE;
 PRAGMA foreign_keys = OFF;
@@ -56,188 +48,241 @@ CREATE TABLE IF NOT EXISTS keystore (
     val ANY NOT NULL
 );
 
-INSERT OR IGNORE INTO keystore VALUES ('last_update_ts', 0);
+INSERT OR IGNORE INTO keystore VALUES ('last_history_id', 0);
+INSERT OR IGNORE INTO keystore VALUES ('last_update_history_ts', 0);
 INSERT OR IGNORE INTO keystore VALUES ('last_life_id', 0);
+INSERT OR IGNORE INTO keystore VALUES ('last_update_life_ts', 0);
 
 CREATE INDEX IF NOT EXISTS idx_data_pid_name ON data(parent_id, name);
-CREATE INDEX IF NOT EXISTS idx_data_mtime ON data(mtime);
-""")
+CREATE INDEX IF NOT EXISTS idx_data_mtime ON data(mtime);"""
+    return executescript(con, sql)
 
 
-async def tinydb_update_dir(
-    client: P115Client, 
-    con: Connection | Cursor, 
-    cid: int | str = 0, 
-):
-    cid = client.to_id(cid)
-    try:
-        mtime = int(time())
-        async for batch in async_batched(iterdir(client, cid, id_to_dirnode=..., async_=True), 1000):
-            await to_thread(
-                upsert_items, 
-                con, 
-                batch, 
-                {"is_alive": True, "mtime": mtime}, 
-                fields=("id", "parent_id", "name", "sha1", "size"), 
-                commit=True, 
-            )
-        execute(
-            con, 
-            "UPDATE data SET is_alive=FALSE WHERE parent_id=? AND mtime<? AND is_alive", 
-            (cid, mtime), 
-            commit=True, 
-        )
-    except FileNotFoundError:
-        pass
-
-
-async def tinydb_update_tree(
-    client: P115Client, 
-    con: Connection | Cursor, 
+@overload
+def tinydb_update(
+    client: str | PathLike | P115Client, 
+    con = "", 
     cid: int | str = 0, 
     recursive: bool = True, 
-):
-    if not recursive:
-        return tinydb_update_dir(client, con, cid)
-    cid = client.to_id(cid)
-    try:
-        mtime = int(time())
-        print(mtime)
-        async for batch in async_batched(traverse_tree(client, cid, id_to_dirnode=..., async_=True), 1000):
-            await to_thread(
-                upsert_items, 
+    only_alive: bool = False, 
+    lock = None, 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> None:
+    ...
+@overload
+def tinydb_update(
+    client: str | PathLike | P115Client, 
+    con = "", 
+    cid: int | str = 0, 
+    recursive: bool = True, 
+    only_alive: bool = False, 
+    lock = None, 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> Coroutine[Any, Any, None]:
+    ...
+def tinydb_update(
+    client: str | PathLike | P115Client, 
+    con = "", 
+    cid: int | str = 0, 
+    recursive: bool = True, 
+    only_alive: bool = False, 
+    lock = None, 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+) -> None | Coroutine[Any, Any, None]:
+    """拉取一个目录
+
+    :param client: 115 客户端或 cookies
+    :param con: 数据库链接、游标或路径
+    :param cid: 目录的 id 或 pickcode
+    :param recursive: 是否拉取目录树
+    :param only_alive: 只更新 ``is_alive=True`` 的条目
+    :param lock: 更新数据库时加锁
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+    """
+    if isinstance(client, (str, PathLike)):
+        client = P115Client(client)
+    if isinstance(con, (bytes, str, PathLike)):
+        con = connect(con or f"p115-tinydb-{client.user_id}.db")
+        tinydb_initdb(con)
+    def gen_step():
+        mtime: int = yield updatedb(
+            client, 
+            con, 
+            cid, 
+            recursive=recursive, 
+            only_alive=only_alive, 
+            lock=lock, 
+            async_=async_, 
+            **request_kwargs, 
+        )
+        if mtime:
+            yield from locked_gen_step(
+                lock, 
+                execute, 
                 con, 
-                batch, 
-                {"is_alive": True, "mtime": mtime}, 
-                fields=("id", "parent_id", "name", "sha1", "size"), 
+                "INSERT OR REPLACE INTO keystore VALUES(?, ?)", 
+                [
+                    ("last_update_history_ts", mtime), 
+                    ("last_update_life_ts", mtime), 
+                ], 
+                executemany=True, 
                 commit=True, 
             )
-        sql = """\
-UPDATE data SET is_alive=FALSE WHERE id IN (
-    WITH ids AS (
-        SELECT id, parent_id FROM data WHERE parent_id=:cid AND mtime<:mtime AND is_alive
-        UNION ALL
-        SELECT data.id, data.parent_id FROM ids JOIN data ON(ids.id=data.parent_id) WHERE mtime<:mtime AND is_alive
-    )
-    SELECT id FROM ids
-)"""
-        await to_thread(
-            execute, 
-            con, 
-            sql, 
-            {"cid": cid, "mtime": mtime}, 
-            commit=True, 
-        )
-        if not cid:
-            execute(con, "INSERT OR REPLACE INTO keystore VALUES(?, ?)", ("last_update_ts", mtime), commit=True)
-    except FileNotFoundError:
-        pass
+    return run_gen_step(gen_step, async_)
 
 
-# TODO: 有一些特殊的情况，不能用事件立即确定
-# 云下载：根本没有事件（但可以从历史获取）
-# 接收文件："receive_files", 14（因为不是立即完成）
-# 复制文件："copy_folder", 18（因为不是立即完成）
-async def tinydb_updatedb_life(
-    client: P115Client, 
-    con: Connection | Cursor, 
-):
+@overload
+def tinydb_update_event(
+    client: str | PathLike | P115Client, 
+    con = "", 
+    app: str = "android", 
+    cooldown: float = 5, 
+    history: bool = False, 
+    ignore: None | Callable[[dict], bool] = None, 
+    lock = None, 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> None:
+    ...
+@overload
+def tinydb_update_event(
+    client: str | PathLike | P115Client, 
+    con = "", 
+    app: str = "android", 
+    cooldown: float = 5, 
+    history: bool = False, 
+    ignore: None | Callable[[dict], bool] = None, 
+    lock = None, 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> Coroutine[Any, Any, None]:
+    ...
+def tinydb_update_event(
+    client: str | PathLike | P115Client, 
+    con = "", 
+    app: str = "android", 
+    cooldown: float = 5, 
+    history: bool = False, 
+    ignore: None | Callable[[dict], bool] = None, 
+    lock = None, 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+) -> None | Coroutine[Any, Any, None]:
+    """拉取事件，更新数据库
+
+    .. caution::
+        有一些情况，不能用事件立即确定
+
+        - 云下载：根本没有事件
+        - 回收站还原：根本没有事件
+        - 接收文件：事件产生时，可能并未完成
+        - 复制文件：事件产生时，可能并未完成
+        - 有一些接口执行操作后，压根没有事件
+
+    :param client: 115 客户端或 cookies
+    :param con: 数据库链接、游标或路径
+    :param app: 使用某个 app （设备）的接口
+    :param cooldown: 冷却时间，大于 0 时，两次接口调用之间至少间隔这么多秒
+    :param history: 如果为 False，拉取 life 事件，否则拉取 history 事件
+    :param ignore: 调用以判断是否要忽略某些事件
+    :param lock: 更新数据库时加锁
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+    """
+    if isinstance(client, (str, PathLike)):
+        client = P115Client(client)
+    if isinstance(con, (bytes, str, PathLike)):
+        con = connect(con or f"p115-tinydb-{client.user_id}.db")
+        tinydb_initdb(con)
     data = dict(query(con, "SELECT key, val FROM keystore"))
     seen: set[str] = set()
     seen_add = seen.add
     upserts: list[dict] = []
     add_upsert = upserts.append
-    removes: list[dict] = []
-    add_remove = removes.append
-    pids: set[int] = set()
-    add_pid = pids.add
-    first_event: None | dict = None
-    def add(event):
+    first_event_id = 0
+    def add(event: dict, /):
+        nonlocal first_event_id
+        if not first_event_id:
+            first_event_id = int(event["id"])
         fid = event["file_id"]
         if fid in seen:
             return
         seen_add(fid)
-        event_type = event["type"]
-        if event_type == 22:
-            add_remove({
-                "id": int(fid), 
-                "parent_id": int(event.get("parent_id", 0)), 
-                "name": event["file_name"], 
-                "sha1": event.get("sha1", ""), 
-                "size": event.get("file_size", 0), 
-                "mtime": int(event["update_time"]), 
-                "is_alive": False, 
-            })
+        if ignore and not ignore(event):
+            add_upsert(event_normalize_attr(event))
+    def gen_step():
+        table = ("life", "history")[history]
+        key_id = "last_%s_id" %table
+        key_ts = "last_update_%s_ts" %table
+        if history:
+            iter_once: Callable = iter_history_once
         else:
-            pid = int(event["parent_id"])
-            add_upsert({
-                "id": int(fid), 
-                "parent_id": pid, 
-                "name": event["file_name"], 
-                "sha1": event.get("sha1", ""), 
-                "size": event.get("file_size", 0), 
-                "mtime": int(event["update_time"]), 
-                "is_alive": True, 
-            })
-            if pid:
-                add_pid(pid)
-    i = 0
-    async for event in iter_life_behavior_once(
-        client, 
-        from_id=data.get("last_life_id", 0), 
-        from_time=data.get("last_update_ts") or _init_ts, 
-        ignore_types=None, 
-        yield_latest=True, 
-        first_batch_size=50, 
-        app="web", 
-        async_=True, 
-    ):
-        if not first_event:
-            first_event = event
-        i += 1
-        add(event)
-    if i == 10_0000:
-        async for event in iter_life_behavior_once(
+            iter_once = iter_life_behavior_once
+        mtime = int(time())
+        yield foreach(add, iter_once(
             client, 
-            from_id=data.get("last_life_id", 0), 
-            from_time=data.get("last_update_ts") or _init_ts, 
+            from_id=data.get(key_id, 0), 
+            from_time=data.get(key_ts) or _init_ts, 
             ignore_types=None, 
-            first_batch_size=50, 
-            offset=10_000, 
-            app="android", 
-            cooldown=5, 
-            async_=True, 
-        ):
-            add(event)
-    querydb = P115QueryDB(con)
-    pids -= set(querydb.iter_existing_id(pids))
-    while pids:
-        for t_pids in batched(tuple(pids), 9000):
-            async for attr in iter_nodes_using_event(
-                client, 
-                t_pids, 
-                id_to_dirnode=..., 
-                app="web", 
-                async_=True, 
-            ):
-                attr["is_alive"] = True
-                add_upsert(attr)
-                if pid := attr["parent_id"]:
-                    add_pid(pid)
-        pids -= set(querydb.iter_existing_id(pids))
-    if upserts:
-        await to_thread(upsert_items, con, upserts, commit=True)
-    if removes:
-        await to_thread(upsert_items, con, removes, commit=True)
-    if first_event:
-        execute(
-            con, 
-            "INSERT OR REPLACE INTO keystore VALUES(?, ?)", 
-            [
-                ("last_life_id", int(first_event["id"])), 
-                ("last_update_ts", int(first_event["update_time"])), 
-            ], 
-            executemany=True, 
-            commit=True, 
-        )
+            app=app, 
+            cooldown=cooldown, 
+            async_=async_, 
+            **request_kwargs, 
+        ))
+        if upserts:
+            pids: set[int] = {pid for a in upserts if a["is_alive"] and (pid := a["parent_id"])}
+            if pids.difference(P115QueryDB(con).iter_existing_id(pids)):
+                def add_item(attr, /):
+                    attr["sha1"] = ""
+                    attr["size"] = 0
+                    attr["mtime"] = mtime
+                    attr["is_alive"] = True
+                    add_upsert(attr)
+                yield foreach(add_item, iter_dirs(
+                    client, 
+                    id_to_dirnode=..., 
+                    app=app, 
+                    async_=async_, 
+                    **request_kwargs, 
+                ))
+            yield from locked_gen_step(
+                lock, 
+                wrap_async(upsert_items, async_, threaded=True), 
+                con, 
+                upserts, 
+                commit=True, 
+            )
+            first_event = upserts[0]
+            yield from locked_gen_step(
+                lock, 
+                execute, 
+                con, 
+                "INSERT OR REPLACE INTO keystore VALUES(?, ?)", 
+                [
+                    (key_id, first_event_id), 
+                    (key_ts, first_event["mtime"]), 
+                ], 
+                executemany=True, 
+                commit=True, 
+            )
+        else:
+            yield from locked_gen_step(
+                lock, 
+                execute, 
+                con, 
+                "INSERT OR REPLACE INTO keystore VALUES(?, ?)", 
+                (key_ts, mtime), 
+                commit=True, 
+            )
+    return run_gen_step(gen_step, async_)
 

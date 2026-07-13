@@ -9,6 +9,7 @@ __doc__ = "这个模块提供了一些和 115 生活操作事件有关的函数"
 
 from asyncio import sleep as async_sleep
 from collections.abc import AsyncIterator, Callable, Container, Coroutine, Iterator
+from datetime import datetime
 from functools import partial
 from itertools import cycle
 from os import PathLike
@@ -24,6 +25,8 @@ get_webapi_origin: Final = cycle((
     "https://webapi.115.com", "http://web.api.115.com", 
     "https://115cdn.com/webapi", "https://115vod.com/webapi", 
 )).__next__
+#get_proapi_origin: Final = cycle(("https://proapi.115.com", "http://pro.api.115.com")).__next__
+get_proapi_origin: Final = "https://proapi.115.com"
 
 
 # 115 生活操作事件，默认在迭代时会被忽略的一些事件（都是一些浏览而不是改动的操作）
@@ -202,7 +205,7 @@ def iter_life_behavior_once(
     date: str = "", 
     first_batch_size = 0, 
     offset: int = 0, 
-    app: str = "web", 
+    app: str = "android", 
     cooldown: float = 0, 
     *, 
     async_: Literal[False] = False, 
@@ -220,7 +223,7 @@ def iter_life_behavior_once(
     date: str = "", 
     first_batch_size = 0, 
     offset: int = 0, 
-    app: str = "web", 
+    app: str = "android", 
     cooldown: float = 0, 
     *, 
     async_: Literal[True], 
@@ -237,7 +240,7 @@ def iter_life_behavior_once(
     date: str = "", 
     first_batch_size = 0, 
     offset: int = 0, 
-    app: str = "web", 
+    app: str = "android", 
     cooldown: float = 0, 
     *, 
     async_: Literal[False, True] = False, 
@@ -249,7 +252,7 @@ def iter_life_behavior_once(
         当你指定有 ``from_id != 0`` 时，如果 from_time 为 0，则自动重设为 -1
 
     .. caution::
-        如果 app="web"，只能获取前 10,000 条数据
+        如果 app="web"，只能获取前 10,000 条数据，而且速度较慢，但是风控远远较轻
 
     .. caution::
         115 并没有收集 复制文件 和 文件改名 的事件，以及第三方上传可能会没有 上传事件 ("upload_image_file" 和 "upload_file")
@@ -275,13 +278,20 @@ def iter_life_behavior_once(
     if isinstance(client, (str, PathLike)):
         client = P115Client(client)
     if app in ("", "web", "desktop", "chrome", "aps"):
-        life_behavior_detail = partial(client.life_behavior_detail, **request_kwargs)
+        life_behavior_detail: Callable = client.life_behavior_detail
+        request_kwargs.setdefault("base_url", get_webapi_origin)
     else:
-        life_behavior_detail = partial(client.life_behavior_detail_app, app=app, **request_kwargs)
+        life_behavior_detail = client.life_behavior_detail_app
+        request_kwargs["app"] = app
+        request_kwargs.setdefault("base_url", get_proapi_origin)
     if first_batch_size <= 0:
         first_batch_size = 64 if from_time or from_id else 1000
     if from_id and not from_time:
         from_time = -1
+    if not date and from_time > 0:
+        today = datetime.today().date()
+        if datetime.fromtimestamp(from_time).date() == today:
+            date = str(today)
     def gen_step():
         nonlocal offset
         payload = {"type": type, "date": date, "limit": first_batch_size, "offset": 0}
@@ -289,7 +299,7 @@ def iter_life_behavior_once(
             seen: set[str] = set()
             seen_add = seen.add
         ts_last_call = time()
-        resp = yield life_behavior_detail(payload, async_=async_)
+        resp = yield life_behavior_detail(payload, async_=async_, **request_kwargs)
         events = check_response(resp)["data"]["list"]
         payload["limit"] = 1000
         while events:
@@ -319,7 +329,7 @@ def iter_life_behavior_once(
                 else:
                     sleep(delta)
             ts_last_call = time()
-            resp = yield life_behavior_detail(payload, async_=async_)
+            resp = yield life_behavior_detail(payload, async_=async_, **request_kwargs)
             events = check_response(resp)["data"]["list"]
     return run_gen_step_iter(gen_step, async_)
 

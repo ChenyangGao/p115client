@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "p115cipher"
-version = "0.0.5.2"
+version = "0.0.5.4"
 description = "115 cipher module."
 authors = ["ChenyangGao <wosiwujm@gmail.com>"]
 license = "MIT"
@@ -26,6 +26,7 @@ include = [
 
 [tool.poetry.dependencies]
 python = "^3"
+python-filewrap = ">=0.3.1"
 typing_extensions = ">=4.15.0"
 ecdsa = { version = "*", optional = true }
 lz4 = { version = "*", optional = true }

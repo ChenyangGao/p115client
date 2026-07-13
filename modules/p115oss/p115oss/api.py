@@ -164,24 +164,25 @@ def upload_init(
     :return: 接口响应
     """
     api = "https://uplb.115.com/4.0/initupload.php"
-    data = {
+    payload = {
         "appid": 0, 
         "target": "U_1_0", 
         "sign_key": "", 
         "sign_val": "", 
         "topupload": "true", 
+        "appversion": "36.2.28", 
         **payload, 
-        "appversion": "99.99.99.99", 
     }
+    appversion = payload["appversion"]
     request_kwargs["method"] = "POST"
     request_kwargs["headers"] = dict_update(
         dict(request_kwargs.get("headers") or ()), 
         {
             "content-type": "application/x-www-form-urlencoded", 
-            "user-agent": "Mozilla/5.0 115disk/99.99.99.99 115Browser/99.99.99.99 115wangpan_android/99.99.99.99", 
+            "user-agent": f"Mozilla/5.0 115disk/{appversion} 115Browser/{appversion} 115wangpan_android/{appversion}", 
         }, 
     )
-    request_kwargs.update(make_upload_payload(data))
+    request_kwargs.update(make_upload_payload(payload))
     def parse_upload_init_response(_, content: bytes, /) -> dict:
         data = ecdh_aes_decrypt(content)
         return parse_json(None, data)

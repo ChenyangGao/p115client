@@ -20,7 +20,7 @@ from os import fsdecode, PathLike
 from typing import cast, overload, Any, Literal, NamedTuple
 
 from asynctools import to_list
-from concurrenttools import threadpool_map, taskgroup_map, Return
+from concurrenttools import threadpool_map, taskgroup_map
 from dicttools import get_first
 from dicttools import dict_map
 from errno2 import errno
@@ -200,7 +200,7 @@ def iter_115_to_115(
     from_cid = to_id(from_cid)
     to_pid = to_id(to_pid)
     @as_gen_step
-    def upload(attr: dict, pid: int, /):
+    def upload(attr: dict, /):
         @as_gen_step
         def read_range_bytes_or_hash(sign_check: str, /):
             if attr["is_collect"]:
@@ -225,6 +225,9 @@ def iter_115_to_115(
                 **request_kwargs, 
             )
         try:
+            pid = yield from get_pid(attr)
+            if pid == -1:
+                return {"type": "skip", "attr": attr, "resp": None}
             if not use_iter_files:
                 resp = yield from_client.fs_supervision(
                     attr["pickcode"], 
@@ -264,11 +267,10 @@ def iter_115_to_115(
             else:
                 return {"type": "fail", "attr": attr, "resp": None, "exc": e}
     key_of_id = "id" if with_root else "parent_id"
-    @as_gen_step
     def get_pid(attr: dict, /):
         if use_iter_files:
             if attr["is_collect"] and attr["size"] >= 1024 * 1024 * 115:
-                return Return({"type": "skip", "attr": attr, "resp": None})
+                return -1
             if from_cid:
                 dir_ = "/".join(a["name"] for a in dropwhile(
                     lambda a: a[key_of_id] != from_cid, 
@@ -313,9 +315,9 @@ def iter_115_to_115(
             **request_kwargs, 
         )
     if async_:
-        return taskgroup_map(upload, it, arg_func=get_pid, max_workers=max_workers)
+        return taskgroup_map(upload, it, max_workers=max_workers)
     else:
-        return threadpool_map(upload, it, arg_func=get_pid, max_workers=max_workers)
+        return threadpool_map(upload, it, max_workers=max_workers)
 
 
 # TODO: 需要优化，减少代码量
@@ -374,7 +376,7 @@ def iter_115_to_115_resume(
     from_cid = to_id(from_cid)
     to_pid = to_id(to_pid)
     @as_gen_step
-    def upload(attr: dict, pid: int, /):
+    def upload(attr: dict, /):
         @as_gen_step
         def read_range_bytes_or_hash(sign_check: str, /):
             if attr["is_collect"]:
@@ -398,6 +400,9 @@ def iter_115_to_115_resume(
                 async_=async_, 
                 **request_kwargs, 
             )
+        pid = yield from get_pid(attr)
+        if pid == -1:
+            return {"type": "skip", "attr": attr, "resp": None}
         try:
             resp = yield to_client.upload_file_init(
                 filename=attr["name"], 
@@ -421,10 +426,9 @@ def iter_115_to_115_resume(
                 return {"type": "fail", "attr": attr, "resp": None, "exc": e}
     dirt_to_cid: dict[tuple[str, ...], int] = {}
     key_of_id = "id" if with_root else "parent_id"
-    @as_gen_step
     def get_pid(attr: dict, /):
         if attr["is_collect"] and attr["size"] >= 1024 * 1024 * 115:
-            return Return({"type": "skip", "attr": attr, "resp": None})
+            return -1
         dirt = tuple(a["name"] for a in dropwhile(
             lambda a: a[key_of_id] != from_cid, 
             attr["ancestors"][1:-1], 
@@ -553,14 +557,12 @@ def iter_115_to_115_resume(
             return YieldFrom(taskgroup_map(
                 upload, 
                 from_files, 
-                arg_func=get_pid, 
                 max_workers=max_workers, 
             ))
         else:
             return YieldFrom(threadpool_map(
                 upload, 
                 from_files, 
-                arg_func=get_pid, 
                 max_workers=max_workers, 
             ))
     return run_gen_step_iter(gen_step, async_)
@@ -828,7 +830,7 @@ def upload_init(
     filename: str = "", 
     filesha1: str = "", 
     filesize: int = -1, 
-    endpoint: str = "http://oss-cn-shenzhen.aliyuncs.com", 
+    endpoint: str = "https://oss-cn-shenzhen.aliyuncs.com", 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -842,7 +844,7 @@ def upload_init(
     filename: str = "", 
     filesha1: str = "", 
     filesize: int = -1, 
-    endpoint: str = "http://oss-cn-shenzhen.aliyuncs.com", 
+    endpoint: str = "https://oss-cn-shenzhen.aliyuncs.com", 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -855,7 +857,7 @@ def upload_init(
     filename: str = "", 
     filesha1: str = "", 
     filesize: int = -1, 
-    endpoint: str = "http://oss-cn-shenzhen.aliyuncs.com", 
+    endpoint: str = "https://oss-cn-shenzhen.aliyuncs.com", 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -1023,7 +1025,7 @@ class P115MultipartUpload:
         filesize: int = -1, 
         user_id: int | str = "", 
         user_key: str = "", 
-        endpoint: str = "http://oss-cn-shenzhen.aliyuncs.com", 
+        endpoint: str = "https://oss-cn-shenzhen.aliyuncs.com", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -1041,7 +1043,7 @@ class P115MultipartUpload:
         filesize: int = -1, 
         user_id: int | str = "", 
         user_key: str = "", 
-        endpoint: str = "http://oss-cn-shenzhen.aliyuncs.com", 
+        endpoint: str = "https://oss-cn-shenzhen.aliyuncs.com", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -1058,7 +1060,7 @@ class P115MultipartUpload:
         filesize: int = -1, 
         user_id: int | str = "", 
         user_key: str = "", 
-        endpoint: str = "http://oss-cn-shenzhen.aliyuncs.com", 
+        endpoint: str = "https://oss-cn-shenzhen.aliyuncs.com", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
@@ -1373,7 +1375,7 @@ class P115MultipartUpload:
                 file = opener(path, skipsize)
                 if async_ and isawaitable(file):
                     file = yield file
-            elif path.startswith(("http://", "https://")):
+            elif path.startswith(("https://", "https://")):
                 if async_:
                     from httpfile import AsyncHTTPFileReader
                     async def process():

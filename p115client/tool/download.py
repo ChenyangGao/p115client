@@ -50,10 +50,9 @@ from iterutils import (
     run_gen_step_iter, through, wrap_iter, wrap_aiter, with_iter_next, 
     Yield, YieldFrom, 
 )
-from orjson import loads
 from p115pickcode import to_id
 
-from ..client import check_response, P115Client, P115OpenClient, P115URL
+from ..client import check_response, json_maybe_decrypt_parse, P115Client, P115OpenClient, P115URL
 from ..const import ID_TO_DIRNODE_CACHE
 from ..exception import P115Warning, P115AccessError
 from ..type import TaskResultTuple
@@ -1079,7 +1078,7 @@ def iter_download_nodes(
         if id_to_dirnode is None:
             id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
     def parse(_, content: bytes, /) -> dict:
-        resp = loads(content)
+        resp = json_maybe_decrypt_parse(_, content)
         check_response(resp)
         data = resp["data"]
         if not get_raw and (attrs := data.get("list")):
@@ -1205,7 +1204,7 @@ def iter_download_nodes(
                 pass
             except BaseException as e:
                 running = False
-                put(e)
+                yield put(e)
                 for i, task in enumerate(task_list):
                     if task:
                         task.cancel()
@@ -1228,6 +1227,7 @@ def iter_download_nodes(
                 n = executor._max_workers
                 submit = executor.submit
                 shutdown = lambda: executor.shutdown(False, cancel_futures=True)
+            exc: None | BaseException = None
             try:
                 task_ids.update(range(n))
                 task_list.extend(repeat(None, n))
@@ -1242,11 +1242,14 @@ def iter_download_nodes(
                     if resp is sentinel:
                         break
                     elif isinstance(resp, BaseException):
-                        raise resp
+                        exc = resp
+                        break
                     yield Yield(resp)
             finally:
                 running = False
                 yield shutdown()
+            if exc is not None:
+                raise exc
     it = run_gen_step_iter(gen_step, async_)
     if ensure_name:
         file_skim = client.fs_file_skim
@@ -1386,7 +1389,7 @@ def _iter_download_nodes_multi(
         if id_to_dirnode is None:
             id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
     def parse(_, content: bytes, /) -> dict:
-        resp = loads(content)
+        resp = json_maybe_decrypt_parse(_, content)
         check_response(resp)
         data = resp["data"]
         if not get_raw and (attrs := data.get("list")):
@@ -1476,7 +1479,7 @@ def _iter_download_nodes_multi(
                 pass
             except BaseException as e:
                 running = False
-                put(e)
+                yield put(e)
                 for i, task in enumerate(task_list):
                     if task:
                         task.cancel()
@@ -1555,6 +1558,7 @@ def _iter_download_nodes_multi(
                 n = executor._max_workers
                 submit = executor.submit
                 shutdown = lambda: executor.shutdown(False, cancel_futures=True)
+            exc: None | BaseException = None
             try:
                 task_ids.update(range(n))
                 task_list.extend(repeat(None, n))
@@ -1569,11 +1573,14 @@ def _iter_download_nodes_multi(
                     if data is sentinel:
                         break
                     elif isinstance(data, BaseException):
-                        raise data
+                        exc = data
+                        break
                     yield Yield(data)
             finally:
                 running = False
                 yield shutdown()
+            if exc is not None:
+                raise exc
     it = run_gen_step_iter(gen_step, async_)
     if ensure_name:
         file_skim = client.fs_file_skim
@@ -1952,6 +1959,30 @@ def get_remaining_open_count(
 
 # TODO: 再写一个 upload_file、transfer_file 等函数，也尽量支持差不多的参数
 # TODO: 再写一个 download_tree 函数，用于实现批量下载
+@overload
+def download_file(
+    client: str | PathLike | P115Client | P115OpenClient, 
+    fid: int | str | Mapping, 
+    path: str = "", 
+    resume: bool = True, 
+    reporthook: None | Callable[[int], Any] = None, 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> TaskResultTuple:
+    ...
+@overload
+def download_file(
+    client: str | PathLike | P115Client | P115OpenClient, 
+    fid: int | str | Mapping, 
+    path: str = "", 
+    resume: bool = True, 
+    reporthook: None | Callable[[int], Any] = None, 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> Coroutine[Any, Any, TaskResultTuple]:
+    ...
 def download_file(
     client: str | PathLike | P115Client | P115OpenClient, 
     fid: int | str | Mapping, 
@@ -1961,7 +1992,7 @@ def download_file(
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
-) -> TaskResultTuple:
+) -> TaskResultTuple | Coroutine[Any, Any, TaskResultTuple]:
     """从 115 网盘下载一个文件到本地
 
     :param client: 115 客户端或 cookies

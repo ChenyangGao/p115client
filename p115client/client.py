@@ -37,7 +37,7 @@ from dicttools import (
 )
 from ensure import ensure_bytes
 from errno2 import errno
-from filewrap import SupportsRead
+from filewrap import to_bytes_view, SupportsRead
 from http_request import complete_url as make_url, SupportsGeturl
 from http_response import get_status_code
 from httpfile import HTTPFileReader, AsyncHTTPFileReader
@@ -74,11 +74,12 @@ _default_k_ec = {"k_ec": ecdh_encode_token(0).decode()}
 _default_code_verifier = "0" * 64
 _default_code_challenge = b64encode(md5(b"0" * 64).digest()).decode()
 _default_code_challenge_method = "md5"
+_app_version = "36.2.28"
 
 
 def json_loads(content: Buffer, /):
     try:
-        return loads(memoryview(content).cast("B"))
+        return loads(to_bytes_view(content))
     except Exception:
         throw(errno.ENODATA, bytes(content))
 
@@ -89,6 +90,13 @@ def json_parse(_, content: Buffer, /):
 
 def json_decrypt_parse(_, content: Buffer, /):
     return json_loads(ecdh_aes_decrypt(content))
+
+
+def json_maybe_decrypt_parse(_, content: Buffer, /):
+    content = to_bytes_view(content)
+    if content[:1].tobytes() + content[-1:].tobytes() in (b"{}", b"[]", b'""'):
+        return json_parse(_, content)
+    return json_decrypt_parse(_, content)
 
 
 def get_request(
@@ -114,11 +122,11 @@ def get_request(
         )
     params = request_kwargs.get("params")
     if isinstance(params, dict):
-        params.setdefault("app_ver", "99.99.99.99")
+        params.setdefault("app_ver", _app_version)
     headers = request_kwargs["headers"] = dict_key_to_lower_merge(headers or ())
     headers["referer"] = headers.get("referer") or str(URL(url).origin())
     if ecdh_encrypt:
-        url = make_url(url, params=_default_k_ec)
+        url = request_kwargs["url"] = make_url(url, params=_default_k_ec)
         if data := request_kwargs.get("data"):
             if not isinstance(data, (Buffer, str, UserString)):
                 data = urlencode(data)
@@ -141,7 +149,7 @@ def md5_secret_password(password: None | int | str = "670b14728ad9902aecba32e22f
 def parse_upload_init_response(_, content: bytes, /) -> dict:
     data = ecdh_aes_decrypt(content)
     if not isinstance(data, (bytes, bytearray)):
-        data = memoryview(data).cast("B")
+        data = to_bytes_view(data)
     return json_loads(data)
 
 
@@ -550,6 +558,7 @@ class ClientRequestMixin:
         method: str = "GET", 
         payload: Any = None, 
         *, 
+        check: bool = False, 
         ecdh_encrypt: bool = False, 
         request: None | Callable = None, 
         async_: Literal[False, True] = False, 
@@ -561,6 +570,7 @@ class ClientRequestMixin:
         :param method:  HTTP 的请求方法
         :param payload: HTTP 的请求载体（``method`` 为 "POST" 或 "PUT" 时，视为 ``data``，否则视为 ``params``）
         :param ecdh_encrypt: 是否加密通信，如果是 open 接口则无效
+        :param check: 是否检查响应
         :param request: HTTP 请求调用，如果为 None，则用默认设置
             如果传入调用，则必须至少能接受以下几个关键词参数（如果接收到了不用的参数，也要能自动忽略）：
 
@@ -719,6 +729,8 @@ class ClientRequestMixin:
                         headers["authorization"] = "Bearer " + access_token
                         resp = yield request(async_=async_, **request_kwargs)
                         if resp.get("errno") != 40140125:
+                            if check:
+                                return check_response(resp)
                             return resp
                         yield lock.acquire()
                         try:
@@ -729,7 +741,10 @@ class ClientRequestMixin:
                 return run_gen_step(gen_step, async_)
         elif "cookie" not in headers:
             request_kwargs["cookies"] = self.cookies
-        return request(async_=async_, **request_kwargs)
+        resp = request(async_=async_, **request_kwargs)
+        if check:
+            return check_response(resp)
+        return resp
 
     def open(
         self, 
@@ -4139,7 +4154,7 @@ class P115OpenClient(ClientRequestMixin):
         partsize: int = 0, 
         callback: None | dict = None, 
         upload_id: str = "", 
-        endpoint: str = "http://oss-cn-shenzhen.aliyuncs.com", 
+        endpoint: str = "https://oss-cn-shenzhen.aliyuncs.com", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -4157,7 +4172,7 @@ class P115OpenClient(ClientRequestMixin):
         partsize: int = 0, 
         callback: None | dict = None, 
         upload_id: str = "", 
-        endpoint: str = "http://oss-cn-shenzhen.aliyuncs.com", 
+        endpoint: str = "https://oss-cn-shenzhen.aliyuncs.com", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -4174,7 +4189,7 @@ class P115OpenClient(ClientRequestMixin):
         partsize: int = 0, 
         callback: None | dict = None, 
         upload_id: str = "", 
-        endpoint: str = "http://oss-cn-shenzhen.aliyuncs.com", 
+        endpoint: str = "https://oss-cn-shenzhen.aliyuncs.com", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
@@ -6208,10 +6223,10 @@ class P115Client(P115OpenClient):
             payload[k] = str(v)
         if action:
             payload["ac"] = action
-        payload["app_ver"] = "99.99.99.99"
+        app_ver = payload.setdefault("app_ver", _app_version)
         request_kwargs["headers"] = {
             **(request_kwargs.get("headers") or {}), 
-            "user-agent": "Mozilla/5.0 115disk/99.99.99.99 115Browser/99.99.99.99 115wangpan_android/99.99.99.99", 
+            "user-agent": f"Mozilla/5.0 115disk/{app_ver} 115Browser/{app_ver} 115wangpan_android/{app_ver}", 
         }
         request_kwargs["ecdh_encrypt"] = False
         def parse(_, content: bytes, /) -> dict:
@@ -8021,68 +8036,12 @@ class P115Client(P115OpenClient):
     ########## Download API ##########
 
     @overload
-    def download_folders_app(
-        self, 
-        payload: str | dict, 
-        /, 
-        app: str = "chrome", 
-        base_url: str | Callable[[], str] = "https://proapi.115.com", 
-        *, 
-        async_: Literal[False] = False, 
-        **request_kwargs, 
-    ) -> dict:
-        ...
-    @overload
-    def download_folders_app(
-        self, 
-        payload: str | dict, 
-        /, 
-        app: str = "chrome", 
-        base_url: str | Callable[[], str] = "https://proapi.115.com", 
-        *, 
-        async_: Literal[True], 
-        **request_kwargs, 
-    ) -> Coroutine[Any, Any, dict]:
-        ...
-    def download_folders_app(
-        self, 
-        payload: str | dict, 
-        /, 
-        app: str = "chrome", 
-        base_url: str | Callable[[], str] = "https://proapi.115.com", 
-        *, 
-        async_: Literal[False, True] = False, 
-        **request_kwargs, 
-    ) -> dict | Coroutine[Any, Any, dict]:
-        """获取待下载的目录列表
-
-        GET https://proapi.115.com/app/chrome/downfolders
-
-        .. caution::
-            不允许直接从根目录获取，因为根目录没有 ``pickcode``
-
-        :payload:
-            - pickcode: str 💡 提取码
-            - page: int = 1 💡 第几页
-            - per_page: int = 5000 💡 每页大小，目前最大为 5000
-        """
-        if app in ("", "web", "desktop", "chrome"):
-            api = complete_url("/app/chrome/downfolders", base_url)
-        else:
-            if app not in ("windows", "mac", "linux", "os_windows", "os_mac", "os_linux"):
-                app = "os_windows"
-            api = complete_url("/ufile/downfolders", base_url, app=app)
-        if isinstance(payload, str):
-            payload = {"pickcode": payload}
-        payload = {"page": 1, "per_page": 5000, **payload}
-        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
-
-    @overload
     def download_files_app(
         self, 
         payload: str | dict, 
         /, 
         app: str = "chrome", 
+        version: str = "2.0", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
         async_: Literal[False] = False, 
@@ -8095,6 +8054,7 @@ class P115Client(P115OpenClient):
         payload: str | dict, 
         /, 
         app: str = "chrome", 
+        version: str = "2.0", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
         async_: Literal[True], 
@@ -8106,6 +8066,7 @@ class P115Client(P115OpenClient):
         payload: str | dict, 
         /, 
         app: str = "chrome", 
+        version: str = "2.0", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
@@ -8131,7 +8092,69 @@ class P115Client(P115OpenClient):
         else:
             if app not in ("windows", "mac", "linux", "os_windows", "os_mac", "os_linux"):
                 app = "os_windows"
-            api = complete_url("/ufile/downfiles", base_url, app=app)
+            api = complete_url("/ufile/downfiles", base_url, app=app, version=version)
+            request_kwargs.setdefault("ecdh_encrypt", True)
+        if isinstance(payload, str):
+            payload = {"pickcode": payload}
+        payload = {"page": 1, "per_page": 5000, **payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def download_folders_app(
+        self, 
+        payload: str | dict, 
+        /, 
+        app: str = "chrome", 
+        version: str = "2.0", 
+        base_url: str | Callable[[], str] = "https://proapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def download_folders_app(
+        self, 
+        payload: str | dict, 
+        /, 
+        app: str = "chrome", 
+        version: str = "2.0", 
+        base_url: str | Callable[[], str] = "https://proapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def download_folders_app(
+        self, 
+        payload: str | dict, 
+        /, 
+        app: str = "chrome", 
+        version: str = "2.0", 
+        base_url: str | Callable[[], str] = "https://proapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取待下载的目录列表
+
+        GET https://proapi.115.com/app/chrome/downfolders
+
+        .. caution::
+            不允许直接从根目录获取，因为根目录没有 ``pickcode``
+
+        :payload:
+            - pickcode: str 💡 提取码
+            - page: int = 1 💡 第几页
+            - per_page: int = 5000 💡 每页大小，目前最大为 5000
+        """
+        if app in ("", "web", "desktop", "chrome"):
+            api = complete_url("/app/chrome/downfolders", base_url)
+        else:
+            if app not in ("windows", "mac", "linux", "os_windows", "os_mac", "os_linux"):
+                app = "os_windows"
+            api = complete_url("/ufile/downfolders", base_url, app=app, version=version)
+            request_kwargs.setdefault("ecdh_encrypt", True)
         if isinstance(payload, str):
             payload = {"pickcode": payload}
         payload = {"page": 1, "per_page": 5000, **payload}
@@ -10685,9 +10708,14 @@ class P115Client(P115OpenClient):
         :payload:
             - path: str
         """
-        api = complete_url("/files/getid", base_url=base_url)
         if isinstance(payload, str):
             payload = {"path": payload}
+        if callable(base_url):
+            base_url = base_url()
+        if "://f.115.com" in base_url or "://n.115.com" in base_url:
+            api = complete_url("/files/getid", base_url=base_url, query=payload)
+            return self.request(url=api, async_=async_, **request_kwargs)
+        api = complete_url("/files/getid", base_url=base_url)
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -10730,9 +10758,14 @@ class P115Client(P115OpenClient):
             - parent_id: int = 0
             - is_create: 0 | 1 = 0 💡 当目录不存在时，是否创建
         """
-        api = complete_url("/files/get_path_id", base_url=base_url)
         if isinstance(payload, str):
             payload = {"path": payload}
+        if callable(base_url):
+            base_url = base_url()
+        if "://f.115.com" in base_url or "://n.115.com" in base_url:
+            api = complete_url("/files/get_path_id", base_url=base_url, query=payload)
+            return self.request(url=api, async_=async_, **request_kwargs)
+        api = complete_url("/files/get_path_id", base_url=base_url)
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -11513,6 +11546,7 @@ class P115Client(P115OpenClient):
         payload: None | int | str | dict = 0, 
         /, 
         app: str = "android", 
+        version: str = "2.0", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
         async_: Literal[False] = False, 
@@ -11525,6 +11559,7 @@ class P115Client(P115OpenClient):
         payload: None | int | str | dict = 0, 
         /, 
         app: str = "android", 
+        version: str = "2.0", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
         async_: Literal[True], 
@@ -11536,6 +11571,7 @@ class P115Client(P115OpenClient):
         payload: None | int | str | dict = 0, 
         /, 
         app: str = "android", 
+        version: str = "2.0", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
@@ -11543,7 +11579,7 @@ class P115Client(P115OpenClient):
     ) -> dict | Coroutine[Any, Any, dict]:
         """获取目录中的文件列表和基本信息
 
-        GET https://proapi.115.com/{app}/2.0/ufile/files
+        GET https://proapi.115.com/{app}/{version}/ufile/files
 
         .. hint::
             如果要遍历获取所有文件，需要指定 show_dir=0 且 cur=0（或不指定 cur），这个接口并没有 type=99 时获取所有文件的意义
@@ -11552,7 +11588,8 @@ class P115Client(P115OpenClient):
             如果 `app` 为 "wechatmini" 或 "alipaymini"，则相当于 ``P115Client.fs_files_app2()``
 
         .. note::
-            一旦此接口被风控，那么同一域名下，所有路径尾部是 /files 的接口都被风控，但是如果你没有携带任何参数，竟然可以避免风控（至少可以用来获得一下文件总数，以及最近的 20 个创建的文件）
+            一旦此接口被风控，那么同一域名下，所有路径尾部是 /files 的接口都被风控，但是如果你没有携带任何参数，竟然可以避免风控（至少可以用来获得一下文件总数，以及最近的 20 个创建的文件）。
+            另外，proapi 之下，指定接口的版本为 2.0，可能会被服务器后台专门的处理，而其它版本（乃至于不指定版本），也往往被视为等同的，由此可以分为两类：2.0 版本和其它版本。
 
         .. attention::
             此接口存在一些潜在的问题。假如我上传了一个扩展名特别长的文件，越出了这个接口的能力范围，就会直接报错，例如：
@@ -11655,7 +11692,7 @@ class P115Client(P115OpenClient):
                 - 15: 图片和视频，相当于 2 和 4
                 - >= 16: 相当于 8
         """
-        api = complete_url("/2.0/ufile/files", base_url=base_url, app=app or "android", force_app=("wechatmini", "alipaymini"))
+        api = complete_url("/ufile/files", base_url=base_url, app=app or "android", force_app=("wechatmini", "alipaymini"), version=version)
         if payload is None:
             return self.request(url=api, async_=async_, **request_kwargs)
         if isinstance(payload, (int, str)):
@@ -14715,7 +14752,7 @@ class P115Client(P115OpenClient):
     ) -> dict | Coroutine[Any, Any, dict]:
         """新建目录（会尝试创建所有的中间节点）
 
-        POST http://proapi.115.com/app/chrome/add_path
+        POST https://proapi.115.com/app/chrome/add_path
 
         .. note::
             1. 目录层级最多 25 级（不算文件节点的话）
@@ -16294,7 +16331,6 @@ class P115Client(P115OpenClient):
             payload = {f"files_new_name[{payload[0]}]": payload[1]}
         elif not isinstance(payload, dict):
             payload = {f"files_new_name[{fid}]": name for fid, name in payload}
-        print(payload)
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -17960,7 +17996,8 @@ class P115Client(P115OpenClient):
         GET https://webapi.115.com/behavior/detail
 
         .. attention::
-            这个接口最多能拉取前 10_000 条数据，且响应速度也较差，请优先使用 ``P115Client.life_behavior_detail_app()``
+            这个接口最多能拉取前 10_000 条数据，且响应速度也较差，请优先使用 ``P115Client.life_behavior_detail_app()``。
+            但如果指定 ``type`` 或 ``date``，响应可能会快得多，但当涉及的总量较多时，速度依然会很慢，哪怕你只拉取其中的几条。
 
         .. caution::
             缺乏下面这些事件：
@@ -17989,14 +18026,14 @@ class P115Client(P115OpenClient):
                 - "copy_file":        23 💡 复制文件
                 - "file_rename":      24 💡 文件改名
 
-            - limit: int = 32          💡 最大值为 1_000
+            - limit: int = 1_000         💡 最大值为 1_000
             - offset: int = 0
-            - date: str = <default>    💡 日期，格式为 'YYYY-MM-DD'，若指定则只拉取这一天的数据
+            - date: str = <default>      💡 日期，格式为 'YYYY-MM-DD'，指定拉取这一天的数据
         """
         api = complete_url("/behavior/detail", base_url=base_url)
         if isinstance(payload, str):
             payload = {"type": payload}
-        payload = {"limit": 32, "offset": 0, **payload}
+        payload = {"limit": 1_000, "offset": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -18042,6 +18079,9 @@ class P115Client(P115OpenClient):
 
             - 从回收站还原文件或目录（但相应的删除事件会消失）
 
+        .. caution::
+            此接口有被风控的风险，两次调用之间相隔 5 秒以上为宜，但即使风控，恢复起来也比较快
+
         :payload:
             - type: str = "" 💡 操作类型
 
@@ -18064,14 +18104,14 @@ class P115Client(P115OpenClient):
                 - "copy_file":        23 💡 复制文件
                 - "file_rename":      24 💡 文件改名
 
-            - limit: int = 32          💡 最大值为 1_000
+            - limit: int = 1_000         💡 最大值为 1_000
             - offset: int = 0
-            - date: str = <default>    💡 日期，格式为 YYYY-MM-DD，若指定则只拉取这一天的数据
+            - date: str = <default>      💡 日期，格式为 'YYYY-MM-DD'，指定拉取这一天的数据
         """
         api = complete_url("/behavior/detail", base_url=base_url, app=app)
         if isinstance(payload, str):
             payload = {"type": payload}
-        payload = {"limit": 32, "offset": 0, **payload}
+        payload = {"limit": 1_000, "offset": 0, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -18914,7 +18954,7 @@ class P115Client(P115OpenClient):
     @overload
     def life_recent_operation_items(
         self, 
-        payload: dict, 
+        payload: str | dict = "browse_document", 
         /, 
         app: str = "web", 
         base_url: str | Callable[[], str] = "https://life.115.com", 
@@ -18926,7 +18966,7 @@ class P115Client(P115OpenClient):
     @overload
     def life_recent_operation_items(
         self, 
-        payload: dict, 
+        payload: str | dict = "browse_document", 
         /, 
         app: str = "web", 
         base_url: str | Callable[[], str] = "https://life.115.com", 
@@ -18937,7 +18977,7 @@ class P115Client(P115OpenClient):
         ...
     def life_recent_operation_items(
         self, 
-        payload: dict, 
+        payload: str | dict = "browse_document", 
         /, 
         app: str = "web", 
         base_url: str | Callable[[], str] = "https://life.115.com", 
@@ -18950,12 +18990,10 @@ class P115Client(P115OpenClient):
         GET https://life.115.com/api/1.0/{app}/1.0/life/recent_operation_items
 
         .. caution::
-            这个接口可能需要传 `behavior_type` 和 `date`，能力远弱于 `P115Client.life_behavior_detail_app`
+            这个接口目前必须传 ``behavior_type`` 和 ``date``，而且支持的 ``behavior_type`` 仅限浏览、移动、复制、重命名
 
         .. caution::
-            缺乏下面这些事件：
-
-            - 从回收站还原文件或目录（但相应的删除事件会消失）
+            谨慎，此接口明显是半成品，几乎和 `P115Client.life_behavior_detail` 一样慢，但能力却似乎远远不如
 
         :payload:
             - behavior_type: str 💡 操作类型（尾部带🚫的表示暂不可用）
@@ -18979,14 +19017,14 @@ class P115Client(P115OpenClient):
                 - "copy_file":        23 💡 复制文件
                 - "file_rename":      24 💡 文件改名
 
-            - date: str 💡 日期，格式为 YYYY-MM-DD，若指定则只拉取这一天的数据                
+            - date: str 💡 日期，格式为 'YYYY-MM-DD'，指定拉取这一天的数据
             - start: int = 0
-            - limit: int = 1_000
+            - limit: int = 100 💡 最大值为 100
         """
         api = complete_url(f"/api/1.0/{app}/1.0/life/recent_operation_items", base_url=base_url)
-        if isinstance(payload, int):
-            payload = {"start": payload}
-        payload.setdefault("limit", 1_000)
+        if isinstance(payload, str):
+            payload = {"behavior_type": payload}
+        payload = {"limit": 100, "date": str(date.today()), **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -23463,7 +23501,7 @@ class P115Client(P115OpenClient):
         POST https://proapi.115.com/{app}/rb/secret_del
 
         .. note::
-            只要不指定 `tid`，就会清空回收站，如果有目录正在删除中也可以操作
+            只要不指定 `tid`，就是清空回收站，如果有目录正在删除中则会被阻止
 
         .. note::
             可以在设置中的【账号安全/安全密钥】页面下，关闭【文件(隐藏模式/清空删除回收站)】的按钮，就不需要传安全密钥了
@@ -25872,9 +25910,10 @@ class P115Client(P115OpenClient):
             "sign_key": "", 
             "sign_val": "", 
             "topupload": "true", 
+            "appversion": _app_version, 
             **payload, 
-            "appversion": "99.99.99.99", 
         }
+        appversion = payload["appversion"]
         if "userid" not in payload:
             payload["userid"] = self.user_id
         if "userkey" not in payload:
@@ -25883,7 +25922,7 @@ class P115Client(P115OpenClient):
             dict(request_kwargs.get("headers") or ()), 
             {
                 "content-type": "application/x-www-form-urlencoded", 
-                "user-agent": "Mozilla/5.0 115disk/99.99.99.99 115Browser/99.99.99.99 115wangpan_android/99.99.99.99", 
+                "user-agent": f"Mozilla/5.0 115disk/{appversion} 115Browser/{appversion} 115wangpan_android/{appversion}", 
             }, 
         )
         request_kwargs.update(make_upload_payload(payload))
@@ -26840,7 +26879,7 @@ class P115Client(P115OpenClient):
         partsize: int = 0, 
         callback: None | dict = None, 
         upload_id: str = "", 
-        endpoint: str = "http://oss-cn-shenzhen.aliyuncs.com", 
+        endpoint: str = "https://oss-cn-shenzhen.aliyuncs.com", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -26858,7 +26897,7 @@ class P115Client(P115OpenClient):
         partsize: int = 0, 
         callback: None | dict = None, 
         upload_id: str = "", 
-        endpoint: str = "http://oss-cn-shenzhen.aliyuncs.com", 
+        endpoint: str = "https://oss-cn-shenzhen.aliyuncs.com", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -26875,7 +26914,7 @@ class P115Client(P115OpenClient):
         partsize: int = 0, 
         callback: None | dict = None, 
         upload_id: str = "", 
-        endpoint: str = "http://oss-cn-shenzhen.aliyuncs.com", 
+        endpoint: str = "https://oss-cn-shenzhen.aliyuncs.com", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
@@ -29788,3 +29827,4 @@ from .fs import P115FileSystemBase, P115FileSystem, P115ShareFileSystem, P115Zip
 # TODO: 把 refresh_token 保存到 cookies 里面，读取时候，也要设置 refresh_token，如果有 refresh_token，保存 cookies 时也要保存它
 # TODO: 执行请求时，不要携带无关的 cookies，必须根据 url 认真确定，且对于会过期的 cookie 真正移除
 # TODO: cookies.txt 支持多种格式，不仅仅 "key=val;"，还支持 json 等等
+# TODO: 为每个接口每次调用的时间进行记录，request 支持 cooldown 参数

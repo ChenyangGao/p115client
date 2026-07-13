@@ -47,7 +47,7 @@ usage: p115tinydav [-h] [-c COOKIES] [-cp COOKIES_PATH] [-H HOST] [-P PORT] [-nc
     │                                                                              │
     │                      license     https://www.gnu.org/licenses/gpl-3.0.txt    │
     │                                                                              │
-    │                      version     0.0.4                                       │
+    │                      version     0.0.5                                       │
     │                                                                              │
     ╰──────────────────────────────────────────────────────────────────────────────╯
 

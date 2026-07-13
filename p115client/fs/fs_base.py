@@ -1538,12 +1538,12 @@ class P115PathBase:
                 **request_kwargs, 
             )) as get_next:
                 parent, dirs, files = yield get_next()
-                yield (
+                yield Yield((
                     path_class(fs, parent), 
                     [path_class(fs, a) for a in dirs], 
                     [path_class(fs, a) for a in files], 
-                )
-        return run_gen_step(gen_step, async_)
+                ))
+        return run_gen_step_iter(gen_step, async_)
 
     def with_name(self, name: str, /) -> Self:
         assert name
@@ -3706,7 +3706,7 @@ class P115FileSystemBase[P115PathType: P115PathBase](ABC):
         refresh: None | bool = None, 
         *, 
         async_: Literal[False, True] = False, 
-    ) -> HTTPFileReader | BufferedReader | TextIOWrapper | AsyncHTTPFileReader | AsyncBufferedReader | AsyncTextIOWrapper:
+    ):
         """打开一个文件，仅用于读取
         """
         if mode not in ("r", "rt", "tr", "rb", "br"):

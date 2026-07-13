@@ -49,7 +49,7 @@ def rsa_encrypt(
     :return: 数据密文
     """
     if rand_key is RSA_RAND_KEY:
-        key = RSA_KEY
+        key: Buffer = RSA_KEY
     else:
         key = rsa_gen_key(rand_key)
     tmp = xor(data, key)[::-1]
@@ -70,7 +70,7 @@ def rsa_decrypt(
     :return: 数据原文
     """
     if rand_key is RSA_RAND_KEY:
-        key = RSA_KEY
+        key: Buffer = RSA_KEY
     else:
         key = rsa_gen_key(rand_key)
     data = rsa_decrypt_with_pubkey(b64decode(cipher_data))
@@ -78,7 +78,7 @@ def rsa_decrypt(
     randkey = view[:16]
     key_l = rsa_gen_key(randkey, 12)
     tmp = memoryview(xor(view[16:], key_l))[::-1]
-    return xor(tmp, key)
+    return bytes(xor(tmp, key))
 
 
 def ecdh_aes_encrypt(

@@ -1,25 +1,114 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>P115 Tiny WebDAV - 疯狂宇宙主题驾驶舱</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4">
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js">
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mime-db@1.52.0/db.json">
+    </script>
     <style>
+        /* ===== 全局字体 & 基础重置 ===== */
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&display=swap');
+
+        :root {
+            /* 暗色主题（默认） */
+            --bg-dark: #0a0c1a;
+            --bg-body: #05050f;
+            --neon-blue: #00f0ff;
+            --neon-pink: #ff007f;
+            --neon-purple: #9d4edd;
+            --neon-green: #39ff14;
+            --glass-bg: rgba(16, 18, 35, 0.65);
+            --glass-border: rgba(0, 240, 255, 0.25);
+            --text-main: #e2e8f0;
+            --text-muted: #707e94;
+            --text-secondary: #94a3b8;
+            --card-bg: rgba(15, 20, 45, 0.75);
+            --card-border: rgba(112, 0, 255, 0.3);
+            --shadow-glow: rgba(0, 242, 255, 0.08);
+            --input-bg: rgba(15, 23, 42, 0.6);
+            --table-header-bg: rgba(10, 16, 40, 0.85);
+            --table-row-bg: rgba(10, 12, 32, 0.3);
+            --table-row-hover: rgba(13, 22, 55, 0.5);
+            --border-subtle: rgba(30, 41, 59, 0.4);
+            --cyber-text-gradient: linear-gradient(90deg, #00f0ff, #ff007f, #39ff14, #00f0ff);
+            --font-cyber: 'Rajdhani', 'Segoe UI', sans-serif;
+            --font-orbitron: 'Orbitron', sans-serif;
+            --toast-bg: rgba(16, 18, 35, 0.65);
+            --toast-border: rgba(0, 240, 255, 0.6);
+            --tooltip-bg: rgba(4, 8, 24, 0.88);
+            --tooltip-border: #00f0ff;
+            --breadcrumb-bg: rgba(0, 240, 255, 0.05);
+            --breadcrumb-border: rgba(0, 240, 255, 0.1);
+            --pilot-pulse-bg: #00f0ff;
+            --pilot-pulse-shadow: 0 0 10px #00f0ff;
+            --accent-primary: #00f2fe;
+            --accent-secondary: #4facfe;
+            --accent-glow: rgba(0, 242, 254, 0.6);
+            --border-color: rgba(0, 242, 254, 0.3);
+            --container-bg: rgba(10, 10, 25, 0.75);
+        }
+
+        /* ===== 亮色主题 ===== */
+        [data-theme="light"] {
+            --bg-dark: #eef2ff;
+            --bg-body: #f5f7ff;
+            --neon-blue: #0055aa;
+            --neon-pink: #b3005e;
+            --neon-purple: #5a2d9e;
+            --neon-green: #008a2a;
+            --glass-bg: rgba(255, 255, 255, 0.72);
+            --glass-border: rgba(0, 80, 180, 0.25);
+            --text-main: #1a1a2e;
+            --text-muted: #627285;
+            --text-secondary: #4a4a6e;
+            --card-bg: rgba(255, 255, 255, 0.78);
+            --card-border: rgba(0, 80, 180, 0.25);
+            --shadow-glow: rgba(0, 80, 180, 0.10);
+            --input-bg: rgba(255, 255, 255, 0.7);
+            --table-header-bg: rgba(230, 235, 255, 0.92);
+            --table-row-bg: rgba(255, 255, 255, 0.40);
+            --table-row-hover: rgba(220, 230, 255, 0.65);
+            --border-subtle: rgba(160, 180, 220, 0.5);
+            --cyber-text-gradient: linear-gradient(90deg, #0055aa, #b3005e, #008a2a, #0055aa);
+            --toast-bg: rgba(255, 255, 255, 0.85);
+            --toast-border: rgba(0, 80, 180, 0.5);
+            --tooltip-bg: rgba(255, 255, 255, 0.92);
+            --tooltip-border: #0055aa;
+            --breadcrumb-bg: rgba(0, 80, 180, 0.06);
+            --breadcrumb-border: rgba(0, 80, 180, 0.15);
+            --pilot-pulse-bg: #0055aa;
+            --pilot-pulse-shadow: 0 0 10px #0055aa;
+            --cyber-status-shadow: 0 0 6px rgba(0, 80, 180, 0.25);
+            --accent-primary: #0052cc;
+            --accent-secondary: #4facfe;
+            --accent-glow: rgba(0, 82, 204, 0.3);
+            --border-color: rgba(79, 172, 254, 0.4);
+            --container-bg: rgba(255, 255, 255, 0.85);
+        }
 
         body {
             font-family: 'Rajdhani', sans-serif;
-            background-color: #05050f;
+            background-color: var(--bg-body);
+            color: var(--text-main);
             overflow-x: hidden;
+            transition: background-color 0.5s ease, color 0.5s ease;
         }
 
         .font-orbitron {
             font-family: 'Orbitron', sans-serif;
         }
 
+        .font-mono {
+            font-family: 'Roboto Mono', monospace;
+        }
+
+        /* ===== Three.js 背景容器 ===== */
         #canvas-container {
             position: fixed;
             top: 0;
@@ -28,172 +117,1057 @@
             height: 100vh;
             z-index: -1;
             pointer-events: none;
+            transition: opacity 0.8s ease;
+        }
+        [data-theme="light"] #canvas-container {
+            opacity: 0.55;
         }
 
-        /* 自定义高科技滚动条 */
+        /* ===== 虫洞 Canvas ===== */
+        #wormhole-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: -2;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.8s ease-in-out;
+        }
+
+        /* ===== 滚动条 ===== */
         ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
+            width: 6px;
+            height: 6px;
+            background-color: transparent;
         }
         ::-webkit-scrollbar-track {
-            background: rgba(10, 10, 25, 0.5);
+            background: rgba(10, 10, 25, 0.2);
+            border-radius: 3px;
+        }
+        [data-theme="light"] ::-webkit-scrollbar-track {
+            background: rgba(200, 210, 240, 0.25);
         }
         ::-webkit-scrollbar-thumb {
-            background: linear-gradient(180deg, #00f2ff, #7000ff);
-            border-radius: 4px;
+            background: linear-gradient(180deg, rgba(0, 242, 255, 0.7), rgba(112, 0, 255, 0.7));
+            border-radius: 3px;
+            border: 1px solid rgba(10, 14, 35, 0.3);
+        }
+        [data-theme="light"] ::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, rgba(0, 80, 180, 0.5), rgba(90, 45, 158, 0.5));
+            border: 1px solid rgba(200, 210, 240, 0.3);
         }
         ::-webkit-scrollbar-thumb:hover {
             background: #00ffff;
+            box-shadow: 0 0 8px #00ffff;
+        }
+        [data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+            background: #0055aa;
+            box-shadow: 0 0 8px #0055aa;
         }
 
-        /* 发光故障文字特效 */
-        .glitch-text {
+        .virtual-scroll-viewport {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(0, 242, 255, 0.7) rgba(10, 10, 25, 0.2);
+        }
+        [data-theme="light"] .virtual-scroll-viewport {
+            scrollbar-color: rgba(0, 80, 180, 0.5) rgba(200, 210, 240, 0.25);
+        }
+
+        /* Search Bar & Controls */
+        .controls-row {
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .search-wrapper {
             position: relative;
-            color: #fff;
-            text-shadow: 0 0 10px #00f2ff, 0 0 20px #00f2ff, 0 0 40px #7000ff;
+            width: 300px;
+            transition: all 0.3s ease;
         }
 
-        /* 玻璃拟态与科技面板 */
+        .search-wrapper input {
+            width: 100%;
+            background: var(--container-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-color);
+            padding: 12px 15px 12px 40px;
+            border-radius: 30px;
+            color: var(--text-main);
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 16px;
+            font-weight: 600;
+            outline: none;
+            transition: all 0.3s;
+        }
+
+        .search-wrapper input:focus {
+            box-shadow: 0 0 15px var(--accent-glow);
+            width: 380px;
+            border-color: var(--accent-primary);
+        }
+
+        .search-wrapper i {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            transition: all 0.3s;
+        }
+
+        .search-wrapper input:focus + i {
+            color: var(--accent-primary);
+        }
+
+        /* ===== 霓虹状态文字 ===== */
+        .cyber-status-text {
+            display: inline-block;
+            font-family: var(--font-orbitron);
+            font-weight: 900;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            background: var(--cyber-text-gradient);
+            background-size: 300% auto;
+            color: transparent;
+            -webkit-background-clip: text;
+            background-clip: text;
+            animation: cyber-scan 3s linear infinite, cyber-glitch 5s infinite;
+            text-shadow: var(--cyber-status-shadow);
+        }
+
+        @keyframes cyber-scan {
+            to {
+                background-position: 300% center;
+            }
+        }
+
+        @keyframes cyber-glitch {
+            0%,
+            100% {
+                transform: skew(0deg);
+                filter: drop-shadow(0 0 2px var(--neon-blue));
+            }
+            1%,
+            3% {
+                transform: skew(-10deg);
+                filter: drop-shadow(2px 0 0px var(--neon-pink));
+            }
+            2%,
+            4% {
+                transform: skew(10deg);
+                filter: drop-shadow(-2px 0 0px var(--neon-green));
+            }
+            5%,
+            95% {
+                transform: skew(0deg);
+                filter: drop-shadow(0 0 5px rgba(0, 240, 255, 0.5));
+            }
+        }
+        [data-theme="light"] .cyber-status-text {
+            text-shadow: 0 0 6px rgba(0, 80, 180, 0.25);
+        }
+
+        /* ===== 玻璃拟态面板 ===== */
         .sci-fi-panel {
-            background: rgba(10, 14, 35, 0.65);
+            background: var(--glass-bg);
             backdrop-filter: blur(12px);
-            border: 1px solid rgba(0, 242, 255, 0.2);
-            box-shadow: 0 0 25px rgba(0, 242, 255, 0.08), inset 0 0 15px rgba(0, 242, 255, 0.03);
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 0 25px var(--shadow-glow), inset 0 0 15px rgba(0, 242, 255, 0.03);
+            transition: all 0.5s ease;
+            color: var(--text-main);
+        }
+        [data-theme="light"] .sci-fi-panel {
+            box-shadow: 0 0 25px rgba(0, 80, 180, 0.08), inset 0 0 15px rgba(0, 80, 180, 0.02);
         }
 
         .sci-fi-card {
-            background: rgba(15, 20, 45, 0.75);
+            background: var(--card-bg);
             backdrop-filter: blur(8px);
-            border: 1px solid rgba(112, 0, 255, 0.3);
-            transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+            border: 1px solid var(--card-border);
+            margin: 20px;
+            transition: border-color 0.3s, box-shadow 0.3s, transform 0.3s, background 0.3s, backdrop-filter 0.3s;
             box-shadow: 0 0 15px rgba(112, 0, 255, 0.1);
+            clip-path: inset(0 0 0 0);
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 0;
+            color: var(--text-main);
         }
 
         .sci-fi-card:hover {
-            border-color: #00f2ff;
-            box-shadow: 0 0 30px rgba(0, 242, 255, 0.3), inset 0 0 10px rgba(0, 242, 255, 0.2);
+            border-color: var(--neon-blue);
+            backdrop-filter: blur(4px);
+            background: rgba(10, 14, 35, 0.2);
             transform: translateY(-4px) scale(1.01);
+            box-shadow: 0 0 35px rgba(0, 242, 255, 0.4), inset 0 0 15px rgba(0, 242, 255, 0.3);
         }
+        [data-theme="light"] .sci-fi-card:hover {
+            background: rgba(255, 255, 255, 0.85);
+            box-shadow: 0 0 35px rgba(0, 80, 180, 0.25), inset 0 0 15px rgba(0, 80, 180, 0.10);
+        }
+
         .space-normal {
             white-space: normal;
             word-wrap: break-word;
         }
-        /* 抽屉式 tooltip 提示 */
-        .tooltip-box {
-            position: relative;
-        }
-        .tooltip-box .tooltip-content {
-            position: absolute;
-            visibility: hidden;
-            display: inline-block;
-            width: fit-content;
-            opacity: 0;
-            bottom: 100%;
-            margin-bottom: 8px;
-            z-index: 999;
-            left: 50%;
-            transform: translateX(-50%) translateY(10px);
-            transition: opacity 0.3s, transform 0.3s;
-        }
-        .tooltip-box:hover .tooltip-content {
-            visibility: visible;
-            opacity: 1;
-            transform: translateX(-50%) translateY(0);
+
+        .breadcrumb-item {
+            color: var(--neon-blue);
+            text-decoration: none;
+            padding: 4px 10px;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+            background: var(--breadcrumb-bg);
+            border: 1px solid var(--breadcrumb-border);
         }
 
-        /* 动态霓虹流光按钮 */
+        .breadcrumb-item:hover {
+            background: rgba(0, 240, 255, 0.2);
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.4);
+            color: #fff;
+            text-shadow: 0 0 5px var(--neon-blue);
+        }
+        [data-theme="light"] .breadcrumb-item:hover {
+            background: rgba(0, 80, 180, 0.15);
+            box-shadow: 0 0 10px rgba(0, 80, 180, 0.25);
+            color: var(--neon-blue);
+        }
+
+        /* ===== 霓虹按钮 ===== */
         .neon-btn {
             position: relative;
             overflow: hidden;
             transition: 0.5s;
+            justify-content: center;
+            width: 100%;
+            border-color: var(--neon-blue);
+            color: var(--neon-blue);
         }
         .neon-btn:hover {
-            background: #00f2ff;
+            background: var(--neon-blue);
             color: #05050f;
-            box-shadow: 0 0 20px #00f2ff, 0 0 40px #00f2ff, 0 0 80px #00f2ff;
+            box-shadow: 0 0 20px var(--neon-blue), 0 0 40px var(--neon-blue), 0 0 80px var(--neon-blue);
+        }
+        [data-theme="light"] .neon-btn:hover {
+            color: #fff;
+        }
+
+        .stealth-btn {
+            position: relative;
+            overflow: hidden;
+            transition: 0.5s;
+            border-color: var(--neon-pink);
+            color: var(--neon-pink);
+            justify-content: center;
+            width: 100%;
+        }
+        .stealth-btn:hover {
+            background: var(--neon-pink);
+            color: #05050f;
+            box-shadow: 0 0 20px var(--neon-pink), 0 0 40px var(--neon-pink), 0 0 80px var(--neon-pink);
+        }
+        [data-theme="light"] .stealth-btn:hover {
+            color: #fff;
+        }
+        .stealth-btn.active {
+            background: var(--neon-green);
+            color: #05050f;
+            border-color: var(--neon-green);
+            box-shadow: 0 0 20px var(--neon-green), 0 0 40px var(--neon-green);
+        }
+        [data-theme="light"] .stealth-btn.active {
+            color: #fff;
+        }
+
+        .card-meta-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .meta-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            padding: 6px 10px;
+            background: rgba(221, 221, 221, 0.15);
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.03);
+            transition: all 0.2s;
+        }
+
+        .meta-item:hover {
+            background: rgba(0, 242, 254, 0.05);
+            border-color: rgba(0, 242, 254, 0.2);
+        }
+
+        .meta-item.full-width {
+            grid-column: span 2;
+        }
+
+        .meta-label {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* ===== 主题切换按钮（右上角） ===== */
+        .theme-toggle-btn {
+            transition: 0.4s ease;
+            border-color: rgba(0, 240, 255, 0.4);
+            background: rgba(10, 14, 35, 0.7);
+            backdrop-filter: blur(8px);
+            color: var(--neon-blue);
+        }
+        .theme-toggle-btn:hover {
+            background: rgba(0, 240, 255, 0.2);
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+            transform: scale(1.05) rotate(15deg);
+        }
+        [data-theme="light"] .theme-toggle-btn {
+            border-color: rgba(0, 80, 180, 0.3);
+            background: rgba(255, 255, 255, 0.7);
+            color: #0055aa;
+        }
+        [data-theme="light"] .theme-toggle-btn:hover {
+            background: rgba(0, 80, 180, 0.15);
+            box-shadow: 0 0 20px rgba(0, 80, 180, 0.2);
+        }
+
+        .card-item-icon:hover {
+            text-shadow: 0 0 4px #fff, 0 0 10px #00eeff, 0 0 22px #00eeff, 0 0 45px #00aacc;
+        }
+        [data-theme="light"] .card-item-icon:hover {
+            text-shadow: 0 0 4px rgba(0, 80, 180, 0.3), 0 0 10px rgba(0, 80, 180, 0.2);
+        }
+
+        .card-item-text {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-main);
         }
 
         .card-item-text:hover {
             color: #00eeff;
-            /* 多层霓虹发光 */
-            text-shadow:
-                0 0 4px #fff,
-                0 0 10px #00eeff,
-                0 0 22px #00eeff,
-                0 0 45px #00aacc;
+        }
+        [data-theme="light"] .card-item-text:hover {
+            color: #0055aa;
         }
 
-        @keyframes cosmic-glow {
-            0%, 100% { filter: drop-shadow(0 0 10px rgba(74, 144, 226, 0.6)); }
-            50% { filter: drop-shadow(0 0 25px rgba(212, 175, 55, 0.8)); }
+        /* ===== 彩虹波浪文字 ===== */
+        @keyframes waveRainbowText {
+            0% {
+                background-position: 0% 50%;
+                transform: translateY(0px) skew(0deg);
+            }
+            25% {
+                transform: translateY(-4px) skew(-3deg);
+                filter: hue-rotate(45deg);
+            }
+            50% {
+                background-position: 100% 50%;
+                transform: translateY(3px) skew(3deg);
+                filter: hue-rotate(180deg);
+            }
+            75% {
+                transform: translateY(-2px) skew(-2deg);
+                filter: hue-rotate(270deg);
+            }
+            100% {
+                background-position: 0% 50%;
+                transform: translateY(0px) skew(0deg);
+                filter: hue-rotate(360deg);
+            }
         }
-        @keyframes gradient-shift {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
+        @keyframes fastWaveShaking {
+            0%,
+            100% {
+                transform: translate(0, 0) scale(1);
+            }
+            20% {
+                transform: translate(-5px, 4px) scale(1.02) skew(-5deg);
+            }
+            40% {
+                transform: translate(5px, -3px) scale(0.98) skew(5deg);
+            }
+            60% {
+                transform: translate(-3px, 3px) scale(1.01) skew(-3deg);
+            }
+            80% {
+                transform: translate(3px, -4px) scale(0.99) skew(3deg);
+            }
         }
-        .cosmic-title {
-            animation: cosmic-glow 5s infinite alternate;
-            background: linear-gradient(45deg, #ff7b00, #ff0055, #00ffff, #7b00ff);
+        .wave-rainbow-text {
+            animation: waveRainbowText 6s ease infinite alternate;
+            background: linear-gradient(45deg, #ff0000, #ff7700, #ffff00, #00ff00, #00ffff, #0000ff, #8a2be2);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            background-size: 300% 300%;
-            animation: gradient-shift 6s ease infinite;
+            -webkit-user-select: none;
+            user-select: none;
+            background-size: 400% 400%;
+            display: inline-block;
+        }
+        .fast-shaking-active {
+            animation: fastWaveShaking 0.12s linear infinite !important;
         }
 
-        @keyframes neonGlow {
-            0%, 100% { text-shadow: 0 0 5px #00ffff, 0 0 10px #00ffff, 0 0 20px #00ffff, 0 0 40px #0080ff; }
-            50% { text-shadow: 0 0 10px #ff00ff, 0 0 20px #ff00ff, 0 0 40px #ff00ff, 0 0 80px #ff00ff; }
+        /* ===== Cyber 角标 ===== */
+        .cyber-badge {
+            position: absolute;
+            top: 0;
+            right: 0;
+            background: var(--neon-pink);
+            color: #fff;
+            font-family: var(--font-orbitron);
+            font-size: 9px;
+            font-weight: bold;
+            padding: 3px 12px;
+            transform: rotate(45deg) translate(15px, -5px);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            box-shadow: 0 0 10px rgba(255, 0, 127, 0.5);
+            z-index: 10;
         }
-        .neon-title { animation: neonGlow 4s infinite; }
-        
+        .cyber-badge.dir {
+            background: var(--neon-blue);
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
+        }
+
         @keyframes rotateC {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
         }
-        .cosmic-radar { animation: rotateC 20s linear infinite; }
+        .cosmic-radar {
+            animation: rotateC 20s linear infinite;
+        }
 
-        /* 响应式断点折叠切换卡片 */
-        @media (min-width: 1024px) {
-            .desktop-table { display: table; }
-            .mobile-cards { display: none; }
+        /* ===== 飞行员脉冲 ===== */
+        @keyframes pilotStatusGlow {
+            0% {
+                background-color: var(--pilot-pulse-bg);
+                box-shadow: var(--pilot-pulse-shadow);
+            }
+            33% {
+                background-color: var(--neon-green);
+                box-shadow: 0 0 10px var(--neon-green);
+            }
+            66% {
+                background-color: var(--neon-pink);
+                box-shadow: 0 0 10px var(--neon-pink);
+            }
+            100% {
+                background-color: var(--pilot-pulse-bg);
+                box-shadow: var(--pilot-pulse-shadow);
+            }
         }
-        @media (max-width: 1023px) {
-            .desktop-table { display: none; }
-            .mobile-cards { display: flex; }
+        .pilot-pulse {
+            animation: pilotStatusGlow 4s infinite ease-in-out, ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+        }
+
+        /* ===== 量子风暴 ===== */
+        @keyframes stormFlash {
+            0%,
+            100% {
+                background: transparent;
+            }
+            10%,
+            30% {
+                background: rgba(0, 240, 255, 0.2);
+                backdrop-filter: blur(20px);
+            }
+            20%,
+            40% {
+                background: rgba(255, 0, 127, 0.2);
+                backdrop-filter: blur(20px);
+            }
+            50% {
+                background: rgba(57, 255, 20, 0.15);
+                backdrop-filter: blur(30px);
+            }
+        }
+        .quantum-storm-active {
+            animation: stormFlash 0.3s ease-in-out 8;
+        }
+
+        /* ===== 机器人语音特效 ===== */
+        @keyframes speakAnimation {
+            0%,
+            100% {
+                transform: scale(1);
+                filter: drop-shadow(0 0 12px var(--neon-blue));
+            }
+            20% {
+                transform: scale(1.15) translateY(-2px);
+                filter: drop-shadow(0 0 20px var(--neon-blue));
+            }
+            40% {
+                transform: scale(0.95);
+                filter: drop-shadow(0 0 8px var(--neon-blue));
+            }
+            60% {
+                transform: scale(1.08) translateY(-1px);
+                filter: drop-shadow(0 0 18px var(--neon-blue));
+            }
+            80% {
+                transform: scale(1.02);
+                filter: drop-shadow(0 0 12px var(--neon-blue));
+            }
+        }
+        @keyframes speakingGlow {
+            0%,
+            100% {
+                opacity: 0.3;
+                transform: scale(1);
+            }
+            50% {
+                opacity: 0.8;
+                transform: scale(1.6);
+            }
+        }
+        .robot-speaking {
+            animation: speakAnimation 0.6s ease-in-out infinite alternate;
+        }
+        .robot-speaking::before {
+            content: '';
+            position: absolute;
+            inset: -8px;
+            border: 2px solid var(--neon-blue);
+            border-radius: 50%;
+            animation: speakingGlow 1.2s ease-in-out infinite;
+            z-index: -1;
+        }
+        @keyframes robotMouthOpen {
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+            50% {
+                transform: translateY(4px) scaleY(1.3);
+            }
+        }
+        .robot-mouth {
+            display: inline-block;
+            transform-origin: center bottom;
+        }
+        .robot-speaking .robot-mouth {
+            animation: robotMouthOpen 0.3s ease-in-out infinite alternate;
+        }
+
+        /* ===== 响应式表格 ===== */
+        @media (min-width: 900px) {
+            .desktop-table-wrap {
+                display: block;
+            }
+            .mobile-cards-wrap {
+                display: none;
+            }
+        }
+        @media (max-width: 899px) {
+            .desktop-table-wrap {
+                display: none;
+            }
+            .mobile-cards-wrap {
+                display: block;
+            }
+            .search-wrapper { width: 100%; }
+            .search-wrapper input:focus { width: 100%; }
+        }
+
+        /* ===== 表格表头 ===== */
+        .sci-fi-table-header-wrapper {
+            position: sticky;
+            top: 0;
+            z-index: 30;
+            width: 100%;
+            background: var(--table-header-bg) !important;
+            backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--glass-border);
+            box-shadow: 0 4px 20px var(--shadow-glow);
+            transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+        }
+        .sci-fi-table-header-wrapper:hover {
+            background: var(--table-header-bg) !important;
+            border-bottom-color: var(--neon-blue);
+            box-shadow: 0 0 20px rgba(0, 242, 255, 0.6), inset 0 0 10px rgba(0, 242, 255, 0.4);
+        }
+        [data-theme="light"] .sci-fi-table-header-wrapper:hover {
+            box-shadow: 0 0 20px rgba(0, 80, 180, 0.25), inset 0 0 10px rgba(0, 80, 180, 0.10);
+        }
+
+        .sci-fi-th {
+            position: relative;
+            padding: 16px 20px !important;
+            font-family: var(--font-orbitron);
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: var(--neon-blue);
+            text-shadow: 0 0 5px rgba(0, 240, 255, 0.3);
+            transition: all 0.3s ease;
+        }
+        .sci-fi-th:hover {
+            color: var(--text-main);
+            text-shadow: 0 0 8px var(--neon-blue), 0 0 15px var(--neon-blue);
+            transform: translateY(-1px);
+        }
+        .sci-fi-th:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            height: 50%;
+            width: 1px;
+            background: linear-gradient(180deg, transparent, var(--glass-border), transparent);
+        }
+
+        /* ===== 虚拟滚动 ===== */
+        .virtual-scroll-viewport {
+            position: relative;
+            overflow-y: auto;
+            will-change: transform;
+            -webkit-overflow-scrolling: touch;
+        }
+        .virtual-scroll-content {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+        }
+        .virtual-tr {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 0;
+            display: flex;
+            align-items: center;
+            background: var(--table-row-bg);
+            border-bottom: 1px solid var(--border-subtle);
+            transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
+        }
+        .virtual-tr:hover {
+            background: var(--table-row-hover) !important;
+            backdrop-filter: blur(8px);
+            border-color: var(--glass-border);
+            box-shadow: inset 0 0 12px rgba(0, 242, 255, 0.3), 0 0 10px rgba(112, 0, 255, 0.2);
+            z-index: 10;
+        }
+        [data-theme="light"] .virtual-tr:hover {
+            box-shadow: inset 0 0 12px rgba(0, 80, 180, 0.15), 0 0 10px rgba(90, 45, 158, 0.10);
+        }
+
+        .virtual-td {
+            padding: 16px;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            height: 100%;
+            transition: background-color 0.2s, backdrop-filter 0.2s;
+        }
+        .virtual-tr:hover .virtual-td:hover {
+            background: rgba(0, 242, 255, 0.12);
+            backdrop-filter: blur(4px);
+            box-shadow: inset 0 0 8px rgba(0, 242, 255, 0.2);
+        }
+        [data-theme="light"] .virtual-tr:hover .virtual-td:hover {
+            background: rgba(0, 80, 180, 0.08);
+            box-shadow: inset 0 0 8px rgba(0, 80, 180, 0.10);
+        }
+
+        @keyframes shineReflection {
+            0% {
+                left: -100%;
+            }
+            100% {
+                left: 150%;
+            }
+        }
+
+        /* ===== 全息提示框 ===== */
+        #holocubic-tooltip {
+            pointer-events: none;
+            position: fixed;
+            z-index: 10000;
+            background: var(--tooltip-bg);
+            border: 1px solid var(--tooltip-border);
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.4), inset 0 0 10px rgba(0, 240, 255, 0.2);
+            backdrop-filter: blur(8px);
+            border-radius: 6px;
+            padding: 10px 16px;
+            font-family: var(--font-cyber);
+            color: var(--neon-blue);
+            letter-spacing: 0.5px;
+            transform: translate(15px, 15px);
+            transition: opacity 0.15s ease;
+            max-width: 450px;
+            word-break: break-all;
+            display: none;
+            opacity: 0;
+        }
+        [data-theme="light"] #holocubic-tooltip {
+            border-color: #0055aa;
+            box-shadow: 0 0 20px rgba(0, 80, 180, 0.25), inset 0 0 10px rgba(0, 80, 180, 0.10);
+            color: #0055aa;
+        }
+
+        @keyframes holoScan {
+            0% {
+                top: 0;
+            }
+            100% {
+                top: 100%;
+            }
+        }
+        #holocubic-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.8), transparent);
+            animation: holoScan 2s linear infinite;
+        }
+        [data-theme="light"] #holocubic-tooltip::after {
+            background: linear-gradient(90deg, transparent, rgba(0, 80, 180, 0.6), transparent);
+        }
+
+        /* ===== Toast 容器 ===== */
+        #toast-container .sci-fi-panel {
+            background: var(--toast-bg);
+            border: 1px solid var(--toast-border);
+            color: var(--text-main);
+        }
+
+        /* ===== 亮色主题额外微调 ===== */
+        [data-theme="light"] .sci-fi-panel .text-cyan-400 {
+            color: #0055aa;
+        }
+        [data-theme="light"] .sci-fi-panel .text-fuchsia-400 {
+            color: #b3005e;
+        }
+        [data-theme="light"] .sci-fi-panel .text-violet-400 {
+            color: #5a2d9e;
+        }
+        [data-theme="light"] .sci-fi-panel .text-emerald-400 {
+            color: #008a2a;
+        }
+        [data-theme="light"] .sci-fi-panel .text-amber-300 {
+            color: #9e6d00;
+        }
+        [data-theme="light"] .sci-fi-panel .text-slate-400 {
+            color: #6b6b8a;
+        }
+        [data-theme="light"] .sci-fi-panel .text-slate-300 {
+            color: #4a4a6e;
+        }
+        [data-theme="light"] .sci-fi-panel .text-slate-200 {
+            color: #2a2a4e;
+        }
+        [data-theme="light"] .sci-fi-panel .border-cyan-400\/30 {
+            border-color: rgba(0, 80, 180, 0.25);
+        }
+        [data-theme="light"] .sci-fi-panel .border-violet-400\/30 {
+            border-color: rgba(90, 45, 158, 0.25);
+        }
+        [data-theme="light"] .sci-fi-panel .border-fuchsia-400\/30 {
+            border-color: rgba(179, 0, 94, 0.25);
+        }
+        [data-theme="light"] .sci-fi-panel .border-emerald-400\/30 {
+            border-color: rgba(0, 138, 42, 0.25);
+        }
+        [data-theme="light"] .bg-cyan-950\/60 {
+            background: rgba(200, 225, 255, 0.4);
+        }
+        [data-theme="light"] .bg-violet-950\/60 {
+            background: rgba(210, 190, 255, 0.4);
+        }
+        [data-theme="light"] .bg-fuchsia-950\/60 {
+            background: rgba(255, 200, 230, 0.4);
+        }
+        [data-theme="light"] .bg-emerald-950\/60 {
+            background: rgba(190, 255, 210, 0.4);
+        }
+        [data-theme="light"] .bg-slate-900\/60 {
+            background: rgba(240, 242, 255, 0.6);
+        }
+        [data-theme="light"] .bg-slate-900\/80 {
+            background: rgba(240, 242, 255, 0.8);
+        }
+        [data-theme="light"] .bg-black\/40 {
+            background: rgba(200, 210, 240, 0.3);
+        }
+        [data-theme="light"] .border-slate-700 {
+            border-color: rgba(160, 180, 220, 0.4);
+        }
+        [data-theme="light"] .border-slate-600 {
+            border-color: rgba(160, 180, 220, 0.5);
+        }
+        [data-theme="light"] .border-slate-800\/50 {
+            border-color: rgba(160, 180, 220, 0.3);
+        }
+        [data-theme="light"] .bg-indigo-950\/30 {
+            background: rgba(200, 210, 255, 0.3);
+        }
+        [data-theme="light"] .border-indigo-900\/40 {
+            border-color: rgba(160, 180, 220, 0.3);
+        }
+        [data-theme="light"] .bg-slate-950\/50 {
+            background: rgba(240, 242, 255, 0.5);
+        }
+        [data-theme="light"] .text-slate-500 {
+            color: #6b6b8a;
+        }
+        [data-theme="light"] .text-slate-600 {
+            color: #4a4a6e;
+        }
+        [data-theme="light"] .text-slate-200 {
+            color: #2a2a4e;
+        }
+        [data-theme="light"] .border-violet-500\/20 {
+            border-color: rgba(90, 45, 158, 0.15);
+        }
+        [data-theme="light"] .text-sky-200 {
+            color: #1a4a7a;
+        }
+        [data-theme="light"] .hover\:text-cyan-300:hover {
+            color: #0055aa;
+        }
+        [data-theme="light"] .text-cyan-300 {
+            color: #0055aa;
+        }
+        [data-theme="light"] .text-violet-300 {
+            color: #5a2d9e;
+        }
+        [data-theme="light"] .text-fuchsia-300 {
+            color: #b3005e;
+        }
+        [data-theme="light"] .text-emerald-300 {
+            color: #008a2a;
+        }
+        [data-theme="light"] .text-amber-300 {
+            color: #9e6d00;
+        }
+        [data-theme="light"] .text-rose-400 {
+            color: #b3005e;
+        }
+        [data-theme="light"] .text-cyan-400 {
+            color: #0055aa;
+        }
+        [data-theme="light"] .text-violet-400 {
+            color: #5a2d9e;
+        }
+        [data-theme="light"] .text-fuchsia-400 {
+            color: #b3005e;
+        }
+        [data-theme="light"] .text-emerald-400 {
+            color: #008a2a;
+        }
+        [data-theme="light"] .text-amber-400 {
+            color: #9e6d00;
+        }
+        [data-theme="light"] .text-yellow-400 {
+            color: #9e6d00;
+        }
+        [data-theme="light"] .border-cyan-500\/40 {
+            border-color: rgba(0, 80, 180, 0.3);
+        }
+        [data-theme="light"] .border-cyan-500\/30 {
+            border-color: rgba(0, 80, 180, 0.2);
+        }
+        [data-theme="light"] .bg-cyan-500\/20 {
+            background: rgba(0, 80, 180, 0.10);
+        }
+        [data-theme="light"] .bg-violet-500\/20 {
+            background: rgba(90, 45, 158, 0.10);
+        }
+        [data-theme="light"] .bg-fuchsia-500\/20 {
+            background: rgba(179, 0, 94, 0.10);
+        }
+        [data-theme="light"] .bg-emerald-500\/20 {
+            background: rgba(0, 138, 42, 0.10);
+        }
+        [data-theme="light"] .bg-cyan-900\/80 {
+            background: rgba(200, 225, 255, 0.5);
+        }
+        [data-theme="light"] .border-cyan-500 {
+            border-color: #0055aa;
+        }
+        [data-theme="light"] .text-slate-400 {
+            color: #6b6b8a;
+        }
+        [data-theme="light"] .border-slate-500 {
+            border-color: rgba(160, 180, 220, 0.5);
+        }
+        [data-theme="light"] .bg-slate-900 {
+            background: rgba(240, 242, 255, 0.8);
+        }
+        [data-theme="light"] .text-cyan-200 {
+            color: #1a4a7a;
+        }
+        [data-theme="light"] .border-cyan-400 {
+            border-color: #0055aa;
+        }
+        [data-theme="light"] .text-white {
+            color: #1a1a2e;
+        }
+        [data-theme="light"] .text-slate-200 {
+            color: #2a2a4e;
+        }
+        [data-theme="light"] .placeholder-slate-500::placeholder {
+            color: #8a8aaa;
+        }
+        [data-theme="light"] .border-slate-800\/80 {
+            border-color: rgba(160, 180, 220, 0.4);
+        }
+        [data-theme="light"] .bg-slate-900\/30 {
+            background: rgba(240, 242, 255, 0.5);
+        }
+        [data-theme="light"] .bg-slate-900\/70 {
+            background: rgba(240, 242, 255, 0.7);
+        }
+        [data-theme="light"] .shadow-\[0_0_15px_\#00f2ff\] {
+            box-shadow: 0 0 15px rgba(0, 80, 180, 0.3);
+        }
+        [data-theme="light"] .shadow-\[0_0_15px_\#9d4edd\] {
+            box-shadow: 0 0 15px rgba(90, 45, 158, 0.3);
+        }
+        [data-theme="light"] .shadow-\[0_0_15px_\#ff007f\] {
+            box-shadow: 0 0 15px rgba(179, 0, 94, 0.3);
+        }
+        [data-theme="light"] .shadow-\[0_0_15px_\#39ff14\] {
+            box-shadow: 0 0 15px rgba(0, 138, 42, 0.3);
+        }
+        [data-theme="light"] .border-cyan-400\/60 {
+            border-color: rgba(0, 80, 180, 0.4);
+        }
+        [data-theme="light"] .text-cyan-300 {
+            color: #0055aa;
+        }
+        [data-theme="light"] .text-slate-300 {
+            color: #4a4a6e;
+        }
+        [data-theme="light"] .border-cyan-500 {
+            border-color: #0055aa;
+        }
+        [data-theme="light"] .border-violet-400 {
+            border-color: #5a2d9e;
+        }
+        [data-theme="light"] .border-fuchsia-400 {
+            border-color: #b3005e;
+        }
+        [data-theme="light"] .border-emerald-400 {
+            border-color: #008a2a;
+        }
+        [data-theme="light"] .bg-violet-950\/60 {
+            background: rgba(210, 190, 255, 0.4);
+        }
+        [data-theme="light"] .bg-fuchsia-950\/60 {
+            background: rgba(255, 200, 230, 0.4);
+        }
+        [data-theme="light"] .bg-emerald-950\/60 {
+            background: rgba(190, 255, 210, 0.4);
+        }
+        [data-theme="light"] .border-violet-400\/30 {
+            border-color: rgba(90, 45, 158, 0.25);
+        }
+        [data-theme="light"] .border-fuchsia-400\/30 {
+            border-color: rgba(179, 0, 94, 0.25);
+        }
+        [data-theme="light"] .border-emerald-400\/30 {
+            border-color: rgba(0, 138, 42, 0.25);
+        }
+        [data-theme="light"] .text-cyan-400\/80 {
+            color: rgba(0, 80, 180, 0.8);
+        }
+        [data-theme="light"] .text-violet-400\/80 {
+            color: rgba(90, 45, 158, 0.8);
+        }
+        [data-theme="light"] .text-fuchsia-400\/80 {
+            color: rgba(179, 0, 94, 0.8);
+        }
+        [data-theme="light"] .text-emerald-400\/80 {
+            color: rgba(0, 138, 42, 0.8);
+        }
+        [data-theme="light"] .border-cyan-500\/50 {
+            border-color: rgba(0, 80, 180, 0.4);
+        }
+        [data-theme="light"] .text-cyan-500 {
+            color: #0055aa;
+        }
+        [data-theme="light"] .hover\:text-blue-400:hover {
+            color: #0055aa;
+        }
+        [data-theme="light"] .text-violet-500 {
+            color: #5a2d9e;
+        }
+        [data-theme="light"] .text-fuchsia-500 {
+            color: #b3005e;
+        }
+        [data-theme="light"] .text-emerald-500 {
+            color: #008a2a;
         }
     </style>
 </head>
-<body class="text-slate-200 antialiased min-h-screen">
+<body class="text-slate-200 antialiased min-h-screen" id="app-body" data-theme="dark">
 
+    <!-- ===== Three.js 背景 ===== -->
     <div id="canvas-container"></div>
+    <canvas id="wormhole-canvas"></canvas>
+
+    <!-- ===== 全息提示框 ===== -->
+    <div id="holocubic-tooltip"></div>
+
+    <!-- ===== 主题切换按钮（右上角固定） ===== -->
+    <button id="theme-toggle-btn" onclick="toggleTheme()" class="theme-toggle-btn fixed top-4 right-4 z-50 w-12 h-12 rounded-full border-2 flex items-center justify-center text-2xl shadow-lg transition-all duration-300">
+        <i id="theme-icon" class="fa-solid fa-sun"></i>
+        <span id="theme-text" class="hidden">切换亮色</span>
+    </button>
 
     <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
 
+        <!-- ===== HEADER ===== -->
         <header class="mb-10 text-center space-y-4">
             <div class="inline-flex items-center space-x-3 bg-slate-900/80 px-6 py-2 rounded-full border border-cyan-500/30 shadow-inner">
-                <div class="w-3 h-3 bg-cyan-400 rounded-full animate-ping"></div>
-                <span class="text-cyan-400 font-mono tracking-widest text-sm uppercase">Pilot Status: Captain</span>
+                <div class="w-3 h-3 rounded-full pilot-pulse"></div>
+                <span class="text-cyan-400 font-mono tracking-widest text-sm uppercase">Pilot Status:</span>
+                <span id="pilot-status" class="cyber-status-text">DRIVING</span>
             </div>
-            <h1 class="text-5xl md:text-7xl font-extrabold tracking-tighter uppercase cosmic-title">
+            <h1 class="text-5xl md:text-7xl font-extrabold tracking-tighter uppercase wave-rainbow-text" id="universe-title">
                 P115 Tiny WebDAV: Crazy Universe
             </h1>
         </header>
 
+        <!-- ===== 控制面板 ===== -->
         <header class="sci-fi-panel rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between gap-4 border-l-4 border-l-cyan-400">
+            <!-- 左侧：机器人 + 状态 -->
             <div class="flex items-center space-x-6">
                 <div class="relative w-20 h-20 flex items-center justify-center">
                     <div class="absolute inset-0 border-2 border-dashed border-cyan-400 rounded-full cosmic-radar"></div>
                     <div class="absolute inset-2 border border-fuchsia-500 rounded-full"></div>
-                    <i class="fa-solid fa-rocket text-4xl text-cyan-300 drop-shadow-[0_0_12px_#00ffff]"></i>
+                    <div id="robot-icon-wrap" class="relative flex items-center justify-center text-4xl text-cyan-300 drop-shadow-[0_0_12px_#00ffff]">
+                        <i class="fa-solid fa-robot"></i>
+                        <span class="robot-mouth absolute -bottom-1 text-[10px] bg-cyan-900/80 px-1 border border-cyan-500 rounded opacity-80"></span>
+                    </div>
                 </div>
                 <div>
-                    <h1 class="text-4xl font-extrabold tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-white to-fuchsia-500 neon-title uppercase">Control CGBabin</h1>
                     <p class="text-cyan-400 font-medium tracking-wide mt-1">
-                        <i class="fa-solid fa-user-astronaut mr-2 "></i> 报告舰长，舱内一切正常，请下达指令
+                        <span class="fa-solid w-70" id="status-dynamic-text"></span>
                     </p>
                 </div>
             </div>
+
+            <!-- 中间：飞行数据 -->
             <div class="mt-4 md:mt-0 bg-black/40 border border-cyan-500/40 rounded-xl px-5 py-3 font-mono text-xs text-cyan-200 backdrop-blur-xl space-y-2">
                 <div>
                     <i class="fa-solid fa-location-crosshairs text-fuchsia-400 mr-2 fa-fade"></i>
@@ -205,158 +1179,306 @@
                 </div>
                 <div>
                     <i class="fa-solid fa-gear text-yellow-400 mr-2 fa-spin"></i>
-                    <span class="text-yellow-400">SPEED:</span> <span id="speed">0</span> c
+                    <span class="yellow-400">SPEED:</span> <span id="speed">0</span> c
                 </div>
             </div>
-            <div class="flex gap-4">
-                <button onclick="triggerWarp()" class="neon-btn font-orbitron px-6 py-3 rounded-xl border border-cyan-400 text-cyan-400 font-bold tracking-wider cursor-pointer flex items-center gap-2" style="width: max-content;">
+
+            <!-- 右侧：操作按钮组（移除了主题切换） -->
+            <div class="flex flex-col gap-3 w-48 shrink-0">
+                <button onclick="triggerWarp()" class="neon-btn font-orbitron px-6 py-3 rounded-xl border font-bold tracking-wider cursor-pointer flex items-center gap-2">
                     <i class="fa-solid fa-rocket animate-pulse"></i> 跃迁引擎点火
+                </button>
+                <button id="stealth-mode-btn" onclick="toggleStealthMode()" class="stealth-btn font-orbitron px-6 py-3 rounded-xl border font-bold tracking-wider cursor-pointer flex items-center gap-2">
+                    <i class="fa-solid fa-eye animate-pulse"></i> <span id="stealth-text">关闭数据面板</span>
                 </button>
             </div>
         </header>
 
-        <nav class="sci-fi-panel rounded-xl px-5 py-4 flex items-center text-sm font-semibold overflow-x-auto whitespace-nowrap">
-            <span class="text-violet-400 mr-2 font-orbitron tracking-wider"><i class="fa-solid fa-map-location-dot mr-1"></i> 航行坐标:</span>
-            <div id="ancestors-trail" class="flex items-center space-x-2 text-slate-300"></div>
-            <div class="flex items-center space-x-2 text-xs bg-slate-900/80 border border-slate-700 rounded px-2 py-1 ml-auto">
-                <i class="fa-solid fa-circle-nodes text-green-400 animate-pulse"></i>
-                <span class="text-slate-400">Sub-Space Connected</span>
-            </div>
-        </nav>
+        <!-- ===== 主交互区域 ===== -->
+        <div id="main-interactive-elements" class="space-y-6 transition-all duration-500">
 
-        <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            <div class="sci-fi-card rounded-2xl p-5 flex items-center justify-between">
-                <div>
-                    <h3 class="text-slate-400 text-sm font-bold uppercase tracking-wider font-orbitron">星际总量</h3>
-                    <p id="stat-total" class="text-3xl font-black text-cyan-300 mt-1 font-orbitron">0</p>
+            <!-- 导航面包屑 -->
+            <nav class="sci-fi-panel rounded-xl px-5 py-4 flex items-center text-sm font-semibold overflow-x-auto whitespace-nowrap">
+                <span class="text-violet-400 mr-2 font-orbitron tracking-wider"><i class="fa-solid fa-map-location-dot mr-1"></i> 航行坐标:</span>
+                <div id="ancestors-trail" class="flex items-center space-x-2 text-slate-300"></div>
+                <div class="flex items-center space-x-2 text-xs bg-slate-900/80 border border-slate-700 rounded px-2 py-1 ml-auto">
+                    <i class="fa-solid fa-circle-nodes text-green-400 animate-pulse"></i>
+                    <span class="text-slate-400">Sub-Space Connected</span>
                 </div>
-                <div class="w-12 h-12 rounded-xl bg-cyan-950/60 border border-cyan-400/30 flex items-center justify-center text-cyan-400 text-xl">
-                    <i class="fa-solid fa-cubes"></i>
-                </div>
-            </div>
-            <div class="sci-fi-card rounded-2xl p-5 flex items-center justify-between">
-                <div>
-                    <h3 class="text-slate-400 text-sm font-bold uppercase tracking-wider font-orbitron">数据实体 (文件)</h3>
-                    <p id="stat-files" class="text-3xl font-black text-violet-300 mt-1 font-orbitron">0</p>
-                </div>
-                <div class="w-12 h-12 rounded-xl bg-violet-950/60 border border-violet-400/30 flex items-center justify-center text-violet-400 text-xl">
-                    <i class="fa-solid fa-file-invoice"></i>
-                </div>
-            </div>
-            <div class="sci-fi-card rounded-2xl p-5 flex items-center justify-between">
-                <div>
-                    <h3 class="text-slate-400 text-sm font-bold uppercase tracking-wider font-orbitron">空间驿站 (目录)</h3>
-                    <p id="stat-dirs" class="text-3xl font-black text-fuchsia-300 mt-1 font-orbitron">0</p>
-                </div>
-                <div class="w-12 h-12 rounded-xl bg-fuchsia-950/60 border border-fuchsia-400/30 flex items-center justify-center text-fuchsia-400 text-xl">
-                    <i class="fa-solid fa-folder-tree"></i>
-                </div>
-            </div>
-            <div class="sci-fi-card rounded-2xl p-5 flex items-center justify-between">
-                <div>
-                    <h3 class="text-slate-400 text-sm font-bold uppercase tracking-wider font-orbitron">占用空间</h3>
-                    <p id="stat-size" class="text-3xl font-black text-emerald-300 mt-1 font-orbitron">0 GB</p>
-                </div>
-                <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-emerald-400/30 flex items-center justify-center text-emerald-400 text-xl">
-                    <i class="fa-solid fa-server"></i>
-                </div>
-            </div>
-        </section>
+            </nav>
 
-        <div class="flex flex-col sm:flex-row gap-4 justify-between items-center sci-fi-panel rounded-xl p-4">
-            <div class="relative w-full sm:w-96">
-                <i class="fa-solid fa-radar absolute left-4 top-3.5 text-cyan-400 animate-pulse"></i>
-                <input type="text" id="search-input" oninput="render()" placeholder="扫描雷达，搜索星际物质名称..." class="w-full pl-12 pr-4 py-3 bg-slate-900/60 border border-cyan-400/30 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500 font-medium tracking-wide text-white placeholder-slate-500">
+            <!-- 统计卡片 -->
+            <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                <div class="sci-fi-card !static rounded-2xl p-5 flex items-center justify-between group relative overflow-hidden cursor-pointer transition-all duration-300">
+                    <div class="absolute -inset-x-full w-1/2 h-full bg-gradient-to-r from-transparent via-white/10 to-transparent skew-x-[-30deg] group-hover:[animation:shineReflection_1.5s_ease-in-out_infinite] pointer-events-none"></div>
+                    <div>
+                        <h3 class="text-slate-400 text-sm font-bold uppercase tracking-wider font-orbitron group-hover:text-cyan-200 transition-colors">星际总量</h3>
+                        <p id="stat-total" class="text-3xl font-black text-cyan-300 mt-1 font-orbitron group-hover:scale-105 transition-transform">0</p>
+                    </div>
+                    <div class="w-12 h-12 rounded-xl bg-cyan-950/60 border border-cyan-400/30 flex items-center justify-center text-cyan-400 text-xl group-hover:bg-cyan-500/20 group-hover:border-cyan-400 group-hover:shadow-[0_0_15px_#00f2ff] transition-all">
+                        <i class="fa-solid fa-cubes"></i>
+                    </div>
+                </div>
+
+                <div class="sci-fi-card !static rounded-2xl p-5 flex items-center justify-between group relative overflow-hidden cursor-pointer transition-all duration-300">
+                    <div class="absolute -inset-x-full w-1/2 h-full bg-gradient-to-r from-transparent via-white/10 to-transparent skew-x-[-30deg] group-hover:[animation:shineReflection_1.5s_ease-in-out_infinite] pointer-events-none"></div>
+                    <div>
+                        <h3 class="text-slate-400 text-sm font-bold uppercase tracking-wider font-orbitron group-hover:text-violet-200 transition-colors">数据实体 (文件)</h3>
+                        <p id="stat-files" class="text-3xl font-black text-violet-300 mt-1 font-orbitron group-hover:scale-105 transition-transform">0</p>
+                    </div>
+                    <div class="w-12 h-12 rounded-xl bg-violet-950/60 border border-violet-400/30 flex items-center justify-center text-violet-400 text-xl group-hover:bg-violet-500/20 group-hover:border-violet-400 group-hover:shadow-[0_0_15px_#9d4edd] transition-all">
+                        <i class="fa-solid fa-file-invoice"></i>
+                    </div>
+                </div>
+
+                <div class="sci-fi-card !static rounded-2xl p-5 flex items-center justify-between group relative overflow-hidden cursor-pointer transition-all duration-300">
+                    <div class="absolute -inset-x-full w-1/2 h-full bg-gradient-to-r from-transparent via-white/10 to-transparent skew-x-[-30deg] group-hover:[animation:shineReflection_1.5s_ease-in-out_infinite] pointer-events-none"></div>
+                    <div>
+                        <h3 class="text-slate-400 text-sm font-bold uppercase tracking-wider font-orbitron group-hover:text-fuchsia-200 transition-colors">空间驿站 (目录)</h3>
+                        <p id="stat-dirs" class="text-3xl font-black text-fuchsia-300 mt-1 font-orbitron group-hover:scale-105 transition-transform">0</p>
+                    </div>
+                    <div class="w-12 h-12 rounded-xl bg-fuchsia-950/60 border border-fuchsia-400/30 flex items-center justify-center text-fuchsia-400 text-xl group-hover:bg-fuchsia-500/20 group-hover:border-fuchsia-400 group-hover:shadow-[0_0_15px_#ff007f] transition-all">
+                        <i class="fa-solid fa-folder-tree"></i>
+                    </div>
+                </div>
+
+                <div class="sci-fi-card !static rounded-2xl p-5 flex items-center justify-between group relative overflow-hidden cursor-pointer transition-all duration-300">
+                    <div class="absolute -inset-x-full w-1/2 h-full bg-gradient-to-r from-transparent via-white/10 to-transparent skew-x-[-30deg] group-hover:[animation:shineReflection_1.5s_ease-in-out_infinite] pointer-events-none"></div>
+                    <div>
+                        <h3 class="text-slate-400 text-sm font-bold uppercase tracking-wider font-orbitron group-hover:text-emerald-200 transition-colors">占用空间</h3>
+                        <p id="stat-size" class="text-3xl font-black text-emerald-300 mt-1 font-orbitron group-hover:scale-105 transition-transform">0 GB</p>
+                    </div>
+                    <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-emerald-400/30 flex items-center justify-center text-emerald-400 text-xl group-hover:bg-emerald-500/20 group-hover:border-emerald-400 group-hover:shadow-[0_0_15px_#39ff14] transition-all">
+                        <i class="fa-solid fa-server"></i>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 搜索 -->
+            <div class="controls-row interactive-ui">
+                <div class="search-wrapper">
+                    <input type="text" id="search-input" oninput="onSearchInput()" placeholder="搜索星际物质名称">
+                    <i class="fa-solid fa-radar"></i>
+                </div>
             </div>
-            <button onclick="resetView()" class="w-full sm:w-auto px-5 py-3 bg-slate-900/60 border border-slate-600 rounded-xl font-orbitron font-bold tracking-wider text-slate-400 hover:text-white hover:border-slate-400 transition cursor-pointer flex items-center justify-center gap-2">
-                <i class="fa-solid fa-rotate-right"></i> 重置雷达
-            </button>
+
+            <!-- 表格 / 卡片列表 -->
+            <div class="sci-fi-panel rounded-2xl overflow-hidden p-1">
+                <!-- 桌面表格 -->
+                <div class="desktop-table-wrap">
+                    <div class="sci-fi-table-header-wrapper">
+                        <table class="w-full text-left border-collapse" style="position: relative;">
+                            <thead style="display: table; width: 100%; table-layout: fixed;">
+                                <tr style="display: table-row;">
+                                    <th class="sci-fi-th w-15 text-center cursor-pointer select-none" onclick="resetTableOrder()"><i class="fa-solid fa-rotate fa-spin fa-spin-reverse"></i></th>
+                                    <th class="sci-fi-th cursor-pointer select-none text-center" onclick="sortBy('name')">星体名称 (name) <i id="sort-icon-name" class="fa-solid fa-sort ml-1 text-xs"></i></th>
+                                    <th class="sci-fi-th cursor-pointer select-none w-88 text-center" onclick="sortBy('sha1')">哈希标识 (sha1)<i id="sort-icon-sha1" class="fa-solid fa-sort ml-1 text-xs"></i></th>
+                                    <th class="sci-fi-th cursor-pointer select-none w-32 text-center" onclick="sortBy('size')">字节容积 (size)<i id="sort-icon-size" class="fa-solid fa-sort ml-1 text-xs"></i></th>
+                                    <th class="sci-fi-th cursor-pointer select-none w-44 text-center" onclick="sortBy('mtime')">时空记录 (mtime)<i id="sort-icon-mtime" class="fa-solid fa-sort ml-1 text-xs"></i></th>
+                                </tr>
+                            </thead>
+                        </table>
+                    </div>
+                    <div class="virtual-scroll-viewport" id="table-viewport" style="max-height: 650px; min-height: 73px; height: auto;">
+                        <div class="virtual-scroll-content" id="table-content">
+                            <div id="table-rows-container" style="position: relative; width: 100%;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 移动端卡片 -->
+                <div class="mobile-cards-wrap virtual-scroll-viewport" id="cards-viewport" style="max-height: 650px; min-height: 150px; height: auto;">
+                    <div class="virtual-scroll-content" id="cards-content">
+                        <div id="mobile-cards-container" style="position: relative; width: 100%;"></div>
+                    </div>
+                </div>
+            </div>
         </div>
 
-        <div class="sci-fi-panel rounded-2xl overflow-hidden p-1">
-            <div class="desktop-table overflow-x-auto w-full">
-                <table class="w-full text-left border-collapse">
-                    <thead>
-                        <tr class="border-b border-cyan-500/30 text-cyan-400 font-orbitron tracking-wider text-sm">
-                            <th class="p-4 w-12 text-center">图标 (icon)</th>
-                            <th class="p-4 cursor-pointer hover:text-white select-none" onclick="sortBy('name')">星体名称 (name) <i id="sort-icon-name" class="fa-solid fa-sort ml-1 text-xs"></i></th>
-                            <th class="p-4 cursor-pointer hover:text-white select-none w-44" onclick="sortBy('sha1')">哈希标识 (sha1)<i id="sort-icon-sha1" class="fa-solid fa-sort ml-1 text-xs"></i></th>
-                            <th class="p-4 cursor-pointer hover:text-white select-none w-32 text-right" onclick="sortBy('size')">字节容积 (size)<i id="sort-icon-size" class="fa-solid fa-sort ml-1 text-xs"></i></th>
-                            <th class="p-4 cursor-pointer hover:text-white select-none w-44 text-right" onclick="sortBy('mtime')">时空记录 (mtime)<i id="sort-icon-mtime" class="fa-solid fa-sort ml-1 text-xs"></i></th>
-                        </tr>
-                    </thead>
-                    <tbody id="table-body" class="divide-y divide-slate-800/40">
-                        </tbody>
-                </table>
-            </div>
-
-            <div id="mobile-cards-container" class="mobile-cards flex-col gap-4 p-4">
-                </div>
-        </div>
-
+        <!-- Toast 容器 -->
         <div id="toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col gap-3 pointer-events-none"></div>
 
     </div>
 
+    <!-- ============================================================ -->
+    <!-- ===== JAVASCRIPT ===== -->
+    <!-- ============================================================ -->
     <script>
-        // 本示例内置的前端 mimetype 大类及精准匹配图标库 (模拟完整 mime-types 模块)
+        // ===== 主题切换逻辑 =====
+        let currentTheme = 'dark';
+
+        function toggleTheme() {
+            const html = document.documentElement;
+            const body = document.getElementById('app-body');
+            const icon = document.getElementById('theme-icon');
+            const text = document.getElementById('theme-text');
+
+            if (currentTheme === 'dark') {
+                html.setAttribute('data-theme', 'light');
+                body.setAttribute('data-theme', 'light');
+                currentTheme = 'light';
+                icon.className = 'fa-solid fa-moon';
+                text.innerText = '切换暗色';
+                // 调整 Three.js 场景为亮色
+                if (typeof window.applyThemeToThree === 'function') {
+                    window.applyThemeToThree('light');
+                }
+                showToast('☀️ 已切换至亮白主题');
+            } else {
+                html.setAttribute('data-theme', 'dark');
+                body.setAttribute('data-theme', 'dark');
+                currentTheme = 'dark';
+                icon.className = 'fa-solid fa-sun';
+                text.innerText = '切换亮色';
+                if (typeof window.applyThemeToThree === 'function') {
+                    window.applyThemeToThree('dark');
+                }
+                showToast('🌙 已切换至暗黑主题');
+            }
+            // 保存偏好
+            try {
+                localStorage.setItem('p115-theme', currentTheme);
+            } catch (_) {}
+        }
+
+        // 恢复保存的主题
+        (function restoreTheme() {
+            try {
+                const saved = localStorage.getItem('p115-theme');
+                if (saved === 'light' || saved === 'dark') {
+                    currentTheme = saved;
+                    const html = document.documentElement;
+                    const body = document.getElementById('app-body');
+                    const icon = document.getElementById('theme-icon');
+                    const text = document.getElementById('theme-text');
+                    html.setAttribute('data-theme', saved);
+                    body.setAttribute('data-theme', saved);
+                    if (saved === 'light') {
+                        icon.className = 'fa-solid fa-moon';
+                        text.innerText = '切换暗色';
+                        if (typeof window.applyThemeToThree === 'function') {
+                            window.applyThemeToThree('light');
+                        }
+                    } else {
+                        icon.className = 'fa-solid fa-sun';
+                        text.innerText = '切换亮色';
+                        if (typeof window.applyThemeToThree === 'function') {
+                            window.applyThemeToThree('dark');
+                        }
+                    }
+                }
+            } catch (_) {}
+        })();
+
+        // ===== 以下为原有 JavaScript（未做删减） =====
+        let cosmicMimeDatabase = null;
+
+        async function buildMimeDatabase() {
+            if (cosmicMimeDatabase) return cosmicMimeDatabase;
+            const response = await fetch('https://cdn.jsdelivr.net/npm/mime-db@1.52.0/db.json');
+            const db = await response.json();
+            cosmicMimeDatabase = {};
+            for (const [mimeType, data] of Object.entries(db)) {
+                if (data.extensions) {
+                    for (const ext of data.extensions) {
+                        cosmicMimeDatabase[ext.toLowerCase()] = mimeType;
+                    }
+                }
+            }
+            return cosmicMimeDatabase;
+        }
+
+        function getFileMimeType(filename) {
+            const extMatch = ("." + filename).split('.').pop()?.toLowerCase();
+            if (!extMatch) return 'application/octet-stream';
+            return cosmicMimeDatabase && cosmicMimeDatabase[extMatch];
+        }
+
         const mimeIconMap = {
-            // 精准扩展名映射
             ext: {
-                'mp4': 'fa-file-video text-rose-400',
-                'mkv': 'fa-file-video text-rose-500',
-                'mp3': 'fa-file-audio text-amber-400',
-                'wav': 'fa-file-audio text-amber-500',
-                'jpg': 'fa-file-image text-emerald-400',
-                'jpeg': 'fa-file-image text-emerald-400',
-                'png': 'fa-file-image text-teal-400',
-                'gif': 'fa-file-image text-lime-400',
-                'pdf': 'fa-file-pdf text-red-500',
-                'zip': 'fa-file-zipper text-orange-400',
-                'rar': 'fa-file-zipper text-orange-500',
-                'txt': 'fa-file-lines text-slate-300',
-                'md': 'fa-file-lines text-sky-400',
-                'json': 'fa-file-code text-yellow-400',
-                'js': 'fa-file-code text-yellow-500',
-                'html': 'fa-file-code text-orange-500',
-                'css': 'fa-file-code text-indigo-400',
+                'pdf': 'fa-file',
+                'epub': 'fa-file',
+                'azw3': 'fa-file',
+                'doc': 'fa-file-word',
+                'docx': 'fa-file-word',
+                'xls': 'fa-file-excel',
+                'xlsx': 'fa-file-excel',
+                'ppt': 'fa-file-powerpoint',
+                'pptx': 'fa-file-powerpoint',
+                'csv': 'fa-file-csv',
+                'zip': 'fa-file-zipper',
+                'rar': 'fa-file-zipper',
+                '7z': 'fa-file-zipper',
+                'txt': 'fa-file-lines',
+                'md': 'fa-file-lines',
+                'json': 'fa-file-code',
+                'js': 'fa-file-code',
+                'html': 'fa-file-code',
+                'css': 'fa-file-code',
+                'log': 'fa-file-clipboard',
             },
-            // 大类兜底映射
             type: {
-                'video': 'fa-file-video text-rose-400',
-                'audio': 'fa-file-audio text-amber-400',
-                'image': 'fa-file-image text-emerald-400',
-                'application': 'fa-file-code text-indigo-400',
-                'text': 'fa-file-lines text-slate-300'
+                'video': 'fa-file-video',
+                'audio': 'fa-file-audio',
+                'image': 'fa-file-image',
+                'application': 'fa-file-code',
+                'text': 'fa-file-lines',
             }
         };
 
-        // 获取文件对应图标的函数（集成 mime-types 理念）
+        function getColorByExt(ext) {
+            if (!ext) return 'hsl(200, 60%, 60%)';
+            let hash = 2166136261;
+            for (let i = 0; i < ext.length; i++) {
+                hash ^= ext.charCodeAt(i);
+                hash += (hash << 1) + (hash << 7) + (hash << 8) + (hash << 24);
+                hash = hash >>> 0;
+            }
+            const hue = hash % 360;
+            const saturation = 60 + (hash % 15);
+            const lightness = 55 + (hash % 15);
+            return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+        }
+
         function getFileIcon(filename, isDir) {
-            // 1. 尝试通过后缀名获取
             if (isDir) {
-                return `<i class="fa-solid fa-folder text-rose-400 text-xl"></i>`;
+                return `<div class="relative inline-block">
+                            <i class="fa-solid fa-folder text-yellow-400 text-3xl"></i>
+                            <i class="fa-solid fa-star text-cyan-400 text-xs absolute -bottom-1 -right-1 bg-slate-900 px-0.5 rounded-full border border-cyan-500/40 animate-pulse" title="星际目录"></i>
+                        </div>`;
             }
-            const extMatch = filename.split('.').pop()?.toLowerCase();
-            if (extMatch && mimeIconMap.ext[extMatch]) {
-                return `<i class="fa-solid ${mimeIconMap.ext[extMatch]} text-xl"></i>`;
-            }
-            // 2. 尝试通过 mimetype 大类获取
-            //if (mimeType) {
-            //    const mainType = mimeType.split('/')[0]?.toLowerCase();
-            //    if (mainType && mimeIconMap.type[mainType]) {
-            //        return `<i class="fa-solid ${mimeIconMap.type[mainType]} text-xl"></i>`;
-            //    }
-            //}
-            // 3. 兜底文件图标
-            return '<i class="fa-solid fa-file text-slate-400 text-xl"></i>';
+            let extMatch = ('.' + filename).split('.').pop()?.toLowerCase();
+            const extColor = getColorByExt(extMatch);
+            const glowStyle = `color: ${extColor};`;
+            if (extMatch.length > 5) extMatch = "";
+            const extText = extMatch ? extMatch.toUpperCase() : 'FILE';
+            if (extText && mimeIconMap.ext[extText])
+                return `<div class="relative inline-block">
+                            <i class="fa-solid ${mimeIconMap.ext[extText]} text-3xl" style="${glowStyle}"></i>
+                            <span class="absolute -bottom-1.5 -right-1.5 bg-slate-900 text-slate-200 text-[8px] font-extrabold font-orbitron px-1 py-0.5 rounded border border-slate-500 shadow">
+                                ${extText}
+                            </span>
+                        </div>`;
+            const mimeType = getFileMimeType(filename);
+            const primaryType = mimeType && mimeType.split('/')[0];
+            const icon = primaryType && mimeIconMap.type[primaryType] || "fa-file";
+            return `<div class="relative inline-block">
+                        <i class="fa-solid ${icon} text-3xl" style="${glowStyle}"></i>
+                        <span class="absolute -bottom-1.5 -right-1.5 bg-slate-900 text-slate-200 text-[8px] font-extrabold font-orbitron px-1 py-0.5 rounded border border-slate-500 shadow">
+                            ${extText}
+                        </span>
+                    </div>`;
         }
     </script>
 
     <script>
         let currentSort = { field: 'name', asc: true };
+        let isOriginalOrder = false;
+        let cachedFiles = [];
 
-        // 格式化 Size
+        const TABLE_ROW_HEIGHT = 73;
+        const CARD_HEIGHT = 350;
+
         function formatSize(bytes, showOriginal = false) {
             if (showOriginal) return bytes + ' B';
             if (bytes === 0) return '0 B';
@@ -365,7 +1487,6 @@
             return (bytes / Math.pow(1024, i)).toFixed(2) + ' ' + units[i];
         }
 
-        // 格式化时间戳 -> yyyy-mm-dd hh:mm:ss
         function formatTime(timestamp, showOriginal = false) {
             if (showOriginal) return timestamp;
             const date = new Date(timestamp * 1000);
@@ -378,13 +1499,12 @@
             return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
         }
 
-        // 初始化加载与面包屑渲染
         function initAncestors() {
             const trail = document.getElementById('ancestors-trail');
             let html = '';
             const len = currentDirData.ancestors.length;
             currentDirData.ancestors.forEach((anc, idx) => {
-                if (idx+1==len)
+                if (idx + 1 == len)
                     html += `
                         <span class="text-slate-600">/</span>
                         <span class="font-orbitron font-semibold">${anc.name || '根目录'}</span>
@@ -392,7 +1512,7 @@
                 else
                     html += `
                         <span class="text-slate-600">/</span>
-                        <a href="/?id=${anc.id}" onclick="jumpToFolder('${anc.id}')" class="text-cyan-400 hover:text-blue-400 transition font-orbitron font-semibold">
+                        <a href="/?id=${anc.id}" onclick="jumpToFolder('${anc.id}')" class="breadcrumb-item text-cyan-400 hover:text-blue-400 transition font-orbitron font-semibold">
                             ${anc.name || '根目录'}
                         </a>
                     `;
@@ -400,23 +1520,134 @@
             trail.innerHTML = html;
         }
 
-        // 统计卡片计算
         function updateStats() {
-            const files = currentDirData.children.filter(f => !f.is_dir);
-            const dirs = currentDirData.children.filter(f => f.is_dir);
-            const totalSize = currentDirData.children.reduce((acc, f) => acc + f.size, 0);
+            const entries = Object.entries(currentDirData.children).map(([key, val]) => val);
+            const files = entries.filter(f => !f.is_dir);
+            const dirs = entries.filter(f => f.is_dir);
+            const totalSize = entries.reduce((acc, f) => acc + f.size, 0);
 
-            document.getElementById('stat-total').innerText = currentDirData.children.length;
+            document.getElementById('stat-total').innerText = entries.length;
             document.getElementById('stat-files').innerText = files.length;
             document.getElementById('stat-dirs').innerText = dirs.length;
             document.getElementById('stat-size').innerText = formatSize(totalSize);
         }
 
-        // Toast 抽屉式弹出弹窗 (漂亮的提示气泡)
+        // ===== 动态打字机 =====
+        const statusPhrases = [
+            "报告舰长，舱内一切正常，请下达指令",
+            "系统自检完毕，引擎状态良好，随时准备跃迁",
+            "各项仪表参数正常，空间辐射值平稳",
+            "外部星际物质已扫描，未发现异常力场",
+            "反重力矩阵已就绪，等待您的下一步航行指令",
+            "全舰动力输出稳定，护盾发生器运转正常",
+            "深空通讯频道已建立，随时可以接收坐标",
+            "曲速引擎预热完毕，随时可突破光障",
+            "磁流体主推进器工况良好，推力矢量已锁定",
+            "反物质反应堆输出功率达 100%，能量护盾充能无异样",
+            "亚空间引擎已就绪，正在校准零点能矩阵 ...",
+            "尾迹等离子流喷射稳定，未发现磁场畸变现象",
+            "空间折叠引擎组自检无误，折跃坐标已装填",
+            "惯性阻尼器工作正常，重力补偿力场平稳",
+            "超光速航行导流罩已展开，微陨石偏导护盾开启",
+            "动力舱冷却液循环泵运转顺畅，无超温预警",
+            "主超导线圈储能已达临界，随时可激发跃迁场",
+            "天文望远镜阵列完成深空定标，前方星路畅通",
+            "远距量子雷达未捕捉到引力波异常波动",
+            "暗物质探测器未发现高密度质量陷阱",
+            "空间跃迁点信标已捕获，引力透镜校准完成",
+            "航行日志记录模块完好，星图数据库已加载至最新版本",
+            "自动避障超算阵列已激活，微小星际尘埃已全数规避",
+            "附近星域辐射本底值正常，未检测到超新星爆发遗迹",
+            "极速巡航状态下的光学畸变修正完毕",
+            "恒星风暴预警雷达未发出橙色警报",
+            "盲区探针已释放，全向空间态势感知建立",
+            "舱内维生循环系统运转高效，氧气浓度维持在 21%",
+            "人造重力发生系统参数达标，未出现微重力眩晕隐患",
+            "辐射吸收装甲活性良好，无高能射线渗漏",
+            "舱内温湿度调节阀门响应迅速，气压恒定于 1 个标准大气压",
+            "水循环净化机组运行无故障，应急储水槽已满载",
+            "微生物消杀力场全天候开启，舱内菌群监测达标",
+            "废气过滤及二氧化碳清除器效能正常",
+            "医疗应急舱休眠仪已加电，急救生物药剂冷藏完好",
+            "舱壁微裂纹声学监测阵列未拾取异常应力异响",
+            "应急避险逃生舱自检通过，逃生通道电磁锁已解除",
+            "超光速中微子通讯链路已建立，信号延迟在容许范围内",
+            "深空探测数据下行信道保持畅通",
+            "舰队局域加密频道握手成功，无数据丢包",
+            "军事指挥频段接收灵敏，未受星际电磁脉冲干扰",
+            "导航星历数据同步更新，自动与主星港时钟对齐",
+            "远端数据黑匣子读写正常，状态字实时上传中",
+            "外星文明基础语言编码库已预载入解码器",
+            "外部态势全息投影沙盘渲染完毕，投影精度无衰减",
+            "广播级星际求救信号接收机已开启守候模式",
+            "身份识别敌我应答机运行稳定，无误码率升高现象",
+            "舰载中央超算 AI 核心就绪，逻辑运算通道无死锁",
+            "轮值副驾驶已完成交接班，操作台手感反馈正常",
+            "自动驾驶导航点已无缝衔接，巡天航线规划完毕",
+            "船员精神状态监测脑波图谱未见异常波动",
+            "主电磁轨道炮储能电容组已充满，处于待发状态",
+            "激光近防炮塔随动系统无抖动，瞄准角速度校验合格",
+            "等离子鱼雷发射管气密性良好，发射药室温度适宜",
+            "复合力场护盾发生器发生矩阵无畸变，抗击打冗余度 95%",
+            "隐形涂层电磁场激发正常，光学隐身与雷达隐身已就绪",
+            "电子战干扰吊舱自检通过，诱饵弹装填架机械锁紧",
+            "敌方导弹来袭预警光学传感器擦拭完毕，视场无遮挡",
+            "智能拦截弹道解算核心运行流畅，截获概率测算中",
+            "装甲表面静电中和刷释放回路畅通",
+            "动能拦截弹药输弹机链条润滑达标，无卡壳风险",
+        ];
+
+        function setupDynamicTypingEffect() {
+            const dynamicTextDom = document.getElementById('status-dynamic-text');
+            const robotIcon = document.getElementById('robot-icon-wrap');
+            let phraseIndex = Math.floor(Math.random() * statusPhrases.length);
+            let charIndex = 0;
+            let isDeleting = false;
+            let typingSpeed = 100;
+
+            function typeLoop() {
+                const currentPhrase = statusPhrases[phraseIndex];
+
+                if (!isDeleting) {
+                    if (!robotIcon.classList.contains('robot-speaking')) {
+                        robotIcon.classList.add('robot-speaking');
+                    }
+                    dynamicTextDom.textContent = currentPhrase.substring(0, charIndex + 1);
+                    charIndex++;
+                    typingSpeed = 100 + Math.random() * 100;
+
+                    if (charIndex === currentPhrase.length) {
+                        if (robotIcon.classList.contains('robot-speaking')) {
+                            robotIcon.classList.remove('robot-speaking');
+                        }
+                        isDeleting = true;
+                        typingSpeed = 1000;
+                    }
+                } else {
+                    dynamicTextDom.textContent = currentPhrase.substring(0, charIndex - 1);
+                    charIndex--;
+                    typingSpeed = 50;
+
+                    if (charIndex === 0) {
+                        isDeleting = false;
+                        phraseIndex = Math.floor(Math.random() * statusPhrases.length);
+                        typingSpeed = 500;
+                    }
+                }
+                setTimeout(typeLoop, typingSpeed);
+            }
+            typeLoop();
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            setupDynamicTypingEffect();
+        });
+
         function showToast(message) {
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
-            toast.className = "sci-fi-panel text-cyan-300 font-bold text-sm px-5 py-3 rounded-xl border border-cyan-400/60 shadow-lg flex items-center gap-3 animate-fade-in";
+            toast.className =
+                "sci-fi-panel text-cyan-300 font-bold text-sm px-5 py-3 rounded-xl border border-cyan-400/60 shadow-lg flex items-center gap-3 animate-fade-in";
             toast.innerHTML = `<i class="fa-solid fa-satellite-dish text-cyan-400 animate-ping"></i> ${message}`;
             container.appendChild(toast);
             setTimeout(() => {
@@ -424,7 +1655,6 @@
             }, 2500);
         }
 
-        // 复制函数 + 气泡提示
         async function copyText(text, event) {
             event.stopPropagation();
             if (navigator.clipboard && window.isSecureContext)
@@ -435,22 +1665,54 @@
                 temp.style.left = '-9999px';
                 document.body.appendChild(temp);
                 temp.select();
-                const ok = document.execCommand('copy');
+                document.execCommand('copy');
                 document.body.removeChild(temp);
             }
-            showToast(`<span style="color:white; font-weight: bold;">${text}</span> 已加载到曲率驱动仪`);
+            showToast(`<span style="font-weight: bold;">${text}</span> 已复制`);
         }
 
-        // 点击文件（下载文件 / 进入对应文件夹）
-        function handleItemClick(file) {
+        function showHolocubicTip(event, value, title = "") {
+            const tipBox = document.getElementById('holocubic-tooltip');
+            if (title)
+                tipBox.innerHTML = `
+                    <div style="font-size: 10px; opacity: 0.7; border-bottom: 1px dashed #00f0ff; padding-bottom: 3px; margin-bottom: 5px; font-family: var(--font-orbitron);">
+                        <i class="fa-solid fa-crosshairs"></i> ${title}
+                    </div>
+                    <div style="word-break: break-all; font-weight: 600;">${value}</div>
+                `;
+            else
+                tipBox.innerHTML = `<div style="word-break: break-all; font-weight: 600;">${value}</div>`;
+
+            tipBox.style.display = 'block';
+            tipBox.style.left = (event.clientX + 16) + 'px';
+
+            const tipHeight = tipBox.offsetHeight || 50;
+            if (event.clientY - tipHeight - 16 > 0) {
+                tipBox.style.top = (event.clientY - tipHeight - 16) + 'px';
+            } else {
+                tipBox.style.top = (event.clientY + 16) + 'px';
+            }
+
+            setTimeout(() => { tipBox.style.opacity = '1'; }, 10);
+        }
+
+        function hideHolocubicTip() {
+            const tipBox = document.getElementById('holocubic-tooltip');
+            tipBox.style.opacity = '0';
+            setTimeout(() => {
+                tipBox.style.display = 'none';
+            }, 150);
+        }
+
+        function handleItemClick(id) {
+            const file = currentDirData.children[id];
             if (file.is_dir) {
                 showToast(`已请求进入子星域：${file.name}`);
                 window.location.href = file.path;
             } else {
                 showToast(`正在从母舰下载引擎数据：${file.name}`);
-                // 模拟下载行为
                 const a = document.createElement('a');
-                a.href = file.path;
+                a.href = "?id=" + file.id + "&image=false";
                 a.download = file.name;
                 document.body.appendChild(a);
                 a.click();
@@ -458,15 +1720,14 @@
             }
         }
 
-        // 表格排序控制
         function sortBy(field) {
+            isOriginalOrder = false;
             if (currentSort.field === field) {
                 currentSort.asc = !currentSort.asc;
             } else {
                 currentSort.field = field;
                 currentSort.asc = true;
             }
-            // 更新排序图标
             document.querySelectorAll('[id^="sort-icon-"]').forEach(icon => {
                 icon.className = "fa-solid fa-sort ml-1 text-xs opacity-50";
             });
@@ -477,222 +1738,374 @@
             render();
         }
 
-        // 搜索过滤
-        function getFilteredFiles() {
-            const keyword = document.getElementById('search-input').value.toLowerCase();
-            return currentDirData.children.filter(f => f.name.toLowerCase().includes(keyword));
+        function resetTableOrder() {
+            isOriginalOrder = true;
+            currentSort.field = 'name';
+            currentSort.asc = true;
+            document.querySelectorAll('[id^="sort-icon-"]').forEach(icon => {
+                icon.className = "fa-solid fa-sort ml-1 text-xs opacity-50";
+            });
+            render();
         }
 
-        // 渲染主函数：组装数据和界面
-        function render() {
-            const files = [...getFilteredFiles()];
-            
-            // 排序
-            files.sort((a, b) => {
-                let valA = a[currentSort.field];
-                let valB = b[currentSort.field];
-                if (currentSort.field === 'name') {
-                    valA = valA.toLowerCase();
-                    valB = valB.toLowerCase();
-                }
-                if (valA < valB) return currentSort.asc ? -1 : 1;
-                if (valA > valB) return currentSort.asc ? 1 : -1;
-                return 0;
-            });
+        function getFilteredFiles() {
+            const keyword = document.getElementById('search-input').value.toLowerCase();
+            const entries = Object.entries(currentDirData.children).map(([key, val]) => val);
+            return entries.filter(f => f.name.toLowerCase().includes(keyword));
+        }
 
-            // --- 渲染桌面端表格 ---
-            const tbody = document.getElementById('table-body');
-            let tableHtml = '';
-            files.forEach(file => {
-                const iconHtml = getFileIcon(file.name, file.is_dir);
-                tableHtml += `
-                    <tr class="hover:bg-slate-900/30 transition cursor-pointer text-sm font-medium border-b border-slate-800/20">
-                        <td class="tooltip-box p-4 text-center" onclick="copyText('${window.location.origin}?id=${file.id}', event)">
-                            ${iconHtml}
-                            <span class="tooltip-content absolute bg-slate-900 text-cyan-400 border border-cyan-500 text-xs px-3 py-1.5 rounded-lg shadow-xl whitespace-nowrap z-50">
-                                点击复制链接
-                            </span>
-                        </td>
-                        <td class="tooltip-box p-4 font-semibold text-sky-200 hover:text-cyan-300 transition underline decoration-cyan-500/0 hover:underline-offset-4 hover:decoration-cyan-400">
-                            <span class="cursor-pointer" onclick="handleItemClick(${JSON.stringify(file).replace(/"/g, '&quot;')})">
-                                ${file.is_dir ? '<i class="fa-solid fa-arrow-up-right-from-square ml-1 text-xs text-cyan-400 animate-pulse"></i>' : '<i class="fa-solid fa-download ml-1 text-xs text-cyan-400 animate-pulse"></i>'} &nbsp; ${file.name}
-                                <span class="tooltip-content space-normal absolute bg-slate-900 text-cyan-400 border border-cyan-500 text-xs px-3 py-1.5 rounded-lg shadow-xl whitespace-nowrap z-50">
-                                    ${file.path}
-                                </span>
-                            </span>
-                        </td>
-                        <td class="p-4 font-mono text-xs text-violet-400">
-                            <span class="tooltip-box cursor-pointer" onclick="copyText('${file.sha1}', event)">
-                                ${file.sha1} ${file.is_dir ? '' : '<i class="fa-solid fa-copy ml-1 opacity-70 hover:text-cyan-400"></i>'}
-                            </span>
-                        </td>
-                        <td class="p-4 text-right font-mono text-xs text-emerald-400 relative group select-none" onclick="copyText('${file.size}', event)">
-                            <span class="group-hover:hidden">${formatSize(file.size)}</span>
-                            <span class="hidden group-hover:inline">${formatSize(file.size, true)}</span>
-                        </td>
-                        <td class="p-4 text-right font-mono text-xs text-amber-300 relative group select-none" onclick="copyText('${file.mtime}', event)">
-                            <span class="group-hover:hidden">${formatTime(file.mtime)}</span>
-                            <span class="hidden group-hover:inline">${formatTime(file.mtime, true)}</span>
-                        </td>
-                    </tr>
-                `;
-            });
-            tbody.innerHTML = tableHtml;
+        function generateTableRowHtml(file, iconHtml, topOffset) {
+            return `
+                <div class="virtual-tr hover:bg-slate-900/30 transition cursor-pointer text-sm font-medium" style="transform: translateY(${topOffset}px); height: ${TABLE_ROW_HEIGHT}px;">
+                    <div class="virtual-td w-15 p-2 justify-center" 
+                        onclick='copyText("${window.location.origin}?id=${file.id}", event)'
+                        onmouseenter='showHolocubicTip(event, "${window.location.origin}?id=${file.id}", "URL")'
+                        onmouseleave="hideHolocubicTip()">
+                        ${iconHtml}
+                    </div>
+                    <div class="virtual-td flex-1 p-4 text-left font-semibold text-sky-200 hover:text-cyan-300 transition underline decoration-cyan-500/0 hover:underline-offset-4 hover:decoration-cyan-400 overflow-hidden" 
+                         onmouseenter='showHolocubicTip(event, "${file.path}", "FULL-PATH")'
+                         onmouseleave="hideHolocubicTip()">
+                        <span class="truncate block cursor-pointer" onclick="handleItemClick('${file.id}')">
+                            ${file.is_dir ? '<i class="fa-solid fa-arrow-up-right-from-square ml-1 text-xs text-cyan-400 animate-pulse"></i>' : '<i class="fa-solid fa-download ml-1 text-xs text-cyan-400 animate-pulse"></i>'} &nbsp; ${file.name}
+                        </span>
+                    </div>
+                    <div class="virtual-td w-88 p-4 text-left font-mono text-xs text-violet-400 overflow-hidden">
+                        <span class="tooltip-box cursor-pointer truncate block" onclick="copyText('${file.sha1}', event)">
+                            ${file.sha1} ${file.is_dir ? '' : '<i class="fa-solid fa-copy ml-1 opacity-70 hover:text-cyan-400"></i>'}
+                        </span>
+                    </div>
+                    <div class="virtual-td w-32 p-4 text-right font-mono text-xs text-emerald-400 relative group select-none justify-end" onclick="copyText('${file.size}', event)">
+                        ${file.is_dir ? '' : `
+                        <span class="group-hover:hidden">${formatSize(file.size)}</span>
+                        <span class="hidden group-hover:inline">${formatSize(file.size, true)}</span>`}
+                    </div>
+                    <div class="virtual-td w-44 p-4 text-right font-mono text-xs text-amber-300 relative group select-none justify-end" onclick="copyText('${file.mtime}', event)">
+                        <span class="group-hover:hidden">${formatTime(file.mtime)}</span>
+                        <span class="hidden group-hover:inline">${formatTime(file.mtime, true)}</span>
+                    </div>
+                </div>
+            `;
+        }
 
-            // --- 渲染移动端名片 (手机屏幕下自适应折叠成卡片) ---
-            const cardsContainer = document.getElementById('mobile-cards-container');
-            let cardsHtml = '';
-            files.forEach(file => {
-                const iconHtml = getFileIcon(file.name, file.is_dir);
-                cardsHtml += `
-                    <div class="sci-fi-card rounded-xl p-4 flex flex-col gap-3 cursor-pointer">
-                        <div class="flex items-center justify-between border-b border-violet-500/20 pb-2">
-                            <div class="flex items-center gap-3">
-                                <div class="tooltip-box w-10 h-10 rounded-lg bg-slate-900 border border-slate-700 flex items-center justify-center" onclick="copyText('${window.location.origin}?id=${file.id}', event)">
-                                    ${iconHtml}
-                                    <span class="tooltip-content absolute bg-slate-900 text-cyan-400 border border-cyan-500 text-xs px-3 py-1.5 rounded-lg shadow-xl whitespace-nowrap z-50">
-                                        点击复制链接
-                                    </span>
-                                </div>
-                                <div onclick="handleItemClick(${JSON.stringify(file).replace(/"/g, '&quot;')})">
-                                    <h4 class="font-bold text-sky-200 text-base font-orbitron card-item-text">${file.name} ${file.is_dir ? '<i class="fa-solid fa-arrow-up-right-from-square ml-1 text-xs text-cyan-400 animate-pulse"></i>' : '<i class="fa-solid fa-download ml-1 text-xs text-cyan-400 animate-pulse"></i>'}</h4>
-                                    <span class="text-xs text-slate-400 uppercase">${file.is_dir ? '目录基站' : '数据文件'}</span>
-                                </div>
+        function generateMobileCardHtml(file, iconHtml, topOffset) {
+            return `
+                <div class="sci-fi-card rounded-xl p-4 flex flex-col gap-3 cursor-pointer" style="transform: translateY(${topOffset}px); height: 320px; bottom: 36px;"
+                    onmouseenter="this.style.transform='translateY(${topOffset-4}px) scale(1.01)'"
+                    onmouseleave="this.style.transform='translateY(${topOffset}px)'">
+                    <div class="cyber-badge ${file.is_dir ? 'dir' : 'file'}">${file.is_dir ? 'Dir' : 'File'}</div>
+                    <div class="flex items-center justify-between border-b border-violet-500/20 pb-2">
+                        <div class="flex items-center gap-3">
+                            <div class="tooltip-box card-item-icon w-10 h-10 rounded-lg bg-slate-900 flex items-center justify-center" 
+                            onclick="copyText('${window.location.origin}?id=${file.id}', event)"
+                            onmouseenter='showHolocubicTip(event, "${window.location.origin}?id=${file.id}", "URL")'
+                            onmouseleave="hideHolocubicTip()">
+                                ${iconHtml}
                             </div>
-                            ${file.is_dir ? '<i class="fa-solid fa-arrow-right-long text-cyan-400"></i>' : ''}
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-2 text-xs bg-slate-950/50 p-3 rounded-lg border border-slate-800/50">
-                            <div>
-                                <span class="text-slate-500 font-bold block">ID</span>
-                                <span class="text-slate-300 font-mono card-item-text" onclick="copyText('${file.id}', event)">${file.id}</span>
-                            </div>
-                            <div>
-                                <span class="text-slate-500 font-bold block">父级 ID</span>
-                                <span class="text-slate-300 font-mono card-item-text" onclick="copyText('${file.parent_id}', event)">${file.parent_id}</span>
-                            </div>
-                            <div class="col-span-2">
-                                <span class="text-slate-500 font-bold block">星际路径 Path</span>
-                                <span class="text-violet-300 text-[10px] font-mono break-all card-item-text" onclick="copyText('${file.path}', event)">${file.path}</span>
-                            </div>
-                            ${file.is_dir ? '' : `
-                            <div class="col-span-2 border-t border-slate-800/80 mt-1 pt-1 flex justify-between items-center">
-                                <div>
-                                    <span class="text-slate-500 font-bold block">哈希载荷 SHA1</span>
-                                    <span onclick="copyText('${file.sha1}', event)" class="text-cyan-400 font-mono cursor-pointer hover:underline text-[10px] card-item-text">
-                                        ${file.sha1} <i class="fa-regular fa-copy"></i>
-                                    </span>
-                                </div>
-                            </div>`}
-                        </div>
-
-                        <div class="flex justify-between items-center bg-indigo-950/30 px-3 py-2 rounded-lg border border-indigo-900/40 text-xs">
-                            <div class="flex flex-col" onclick="copyText('${file.size}', event)">
-                                <span class="text-slate-500 text-[10px] font-bold">实体容积 Size</span>
-                                <span class="text-emerald-300 font-mono font-semibold" onmouseover="this.innerText='${formatSize(file.size, true)}'" onmouseout="this.innerText='${formatSize(file.size)}'">
-                                    ${formatSize(file.size)}
-                                </span>
-                            </div>
-                            <div class="flex flex-col text-right" onclick="copyText('${file.mtime}', event)">
-                                <span class="text-slate-500 text-[10px] font-bold">时间节点 Mtime</span>
-                                <span class="text-amber-300 font-mono text-[10px] font-semibold" onmouseover="this.innerText='${formatTime(file.mtime, true)}'" onmouseout="this.innerText='${formatTime(file.mtime)}'">
-                                    ${formatTime(file.mtime)}
-                                </span>
+                            <div onclick="handleItemClick('${file.id}')"
+                                onmouseenter='showHolocubicTip(event, "${file.name}", "NAME")'
+                                onmouseleave="hideHolocubicTip()"
+                            >
+                                <h4 class="font-bold text-sky-200 text-base font-orbitron card-item-text truncate">${file.name} ${file.is_dir ? '<i class="fa-solid fa-arrow-up-right-from-square ml-1 text-xs text-cyan-400 animate-pulse"></i>' : '<i class="fa-solid fa-download ml-1 text-xs text-cyan-400 animate-pulse"></i>'}</h4>
                             </div>
                         </div>
                     </div>
-                `;
-            });
-            cardsContainer.innerHTML = cardsHtml;
-            updateStats();
+                    <div class="card-meta-grid ">
+                        <div class="meta-item" 
+                            onclick="copyText('${file.id}', event)"
+                        >
+                            <span class="meta-label">Node Identifier [ID]</span>
+                            <span class="font-mono card-item-text truncate block">${file.id}</span>
+                        </div>
+                        <div class="meta-item" 
+                            onclick="copyText('${file.parent_id}', event)"
+                        >
+                            <span class="meta-label">Parent Node ID [PID]</span>
+                            <span class="font-mono card-item-text truncate block">${file.parent_id}</span>
+                        </div>
+                        <div class="meta-item" onclick="copyText('${file.mtime}', event)">
+                            <span class="meta-label">Modification Timestamp [Mtime]</span>
+                            <span class="font-mono card-item-text truncate block"
+                                onmouseover="this.innerText='${file.size}'" 
+                                onmouseout="this.innerText='${formatTime(file.mtime)}'"
+                            >${formatTime(file.mtime)}</span>
+                        </div>
+                        ${file.is_dir ? `<div class="meta-item">
+                            <span class="meta-label">Bytes Allocation [Size]</span>
+                            <span class="font-mono card-item-text truncate block">-</span>
+                        </div>` : `<div class="meta-item" 
+                            onclick="copyText('${file.size}', event)"
+                        >
+                            <span class="meta-label">Bytes Allocation [Size]</span>
+                            <span class="font-mono card-item-text truncate block"
+                                onmouseover="this.innerText='${formatSize(file.size, true)}'" 
+                                onmouseout="this.innerText='${formatSize(file.size)}'"
+                            >
+                                ${formatSize(file.size)}</span>
+                        </div>`}
+                        ${file.is_dir ? `<div class="meta-item full-width">
+                            <span class="meta-label">SHA-1 CheckSum</span>
+                            <span class="font-mono card-item-text truncate block">-</span>
+                        </div>` : `<div class="meta-item full-width" 
+                            onclick="copyText('${file.sha1}', event)"
+                        >
+                            <span class="meta-label">SHA-1 CheckSum</span>
+                            <span class="font-mono card-item-text truncate block">${file.sha1}</span>
+                        </div>`}
+                        <div class="meta-item full-width" 
+                            onclick="copyText('${file.path}', event)"
+                            onmouseenter='showHolocubicTip(event, "${file.path}", "Full Path")'
+                            onmouseleave="hideHolocubicTip()"
+                        >
+                            <span class="meta-label">Space-Time Coordinate [Path]</span>
+                            <span class="font-mono card-item-text truncate block" style="color:var(--accent-secondary);">${file.path}</span>
+                        </div>
+                    </div>
+                    </div>
+            `;
         }
 
-        // 顶部重置雷达操作
-        function resetView() {
-            document.getElementById('search-input').value = '';
-            showToast("雷达已归零，星际物质阵列已刷新。");
+        function bindVirtualScroll(viewportId, contentId, containerId, itemHeight, generateHtmlFn) {
+            const viewport = document.getElementById(viewportId);
+            const content = document.getElementById(contentId);
+            const container = document.getElementById(containerId);
+
+            const totalHeight = cachedFiles.length * itemHeight;
+            viewport.style.height = `${Math.min(totalHeight, 650)}px`;
+
+            const renderVisibleItems = () => {
+                const scrollTop = viewport.scrollTop;
+                const viewHeight = viewport.clientHeight;
+
+                const bufferSize = 3;
+                const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - bufferSize);
+                const endIndex = Math.min(cachedFiles.length - 1, Math.floor((scrollTop + viewHeight) / itemHeight) +
+                bufferSize);
+
+                let html = '';
+                for (let i = startIndex; i <= endIndex; i++) {
+                    const file = cachedFiles[i];
+                    if (!file) continue;
+                    const iconHtml = getFileIcon(file.name, file.is_dir);
+                    html += generateHtmlFn(file, iconHtml, i * itemHeight);
+                }
+                container.innerHTML = html;
+            };
+
+            content.style.height = `${cachedFiles.length * itemHeight}px`;
+            viewport.onscroll = renderVisibleItems;
+
+            renderVisibleItems();
+        }
+
+        function render() {
+            updateStats();
+
+            cachedFiles = [...getFilteredFiles()];
+
+            if (!isOriginalOrder) {
+                cachedFiles.sort((a, b) => {
+                    let valA = a[currentSort.field];
+                    let valB = b[currentSort.field];
+                    if (currentSort.field === 'name') {
+                        valA = valA.toLowerCase();
+                        valB = valB.toLowerCase();
+                    }
+                    if (valA < valB) return currentSort.asc ? -1 : 1;
+                    if (valA > valB) return currentSort.asc ? 1 : -1;
+                    return 0;
+                });
+            }
+
+            bindVirtualScroll(
+                'table-viewport',
+                'table-content',
+                'table-rows-container',
+                TABLE_ROW_HEIGHT,
+                generateTableRowHtml
+            );
+
+            bindVirtualScroll(
+                'cards-viewport',
+                'cards-content',
+                'mobile-cards-container',
+                CARD_HEIGHT,
+                generateMobileCardHtml
+            );
+        }
+
+        function onSearchInput() {
+            document.getElementById('table-viewport').scrollTop = 0;
+            document.getElementById('cards-viewport').scrollTop = 0;
             render();
+        }
+
+        let isStealthMode = false;
+
+        function toggleStealthMode() {
+            const mainElements = document.getElementById("main-interactive-elements");
+            const btn = document.getElementById("stealth-mode-btn");
+            const text = document.getElementById("stealth-text");
+            const pilotStatus = document.getElementById("pilot-status");
+
+            isStealthMode = !isStealthMode;
+
+            if (isStealthMode) {
+                mainElements.style.opacity = "0";
+                mainElements.style.visibility = "hidden";
+                mainElements.style.transform = "translateY(-20px)";
+
+                btn.classList.add("active");
+                text.innerText = "打开数据面板";
+                pilotStatus.innerText = "CRUISING";
+
+                showToast("🛰️ 界面已收起，请走出舱门，尽情互动！");
+            } else {
+                mainElements.style.opacity = "1";
+                mainElements.style.visibility = "visible";
+                mainElements.style.transform = "translateY(0)";
+
+                btn.classList.remove("active");
+                text.innerText = "关闭数据面板";
+                pilotStatus.innerText = "DRIVING";
+                showToast("📡 雷达系统已展开，航行参数已回传");
+            }
         }
 
         const speedDom = document.getElementById("speed");
         let lastSpeed = 0.3;
 
-        function randomPlusMinus(n=0.01) {
+        function randomPlusMinus(n = 0.01) {
             return (Math.random() * n * 2) - 1.1 * n;
         }
 
-        // 更新飞船航行速度
-        function updateSpeed(speedup=0) {
+        function updateSpeed(speedup = 0) {
             lastSpeed = Math.max(0.1, Math.min(1, lastSpeed + speedup + randomPlusMinus()));
             speedDom.textContent = lastSpeed.toFixed(6);
         }
         setInterval(updateSpeed, 100);
 
-        // 跃迁引擎点火 (触发全景黑洞动效或警报)
         function triggerWarp() {
             updateSpeed(0.1);
-            showToast("🚀 空间跳跃引擎已点火，超光速跃迁中...");
+            showToast("🚀 空间跳跃引擎已点火，光速跃迁中...");
+
+            if (typeof entities !== 'undefined') {
+                entities.forEach(ent => ent.panic());
+            }
+
+            startWormholeTunnel();
+            triggerQuantumStorm();
+
+            const universeTitle = document.getElementById('universe-title');
+            universeTitle.classList.add('fast-shaking-active');
+
+            setTimeout(() => {
+                universeTitle.classList.remove('fast-shaking-active');
+            }, 5000);
+
             if (typeof window.startWarpDrive === 'function') {
                 window.startWarpDrive();
             }
         }
 
-        // 模拟跳转到任一祖先目录部分
         function jumpToFolder(folderId) {
             showToast(`请求跃迁至指定航标: [节点ID: ${folderId}]`);
             window.location.href = "/?id=" + folderId
         }
 
-        // 页面初始化执行
         window.onload = async () => {
+            cosmicMimeDatabase = await buildMimeDatabase();
             const url = new URL(location.href);
             url.searchParams.set('format', 'json');
             const resp = await fetch(url.href);
             currentDirData = await resp.json();
             initAncestors();
             render();
+            initWormholeCanvas();
         };
     </script>
 
+    <!-- ===== Three.js 背景 + 虫洞特效 ===== -->
     <script>
         let scene, camera, renderer, particles, starField;
-        
+        let overlayCanvas, ctx;
+        let width, height;
+        let stars = [];
+        let rays = [];
+        let entities = [];
+        let mouseX = 0,
+            mouseY = 0;
+
+        // 用于主题切换时调整 Three.js
+        function applyThemeToThree(theme) {
+            if (!scene) return;
+            if (theme === 'light') {
+                scene.background = new THREE.Color(0xf0f4ff);
+                if (particles) {
+                    const colors = particles.geometry.attributes.color.array;
+                    for (let i = 0; i < colors.length; i += 3) {
+                        colors[i] *= 0.5;
+                        colors[i + 1] *= 0.5;
+                        colors[i + 2] *= 0.5;
+                    }
+                    particles.geometry.attributes.color.needsUpdate = true;
+                }
+                if (starField) {
+                    starField.material.color.setHex(0x333355);
+                }
+            } else {
+                scene.background = new THREE.Color(0x05050f);
+                if (particles) {
+                    const colors = particles.geometry.attributes.color.array;
+                    for (let i = 0; i < colors.length; i += 3) {
+                        colors[i] *= 2.0;
+                        colors[i + 1] *= 2.0;
+                        colors[i + 2] *= 2.0;
+                    }
+                    particles.geometry.attributes.color.needsUpdate = true;
+                }
+                if (starField) {
+                    starField.material.color.setHex(0x7000ff);
+                }
+            }
+        }
+        window.applyThemeToThree = applyThemeToThree;
+
         function initThreeBackground() {
             const container = document.getElementById('canvas-container');
-            
+
             scene = new THREE.Scene();
             scene.fog = new THREE.FogExp2(0x05050f, 0.0015);
+            // 初始根据当前主题设置背景
+            const initTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+            scene.background = new THREE.Color(initTheme === 'light' ? 0xf0f4ff : 0x05050f);
 
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.z = 500;
 
-            renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+            renderer = new THREE.WebGLRenderer({ alpha: false, antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             container.appendChild(renderer.domElement);
 
-            // 生成色彩缤纷宇宙星空背景
             const geometry = new THREE.BufferGeometry();
             const count = 3000;
             const positions = new Float32Array(count * 3);
             const colors = new Float32Array(count * 3);
 
-            for(let i = 0; i < count * 3; i += 3) {
-                // 散布于整个宇宙黑洞周围
+            for (let i = 0; i < count * 3; i += 3) {
                 positions[i] = (Math.random() - 0.5) * 2000;
-                positions[i+1] = (Math.random() - 0.5) * 2000;
-                positions[i+2] = (Math.random() - 0.5) * 2000;
+                positions[i + 1] = (Math.random() - 0.5) * 2000;
+                positions[i + 2] = (Math.random() - 0.5) * 2000;
 
-                // 缤纷彩色粒子：霓虹色、深空紫、电光蓝
-                colors[i] = Math.random() * 0.5 + 0.5;   // R
-                colors[i+1] = Math.random() * 0.8 + 0.2; // G
-                colors[i+2] = 1.0;                       // B
+                colors[i] = Math.random() * 0.5 + 0.5;
+                colors[i + 1] = Math.random() * 0.8 + 0.2;
+                colors[i + 2] = 1.0;
             }
 
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
-            // 基础粒子材质
             const material = new THREE.PointsMaterial({
                 size: 3.5,
                 transparent: true,
@@ -705,7 +2118,6 @@
             particles = new THREE.Points(geometry, material);
             scene.add(particles);
 
-            // 制造黑洞引力涡旋（线条光环）
             const ringGeo = new THREE.BufferGeometry();
             const ringCount = 300;
             const ringPos = new Float32Array(ringCount * 3);
@@ -713,16 +2125,372 @@
                 const radius = i * 2 + 50;
                 const theta = Math.random() * Math.PI * 2;
                 ringPos[i] = Math.cos(theta) * radius;
-                ringPos[i+1] = (Math.random() - 0.5) * 20;
-                ringPos[i+2] = Math.sin(theta) * radius;
+                ringPos[i + 1] = (Math.random() - 0.5) * 20;
+                ringPos[i + 2] = Math.sin(theta) * radius;
             }
             ringGeo.setAttribute('position', new THREE.BufferAttribute(ringPos, 3));
             const ringMat = new THREE.PointsMaterial({ size: 2, color: 0x7000ff });
             starField = new THREE.Points(ringGeo, ringMat);
             scene.add(starField);
 
+            // 根据当前主题调整
+            if (initTheme === 'light') {
+                applyThemeToThree('light');
+            }
+
+            init2DOverlay();
+
             window.addEventListener('resize', onWindowResize);
             animate();
+        }
+
+        function init2DOverlay() {
+            overlayCanvas = document.createElement('canvas');
+            overlayCanvas.style.position = 'fixed';
+            overlayCanvas.style.top = '0';
+            overlayCanvas.style.left = '0';
+            overlayCanvas.style.zIndex = '0';
+            overlayCanvas.style.pointerEvents = 'auto';
+            document.getElementById('canvas-container').appendChild(overlayCanvas);
+
+            ctx = overlayCanvas.getContext('2d');
+            width = overlayCanvas.width = window.innerWidth;
+            height = overlayCanvas.height = window.innerHeight;
+
+            for (let i = 0; i < 90; i++) {
+                stars.push({
+                    x: Math.random() * width,
+                    y: Math.random() * height,
+                    radius: Math.random() * 1.5 + 0.5,
+                    speed: Math.random() * 0.4 + 0.1
+                });
+            }
+
+            for (let i = 0; i < 4; i++) {
+                rays.push({
+                    y: Math.random() * height,
+                    speed: Math.random() * 1 + 0.5,
+                    amplitude: Math.random() * 40 + 20,
+                    frequency: Math.random() * 0.005 + 0.002,
+                    phase: Math.random() * Math.PI
+                });
+            }
+
+            entities = Array.from({ length: 16 }, () => new CosmicEntity());
+        }
+
+        class CosmicEntity {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                const types = ['monster', 'monsterPlus', 'jellyfish', 'eye', 'blob', 'mecha', 'void_rift'];
+                this.type = types[Math.floor(Math.random() * types.length)];
+                this.baseRadius = Math.random() * 25 + 12;
+                this.radius = this.baseRadius;
+                this.x = Math.random() * width;
+                this.y = Math.random() * height;
+                this.vx = (Math.random() - 0.5) * 3;
+                this.vy = (Math.random() - 0.5) * 3;
+                this.color = `hsl(${Math.random() * 360}, 70%, 60%)`;
+
+                const personalities = ['friendly', 'scared', 'neutral', 'angry'];
+                this.personality = personalities[Math.floor(Math.random() * personalities.length)];
+                this.state = 'calm';
+                this.stateTimer = 0;
+                this.clickCount = 0;
+                this.lastClickTime = 0;
+
+                this.pulseFactor = Math.random() * 10;
+                this.rotation = Math.random() * Math.PI * 2;
+                this.rotSpeed = (Math.random() - 0.5) * 0.05;
+                this.tentacleCount = Math.floor(Math.random() * 6) + 3;
+
+                this.isExploding = false;
+                this.explosionParticles = [];
+            }
+
+            panic() {
+                this.personality = 'angry';
+                this.explode();
+            }
+
+            update() {
+                if (this.isExploding) {
+                    this.explosionParticles.forEach(p => {
+                        p.x += p.vx;
+                        p.y += p.vy;
+                        p.alpha -= 0.02;
+                    });
+                    this.explosionParticles = this.explosionParticles.filter(p => p.alpha > 0);
+                    if (this.explosionParticles.length === 0) {
+                        this.reset();
+                    }
+                    return;
+                }
+
+                this.pulseFactor += 0.1;
+                this.rotation += this.rotSpeed;
+
+                const distToMouse = Math.hypot(this.x - mouseX, this.y - mouseY);
+                const sensingRadius = 150;
+
+                if (distToMouse < sensingRadius && this.state !== 'angry' && this.state !== 'curious') {
+                    if (this.personality === 'scared') {
+                        this.state = 'fleeing';
+                        const angleFromMouse = Math.atan2(this.y - mouseY, this.x - mouseX);
+                        this.vx = Math.cos(angleFromMouse) * 5;
+                        this.vy = Math.sin(angleFromMouse) * 5;
+                    } else if (this.personality === 'friendly') {
+                        this.state = 'happy';
+                    } else if (this.personality === 'angry') {
+                        this.state = 'angry';
+                        this.stateTimer = 120;
+                    }
+                } else if (distToMouse >= sensingRadius && (this.state === 'fleeing' || this.state === 'happy')) {
+                    this.state = 'calm';
+                }
+
+                if (this.state === 'fleeing') {
+                    this.x += this.vx;
+                    this.y += this.vy;
+                } else if (this.state === 'happy') {
+                    this.vx = 0;
+                    this.vy = 0;
+                    this.radius = this.baseRadius + Math.sin(this.pulseFactor * 2) * 5;
+                } else if (this.state === 'angry') {
+                    this.x += (Math.random() - 0.5) * 6;
+                    this.y += (Math.random() - 0.5) * 6;
+                    this.stateTimer--;
+                    if (this.stateTimer <= 0) this.state = 'calm';
+                } else if (this.state === 'curious') {
+                    this.vx = 0;
+                    this.vy = 0;
+                    this.stateTimer--;
+                    if (this.stateTimer <= 0) this.state = 'calm';
+                } else {
+                    this.radius = this.baseRadius;
+                    this.x += this.vx;
+                    this.y += this.vy;
+                }
+
+                if (this.x < 0 || this.x > width) this.vx *= -1;
+                if (this.y < 0 || this.y > height) this.vy *= -1;
+            }
+
+            draw() {
+                if (!ctx) return;
+
+                if (this.isExploding) {
+                    this.explosionParticles.forEach(p => {
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.fillStyle = `rgba(${p.color}, ${p.alpha})`;
+                        ctx.arc(this.x + p.x, this.y + p.y, p.radius, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.restore();
+                    });
+                    return;
+                }
+
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = this.state === 'angry' ? '#ff0000' : this.color;
+
+                if (this.type === 'monster') {
+                    ctx.fillStyle = this.state === 'angry' ? '#ff2a2a' : this.color;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#fff';
+                    ctx.beginPath();
+                    ctx.arc(-this.radius / 2, -this.radius / 4, this.radius / 4, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(this.radius / 2, -this.radius / 4, this.radius / 4, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#000';
+                    const eyeOffset = this.state === 'happy' ? Math.sin(this.pulseFactor) * 3 : 0;
+                    ctx.beginPath();
+                    ctx.arc(-this.radius / 2, -this.radius / 4 + eyeOffset, this.radius / 8, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(this.radius / 2, -this.radius / 4 + eyeOffset, this.radius / 8, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = '#000';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    if (this.state === 'happy') ctx.arc(0, this.radius / 4, this.radius / 3, 0, Math.PI);
+                    else if (this.state === 'angry') ctx.arc(0, this.radius / 2, this.radius / 3, Math.PI, 0);
+                    else ctx.moveTo(-this.radius / 3, this.radius / 3);
+                    ctx.lineTo(this.radius / 3, this.radius / 3);
+                    ctx.stroke();
+                } else if (this.type === 'monsterPlus') {
+                    ctx.fillStyle = this.state === 'angry' ? '#9d4edd' : '#7000ff';
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, this.radius, this.radius * 0.8, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#00f0ff';
+                    ctx.beginPath();
+                    ctx.arc(0, -this.radius * 0.2, this.radius * 0.4, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#000';
+                    ctx.beginPath();
+                    ctx.arc(0, -this.radius * 0.2, this.radius * 0.18, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#ff007f';
+                    ctx.fillRect(-this.radius * 0.6, this.radius * 0.2, this.radius * 1.2, 4);
+                } else if (this.type === 'jellyfish') {
+                    ctx.fillStyle = this.state === 'angry' ? 'rgba(255, 50, 50, 0.8)' : this.color.replace('hsl', 'hsla')
+                        .replace(')', ', 0.8)');
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.radius, Math.PI, 0);
+                    ctx.lineTo(this.radius, this.radius / 2);
+                    ctx.lineTo(-this.radius, this.radius / 2);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.strokeStyle = ctx.fillStyle;
+                    ctx.lineWidth = 3;
+                    for (let j = 0; j < this.tentacleCount; j++) {
+                        ctx.beginPath();
+                        const tx = -this.radius + (this.radius * 2 / (this.tentacleCount - 1)) * j;
+                        ctx.moveTo(tx, this.radius / 2);
+                        const ty = this.radius + Math.sin(this.pulseFactor + j) * 10;
+                        ctx.quadraticCurveTo(tx + Math.cos(this.pulseFactor) * 5, this.radius, tx, ty);
+                        ctx.stroke();
+                    }
+                } else if (this.type === 'eye') {
+                    ctx.fillStyle = '#fff';
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = this.state === 'angry' ? '#ff0000' : this.color;
+                    const mx = Math.cos(this.pulseFactor * 0.5) * this.radius * 0.3;
+                    const my = Math.sin(this.pulseFactor * 0.5) * this.radius * 0.3;
+                    ctx.beginPath();
+                    ctx.arc(mx, my, this.radius * 0.6, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#000';
+                    ctx.beginPath();
+                    ctx.arc(mx, my, this.radius * 0.3, 0, Math.PI * 2);
+                    ctx.fill();
+                    if (this.state === 'angry') {
+                        ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+                        ctx.lineWidth = 1;
+                        for (let k = 0; k < 8; k++) {
+                            const ang = Math.random() * Math.PI * 2;
+                            ctx.beginPath();
+                            ctx.moveTo(0, 0);
+                            ctx.lineTo(Math.cos(ang) * this.radius, Math.sin(ang) * this.radius);
+                            ctx.stroke();
+                        }
+                    }
+                } else if (this.type === 'blob') {
+                    ctx.fillStyle = this.state === 'angry' ? '#ff5500' : this.color;
+                    ctx.beginPath();
+                    for (let i = 0; i < 8; i++) {
+                        const angle = (Math.PI * 2 / 8) * i;
+                        const warp = 1 + Math.sin(this.pulseFactor + i) * 0.2;
+                        const rx = Math.cos(angle) * this.radius * warp;
+                        const ry = Math.sin(angle) * this.radius * warp;
+                        if (i === 0) ctx.moveTo(rx, ry);
+                        else ctx.lineTo(rx, ry);
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.radius * 0.4, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (this.type === 'mecha') {
+                    ctx.strokeStyle = '#00f0ff';
+                    ctx.lineWidth = 4;
+                    ctx.fillStyle = '#0a0c1a';
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.fill();
+
+                    ctx.strokeStyle = '#ff007f';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(-this.radius * 0.7, 0);
+                    ctx.lineTo(this.radius * 0.7, 0);
+                    ctx.moveTo(0, -this.radius * 0.7);
+                    ctx.lineTo(0, this.radius * 0.7);
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#39ff14';
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.radius * 0.25, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (this.type === 'void_rift') {
+                    ctx.fillStyle = '#7000ff';
+                    ctx.beginPath();
+                    ctx.moveTo(0, -this.radius);
+                    ctx.lineTo(this.radius * 0.6, -this.radius * 0.2);
+                    ctx.lineTo(this.radius, this.radius * 0.6);
+                    ctx.lineTo(this.radius * 0.2, this.radius * 0.2);
+                    ctx.lineTo(-this.radius * 0.5, this.radius * 0.9);
+                    ctx.lineTo(-this.radius * 0.2, 0);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.strokeStyle = '#00f0ff';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+
+                ctx.restore();
+            }
+
+            checkClick(mx, my) {
+                const dist = Math.hypot(this.x - mx, this.y - my);
+                if (dist < this.radius + 10 && !this.isExploding) {
+                    const now = Date.now();
+                    if (now - this.lastClickTime < 500) {
+                        this.clickCount++;
+                    } else {
+                        this.clickCount = 1;
+                    }
+                    this.lastClickTime = now;
+
+                    if (this.clickCount === 1) {
+                        this.state = 'curious';
+                        this.stateTimer = 120;
+                        this.vx = 0;
+                        this.vy = 0;
+                    } else if (this.clickCount >= 3) {
+                        this.explode();
+                    }
+                }
+            }
+
+            explode() {
+                if (this.isExploding) return;
+                this.isExploding = true;
+                const particleCount = 40 + Math.random() * 25;
+                const colorRGB = this.state === 'angry' ? '255, 50, 50' : (this.personality === 'friendly' ?
+                    '50, 255, 50' : '200, 200, 200');
+
+                for (let i = 0; i < particleCount; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = Math.random() * 10 + 2;
+                    this.explosionParticles.push({
+                        x: 0,
+                        y: 0,
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed,
+                        radius: Math.random() * 8 + 2,
+                        color: Math.random() > 0.3 ? colorRGB : '255, 255, 255',
+                        alpha: 1.0
+                    });
+                }
+            }
         }
 
         function animate() {
@@ -730,42 +2498,199 @@
 
             const time = Date.now() * 0.00005;
 
-            // 粒子云缓慢漂移与旋转（疯狂宇宙状态）
-            particles.rotation.x = time * 0.2;
-            particles.rotation.y = time * 0.3;
+            if (particles) {
+                particles.rotation.x = time * 0.2;
+                particles.rotation.y = time * 0.3;
+            }
+            if (starField) {
+                starField.rotation.y = -time * 1.5;
+                starField.rotation.x = Math.sin(time) * 0.1;
+            }
+            if (renderer && scene && camera) {
+                renderer.render(scene, camera);
+            }
 
-            // 涡旋中心牵引光环旋转
-            starField.rotation.y = -time * 1.5;
-            starField.rotation.x = Math.sin(time) * 0.1;
+            if (ctx && overlayCanvas) {
+                ctx.clearRect(0, 0, width, height);
 
-            renderer.render(scene, camera);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                stars.forEach(star => {
+                    ctx.beginPath();
+                    ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                    star.y += star.speed;
+                    if (star.y > height) star.y = 0;
+                });
+
+                rays.forEach(ray => {
+                    ray.y += ray.speed;
+                    if (ray.y > height + 100) ray.y = -100;
+
+                    ctx.strokeStyle = 'rgba(0, 242, 255, 0.15)';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    for (let x = 0; x < width; x += 20) {
+                        const waveY = ray.y + Math.sin(x * ray.frequency + ray.phase) * ray.amplitude;
+                        if (x === 0) ctx.moveTo(x, waveY);
+                        else ctx.lineTo(x, waveY);
+                    }
+                    ctx.stroke();
+                    ray.phase += 0.02;
+                });
+
+                entities.forEach(ent => {
+                    ent.update();
+                    ent.draw();
+                });
+            }
         }
 
         function onWindowResize() {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
+
+            if (overlayCanvas) {
+                width = overlayCanvas.width = window.innerWidth;
+                height = overlayCanvas.height = window.innerHeight;
+            }
+            if (wormholeCtx) {
+                whW = wormholeCanvas.width = window.innerWidth;
+                whH = wormholeCanvas.height = window.innerHeight;
+            }
         }
 
-        // 跃迁引擎转动动画
         window.startWarpDrive = function() {
             gsapWarpEffect();
         };
 
-        // 通过改变视角呈现光速穿梭和空间跃迁体验
         function gsapWarpEffect() {
             let t = 0;
             const interval = setInterval(() => {
                 t += 0.05;
-                particles.material.size = 3.5 + Math.sin(t) * 20;
+                if (particles) particles.material.size = 3.5 + Math.sin(t) * 20;
                 if (t >= Math.PI * 2) {
                     clearInterval(interval);
-                    particles.material.size = 3.5;
+                    if (particles) particles.material.size = 3.5;
                 }
             }, 50);
         }
 
+        window.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+
+            const tipBox = document.getElementById('holocubic-tooltip');
+            if (tipBox && tipBox.style.display === 'block') {
+                tipBox.style.left = (e.clientX + 16) + 'px';
+                const tipHeight = tipBox.offsetHeight || 50;
+                if (e.clientY - tipHeight - 16 > 0) {
+                    tipBox.style.top = (e.clientY - tipHeight - 16) + 'px';
+                } else {
+                    tipBox.style.top = (e.clientY + 16) + 'px';
+                }
+            }
+        });
+
+        window.addEventListener('click', (e) => {
+            entities.forEach(ent => ent.checkClick(e.clientX, e.clientY));
+        });
+
         initThreeBackground();
     </script>
+
+    <!-- ===== 虫洞特效 ===== -->
+    <script>
+        let wormholeCanvas, wormholeCtx;
+        let whW, whH;
+        let tunnelParticles = [];
+
+        function initWormholeCanvas() {
+            wormholeCanvas = document.getElementById('wormhole-canvas');
+            wormholeCtx = wormholeCanvas.getContext('2d');
+            whW = wormholeCanvas.width = window.innerWidth;
+            whH = wormholeCanvas.height = window.innerHeight;
+
+            for (let i = 0; i < 250; i++) {
+                tunnelParticles.push({
+                    x: Math.random() * whW - whW / 2,
+                    y: Math.random() * whH - whH / 2,
+                    z: Math.random() * 1000 + 1,
+                    color: `hsl(${Math.random() * 360}, 100%, 70%)`
+                });
+            }
+        }
+
+        function drawWormholeTunnel() {
+            wormholeCtx.fillStyle = 'rgba(10, 12, 32, 0.25)';
+            wormholeCtx.fillRect(0, 0, whW, whH);
+
+            const centerX = whW / 2;
+            const centerY = whH / 2;
+
+            tunnelParticles.forEach(p => {
+                p.z -= 8;
+
+                if (p.z <= 0) {
+                    p.x = Math.random() * whW - whW / 2;
+                    p.y = Math.random() * whH - whH / 2;
+                    p.z = 1000;
+                }
+
+                const screenX = centerX + (p.x / p.z) * 150;
+                const screenY = centerY + (p.y / p.z) * 150;
+                const size = (1 - p.z / 1000) * 6;
+
+                wormholeCtx.fillStyle = p.color;
+                wormholeCtx.beginPath();
+                wormholeCtx.arc(screenX, screenY, Math.max(0.5, size), 0, Math.PI * 2);
+                wormholeCtx.fill();
+
+                wormholeCtx.strokeStyle = p.color;
+                wormholeCtx.lineWidth = size * 0.5;
+                wormholeCtx.beginPath();
+                const prevX = centerX + (p.x / (p.z + 15)) * 150;
+                const prevY = centerY + (p.y / (p.z + 15)) * 150;
+                wormholeCtx.moveTo(prevX, prevY);
+                wormholeCtx.lineTo(screenX, screenY);
+                wormholeCtx.stroke();
+            });
+        }
+
+        let whAnimateFrame;
+        let isWormholeActive = false;
+
+        function startWormholeTunnel() {
+            if (isWormholeActive) return;
+            isWormholeActive = true;
+
+            const whEl = document.getElementById('wormhole-canvas');
+            whEl.style.opacity = '1';
+
+            function loop() {
+                drawWormholeTunnel();
+                if (isWormholeActive) {
+                    whAnimateFrame = requestAnimationFrame(loop);
+                }
+            }
+            loop();
+
+            setTimeout(() => {
+                isWormholeActive = false;
+                cancelAnimationFrame(whAnimateFrame);
+                whEl.style.opacity = '0';
+            }, 5000);
+        }
+
+        function triggerQuantumStorm() {
+            const appBody = document.getElementById('app-body');
+            appBody.classList.add('quantum-storm-active');
+
+            setTimeout(() => {
+                appBody.classList.remove('quantum-storm-active');
+            }, 2400);
+        }
+    </script>
+
 </body>
 </html>

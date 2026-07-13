@@ -5,7 +5,6 @@ __all__ = ["P115QueryDB"]
 __doc__ = "这个模块提供了一个和查询数据库有关的类"
 
 from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
-from math import inf
 from typing import cast, overload, Any
 
 from errno2 import errno
@@ -25,8 +24,8 @@ class P115QueryDB:
     """
     __slots__ = "con",
 
-    def __init__(self, con, /):
-        self.con = connect(con, check_same_thread=False, timeout=inf)
+    def __init__(self, con, /, **connect_kwargs):
+        self.con = connect(con, **connect_kwargs)
 
     def get_ancestors(
         self, 
@@ -87,6 +86,38 @@ SELECT id, parent_id, name FROM t;""", id))
         return find(
             con, 
             f"SELECT * FROM data WHERE id=? LIMIT 1", 
+            id, 
+            FileNotFoundError(errno.ENOENT, id), 
+            row_factory="dict", 
+        )
+
+    def get_count_tree(
+        self, 
+        id: int = 0, 
+        /, 
+    ) -> dict:
+        """获取某个文件或目录的信息
+
+        :param self: P115QueryDB 实例或者数据库连接或游标
+        :param id: 当前节点的 id
+
+        :return: 当前节点的信息字典
+        """
+        con: Any
+        if isinstance(self, P115QueryDB):
+            con = self.con
+        else:
+            con = self
+        sql = """\
+WITH ids AS (
+    SELECT id, is_dir FROM data WHERE parent_id=? AND is_alive
+    UNION ALL
+    SELECT data.id, data.is_dir FROM ids JOIN data ON(ids.is_dir AND ids.id=data.parent_id) WHERE data.is_alive
+)
+SELECT SUM(is_dir) AS dir_count, SUM(NOT is_dir) AS file_count FROM ids HAVING dir_count IS NOT NULL"""
+        return find(
+            con, 
+            sql, 
             id, 
             FileNotFoundError(errno.ENOENT, id), 
             row_factory="dict", 
@@ -318,6 +349,20 @@ SELECT id, parent_id, name FROM t;""", id))
         if is_alive:
             sql += " AND is_alive"
         return find(con, sql, id, 0)
+
+    def is_alive(
+        self, 
+        id: int, 
+        /, 
+    ) -> bool:
+        if not id:
+            return True
+        con: Any
+        if isinstance(self, P115QueryDB):
+            con = self.con
+        else:
+            con = self
+        return bool(find(con, "SELECT is_alive FROM data WHERE id=?", id, 1))
 
     def path_to_id(
         self, 
@@ -855,6 +900,7 @@ WHERE
             else:
                 fields = set(fields)
             fields.add("id")
+            fields.add("is_dir")
             with_depth = "depth" in fields
             with_ancestors = "ancestors" in fields
             with_path = "path" in fields
@@ -869,7 +915,7 @@ WHERE
 WITH t AS (
     SELECT {fields1} FROM data WHERE parent_id={parent_id:d} AND is_alive
     UNION ALL
-    SELECT {fields2} FROM t JOIN data ON(t.id = data.parent_id) WHERE data.is_alive
+    SELECT {fields2} FROM t JOIN data ON(t.is_dir AND t.id = data.parent_id) WHERE data.is_alive
 ) SELECT * FROM t"""
         row_factory: str | Callable = "any"
         if with_depth or with_ancestors or with_path or with_relpath:

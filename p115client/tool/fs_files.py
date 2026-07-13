@@ -12,13 +12,13 @@ from asyncio import (
     Semaphore as AsyncSemaphore, Task, TaskGroup, 
 )
 from collections import deque
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from copy import copy
 from itertools import cycle
 from os import PathLike
 from time import sleep, time
-from typing import overload, Final, Literal
+from typing import overload, Any, Final, Literal
 from warnings import warn
 
 from errno2 import errno
@@ -50,7 +50,7 @@ def fs_files(
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
-) -> Iterator[dict]:
+) -> dict:
     ...
 @overload
 def fs_files(
@@ -63,7 +63,7 @@ def fs_files(
     *, 
     async_: Literal[True], 
     **request_kwargs, 
-) -> AsyncIterator[dict]:
+) -> Coroutine[Any, Any, dict]:
     ...
 def fs_files(
     client: str | PathLike | P115Client | P115OpenClient, 
@@ -75,7 +75,7 @@ def fs_files(
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
-) -> AsyncIterator[dict] | Iterator[dict]:
+) -> dict | Coroutine[Any, Any, dict]:
     """拉取一个目录中的文件或目录的数据
 
     :param client: 115 网盘客户端对象

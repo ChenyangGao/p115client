@@ -1325,7 +1325,7 @@ def iter_dirs(
         cid, 
         files=False, 
         id_to_dirnode=id_to_dirnode, 
-        app=app,  
+        app=app, 
         max_workers=max_workers, 
         max_page=max_dirs > 0 and -(-max_dirs // 5000), 
         async_=async_, # type: ignore
@@ -2554,11 +2554,10 @@ def iter_nodes(
     return do_filter(None, do_map(
         project, 
         conmap(
-            client.fs_file, 
+            partial(client.fs_file, **request_kwargs), 
             map(to_id, ids), 
             max_workers=max_workers, 
-            kwargs=request_kwargs, 
-            async_=async_, 
+            async_=async_, # type: ignore
         ), 
     ))
 
@@ -2724,7 +2723,6 @@ def iter_nodes_by_pickcode(
             get_response, 
             map(client.to_pickcode, pickcodes), 
             max_workers=max_workers, 
-            kwargs=request_kwargs, 
             async_=async_, 
         )))
 
@@ -2799,11 +2797,10 @@ def iter_nodes_using_update(
     return do_filter(None, do_map(
         project, 
         conmap(
-            client.fs_files_update_app, 
+            partial(client.fs_files_update_app, **request_kwargs), 
             ({"file_id": to_id(fid), "show_play_long": 1} for fid in ids), 
             max_workers=max_workers, 
-            kwargs=request_kwargs, 
-            async_=async_, 
+            async_=async_, # type: ignore
         )
     ))
 
@@ -2924,7 +2921,7 @@ def iter_nodes_using_event(
     type: Literal["doc", "img"] = "img", 
     normalize_attr: None | bool | Callable[[dict], dict] = True, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
-    app: str = "android", 
+    app: str = "web", 
     cooldown: float = 0, 
     *, 
     async_: Literal[False] = False, 
@@ -2938,7 +2935,7 @@ def iter_nodes_using_event(
     type: Literal["doc", "img"] = "img", 
     normalize_attr: None | bool | Callable[[dict], dict] = True, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
-    app: str = "android", 
+    app: str = "web", 
     cooldown: float = 0, 
     *, 
     async_: Literal[True], 
@@ -2951,7 +2948,7 @@ def iter_nodes_using_event(
     type: Literal["doc", "img"] = "img", 
     normalize_attr: None | bool | Callable[[dict], dict] = True, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
-    app: str = "android", 
+    app: str = "web", 
     cooldown: float = 0, 
     *, 
     async_: Literal[False, True] = False, 
@@ -2961,6 +2958,9 @@ def iter_nodes_using_event(
 
     .. note::
         如果未收集到事件，则说明文件 id 不存在或者已删除，你也可以因此找出所有的无效 id
+
+    .. note::
+        如果 ``app="web"``，则最多一次获取前 1 万条数据，此时必须克制 ``ids`` 的规模在 1 万以下
 
     :param client: 115 客户端或 cookies
     :param ids: 一组文件或目录的 id 或 pickcode
@@ -3257,7 +3257,7 @@ def iter_parents(
         l3 = (d["file_name"] for d in resp3["data"])
         return ((id, fix_overflow(t)) for id, t in zip(ids, zip(l3, l2, l1)))
     return chain_from_iterable(conmap(
-        lambda ids: run_gen_step(get_parents(ids), async_), 
+        lambda ids: run_gen_step(get_parents(ids), async_), # type: ignore
         chunked(do_filter(None, ids), 1150), 
         max_workers=max_workers, 
         async_=async_, # type: ignore

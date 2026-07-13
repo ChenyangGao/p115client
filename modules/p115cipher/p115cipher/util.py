@@ -3,6 +3,7 @@
 
 from collections.abc import Callable, Iterator
 
+from filewrap import to_bytes_view
 from typing_extensions import Buffer, Final, Literal
 
 
@@ -42,7 +43,7 @@ def _pad(data, /):
 
 
 def _unpad(data, /):
-    view = memoryview(data)
+    view = to_bytes_view(data)
     if 0 < (pad_size := view[-1]) < 16 and all(c == pad_size for c in view[-pad_size:]):
         return view[:-pad_size].tobytes()
     return data
@@ -57,7 +58,7 @@ try:
         return AES.new(aes_key, AES.MODE_CBC, aes_iv).encrypt(_pad(data))
 
     def aes_cbc_decrypt(cipher_data, aes_key, aes_iv):
-        view = memoryview(cipher_data)
+        view = to_bytes_view(cipher_data)
         return _unpad(AES.new(aes_key, AES.MODE_CBC, aes_iv).decrypt(
             view[:len(view) & -16]))
 except ImportError:
@@ -105,7 +106,7 @@ except ImportError:
 
             def aes_cbc_encrypt(data, aes_key, aes_iv):
                 encrypt = AES_(aes_key).encrypt
-                view = memoryview(_pad(data))
+                view = to_bytes_view(_pad(data))
                 b = bytearray()
                 puts = b.extend
                 last_cipher = aes_iv
@@ -116,7 +117,7 @@ except ImportError:
 
             def aes_cbc_decrypt(cipher_data, aes_key, aes_iv):
                 decrypt = AES_(aes_key).decrypt
-                view = memoryview(cipher_data)
+                view = to_bytes_view(cipher_data)
                 b = bytearray()
                 puts = b.extend
                 last_cipher = aes_iv
@@ -154,7 +155,7 @@ except ImportError:
             return dst_buf.raw[:result]
     else:
         def lz4_block_decompress(source, uncompressed_size=-1):
-            src = memoryview(source)
+            src = to_bytes_view(source)
             src_len = len(source)
             src_ptr = 0
             dest = bytearray()
@@ -228,10 +229,10 @@ def bytes_xor(
     byteorder: Literal["little", "big"] = "big", 
 ) -> bytes:
     if size:
-        v1 = memoryview(v1)[:size]
-        v2 = memoryview(v2)[:size]
+        v1 = to_bytes_view(v1)[:size]
+        v2 = to_bytes_view(v2)[:size]
     else:
-        size = len(memoryview(v1))
+        size = memoryview(v1).nbytes
     return to_bytes(from_bytes(v1) ^ from_bytes(v2), size, byteorder=byteorder)
 
 
@@ -241,8 +242,8 @@ def xor(
     /, 
     byteorder: Literal["little", "big"] = "big", 
 ) -> bytearray:
-    src = memoryview(src)
-    key = memoryview(key)
+    src = to_bytes_view(src)
+    key = to_bytes_view(key)
     secret = bytearray()
     if i := len(src) & 0b11:
         secret += bytes_xor(src, key, i, byteorder=byteorder)
@@ -280,10 +281,11 @@ def generate_ecdh_pair() -> tuple[bytes, bytes]:
 
 
 def rsa_gen_key(
-    rand_key: bytes, 
+    rand_key: Buffer, 
     sk_len: int = 4, 
     /, 
 ) -> bytearray:
+    rand_key = to_bytes_view(rand_key)
     xor_key = bytearray(sk_len)
     length = sk_len * (sk_len - 1)
     index = 0
@@ -297,16 +299,16 @@ def rsa_gen_key(
 
 def pad_pkcs1_v1_5(message: Buffer, /) -> int:
     data = bytearray(b"\x00")
-    data += b"\x02" * (126 - len(memoryview(message)))
+    data += b"\x02" * (126 - memoryview(message).nbytes)
     data += b"\x00"
     data += message
     return from_bytes(data)
 
 
-def rsa_encrypt_with_pubkey(data: Buffer, /) -> bytes:
+def rsa_encrypt_with_pubkey(data: Buffer, /) -> bytearray:
     "把数据用 RSA 公钥加密"
     cipher_data = bytearray()
-    view = memoryview(data)
+    view = to_bytes_view(data)
     for l, r, _ in acc_step(0, len(view), 117):
         cipher_data += to_bytes(pow(pad_pkcs1_v1_5(view[l:r]), RSA_PUBKEY_PAIR[1], RSA_PUBKEY_PAIR[0]), 128)
     return cipher_data
@@ -315,7 +317,7 @@ def rsa_encrypt_with_pubkey(data: Buffer, /) -> bytes:
 def rsa_decrypt_with_pubkey(cipher_data: Buffer, /) -> bytearray:
     "把数据用 RSA 公钥解密"
     data = bytearray()
-    view = memoryview(cipher_data)
+    view = to_bytes_view(cipher_data)
     for l, r, _ in acc_step(0, len(view), 128):
         p = pow(from_bytes(view[l:r]), RSA_PUBKEY_PAIR[1], RSA_PUBKEY_PAIR[0])
         b = to_bytes(p, (p.bit_length() + 0b111) >> 3)
@@ -324,9 +326,9 @@ def rsa_decrypt_with_pubkey(cipher_data: Buffer, /) -> bytearray:
 
 
 def lz4_decompress(source: Buffer, /) -> bytes:
-    src = memoryview(source)
+    src = to_bytes_view(source)
     data = b""
-    while src and (src_len := (src[0] + (src[1] << 8))):
+    while src and src.nbytes > 2 and (src_len := (src[0] + (src[1] << 8))):
         data += lz4_block_decompress(src[2:src_len+2], 0x2000)
         src = src[src_len+2:]
     return data

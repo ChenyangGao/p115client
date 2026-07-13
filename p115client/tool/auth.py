@@ -65,7 +65,7 @@ def open_deauth(
 @overload
 def open_app_check(
     app_id: int, 
-    base_url: str = "http://hnqrcodeapi.115.com", 
+    base_url: str = "https://hnqrcodeapi.115.com", 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -74,7 +74,7 @@ def open_app_check(
 @overload
 def open_app_check(
     app_id: int, 
-    base_url: str = "http://hnqrcodeapi.115.com", 
+    base_url: str = "https://hnqrcodeapi.115.com", 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -82,7 +82,7 @@ def open_app_check(
     ...
 def open_app_check(
     app_id: int, 
-    base_url: str = "http://hnqrcodeapi.115.com", 
+    base_url: str = "https://hnqrcodeapi.115.com", 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -113,7 +113,7 @@ def open_app_check(
 def open_app_name(
     client: str | PathLike | P115Client, 
     app_id: int, 
-    base_url: str = "http://hnqrcodeapi.115.com", 
+    base_url: str = "https://hnqrcodeapi.115.com", 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -123,7 +123,7 @@ def open_app_name(
 def open_app_name(
     client: str | PathLike | P115Client, 
     app_id: int, 
-    base_url: str = "http://hnqrcodeapi.115.com", 
+    base_url: str = "https://hnqrcodeapi.115.com", 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -132,7 +132,7 @@ def open_app_name(
 def open_app_name(
     client: str | PathLike | P115Client, 
     app_id: int, 
-    base_url: str = "http://hnqrcodeapi.115.com", 
+    base_url: str = "https://hnqrcodeapi.115.com", 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 

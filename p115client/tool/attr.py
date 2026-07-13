@@ -8,7 +8,7 @@ __all__ = [
     "get_ancestors", "get_path", "get_id", "get_id_to_path", 
     "get_id_to_sha1", "get_id_to_name", "share_get_id", 
     "share_get_id_to_path", "share_get_id_to_name", "get_file_count", 
-    "get_dir_count", "get_url", 
+    "get_dir_count", "get_url", "dir_getid", 
 ]
 __doc__ = "这个模块提供了一些和文件或目录信息有关的函数"
 
@@ -18,11 +18,11 @@ from collections.abc import (
     Mapping, MutableMapping, Sequence, 
 )
 from functools import partial
-from itertools import dropwhile
+from itertools import cycle, dropwhile
 from operator import attrgetter
 from os import PathLike
 from types import EllipsisType
-from typing import cast, overload, Any, Literal
+from typing import cast, overload, Any, Final, Literal
 
 from dictattr import AttrDict
 from dicttools import get_first
@@ -40,6 +40,21 @@ from ..util import (
     posix_escape_name, share_extract_payload, unescape_115_charref, 
     is_valid_id, is_valid_sha1, is_valid_name, is_valid_pickcode, 
 )
+
+
+_get_webapi_origin_fs_info: Final = cycle((
+    "https://webapi.115.com", "https://115cdn.com/webapi", "https://115vod.com/webapi", 
+    "https://f.115.com/api/proxy/115", "https://n.115.com/api/proxy/115", 
+)).__next__
+_get_webapi_origin_fs_dir_getid: Final = cycle((
+    "https://webapi.115.com", "https://115cdn.com/webapi", "https://115vod.com/webapi", 
+    "https://f.115.com/api/proxy/115", "https://n.115.com/api/proxy/115", 
+)).__next__
+_get_webapi_origin_fs_dir_getid2: Final = cycle((
+    "https://webapi.115.com", "https://115cdn.com/webapi", "https://115vod.com/webapi", 
+    "https://f.115.com/api/proxy/115", "https://n.115.com/api/proxy/115", 
+)).__next__
+
 
 @overload
 def normalize_attr_web(
@@ -804,6 +819,7 @@ def get_info(
                 **request_kwargs, 
             )
         elif app in ("", "web", "desktop", "aps"):
+            request_kwargs.setdefault("base_url", _get_webapi_origin_fs_info)
             resp = yield client.fs_category_get(
                 id, 
                 async_=async_, 
@@ -2488,5 +2504,69 @@ def get_url(
                 async_=async_, 
                 **request_kwargs, 
             )
+    return run_gen_step(gen_step, async_)
+
+
+@overload
+def dir_getid(
+    client: str | PathLike | P115Client, 
+    path: str, 
+    app: str = "web", 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> int:
+    ...
+@overload
+def dir_getid(
+    client: str | PathLike | P115Client, 
+    path: str, 
+    app: str = "web", 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> Coroutine[Any, Any, int]:
+    ...
+def dir_getid(
+    client: str | PathLike | P115Client, 
+    path: str, 
+    app: str = "web", 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+) -> int | Coroutine[Any, Any, int]:
+    """使用路径来查询目录的 id
+
+    :param client: 115 客户端或 cookies
+    :param path: 路径
+    :param app: 使用指定 app（设备）的接口
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+
+    :return: 目录的 id
+    """
+    if isinstance(client, (str, PathLike)):
+        client = P115Client(client)
+    path = path.strip("/")
+    def gen_step():
+        if not path:
+            return 0
+        if app in ("", "web", "desktop", "aps"):
+            request_kwargs.setdefault("base_url", _get_webapi_origin_fs_dir_getid)
+            resp = yield client.fs_dir_getid(path, async_=async_, **request_kwargs)
+        elif app in ("web2", "desktop2", "aps2"):
+            request_kwargs.setdefault("base_url", _get_webapi_origin_fs_dir_getid2)
+            resp = yield client.fs_dir_getid2(path, async_=async_, **request_kwargs)
+        else:
+            request_kwargs["app"] = app
+            resp = yield client.fs_dir_getid_app(path, async_=async_, **request_kwargs)
+        check_response(resp)
+        if "id" in resp:
+            fid = resp["id"]
+        else:
+            fid = resp["data"]["file_id"]
+        if fid:
+            return int(fid)
+        throw(errno.ENOENT, "/" + path)
     return run_gen_step(gen_step, async_)
 

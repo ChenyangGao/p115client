@@ -62,6 +62,56 @@ def extract_push(
         - 4: 解压成功
         - 6: 解压成功（重复提交已成功任务，但密码错误）
 
+        .. code:: python
+
+            from time import sleep
+            from p115client import P115Client
+            from p115client.tool import *
+            client = P115Client.from_path()
+
+            # NOTE: 待搜索的目录
+            cid = 0
+            # 罗列此目录内所有的压缩包
+            files = list(iter_files(client, cid, type=5, use_media_api=True))
+
+            for i, file in enumerate(files, 1):
+                if not file:
+                    continue
+                # 只支持云解压不超过 20 GB 的压缩包
+                if file["size"] > (1 << 30) * 20:
+                    print(i, f"[SKIPPED] 文件过大: {file}\n\n")
+                    continue
+                # 推送解压任务
+                try:
+                    resp = extract_push(client, file, app="android")
+                except FileNotFoundError:
+                    print(i, f"[SKIPPED] 文件不存在: {file}\n\n")
+                    continue
+                unzip_status = resp["data"]["unzip_status"]
+                if resp["data"]["unzip_status"] != 4:
+                    print(i, f"[SKIPPED] unzip_status={unzip_status} 云解压未成: {file}\n\n")
+                    continue
+                print(i, "开始解压:", file)
+                try:
+                    task_id = extract_file(client, file["pickcode"], to_pid=file["parent_id"])
+                except Exception as e:
+                    print(i, f"[FAILED] 解压失败: {file} 异常: {e}\n\n")
+                    continue
+                while True:
+                    try:
+                        resp = extract_progress(client, task_id)
+                    except Exception:
+                        continue
+                    percent = resp["data"]["percent"]
+                    print(f"\r进度（百分比）: {percent}%", end="")
+                    if percent == 100:
+                        print()
+                        break
+                    sleep(1)
+                client.fs_delete(file["id"])
+                files[i-1] = None
+                print(i, "[SUCCESS] 解压完成，文件已删除\n\n")
+
     :param client:   115 客户端或 cookies
     :param pickcode: 压缩包文件的 提取码、id
     :param secret:   解压密码，没有就不传
