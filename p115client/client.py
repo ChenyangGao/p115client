@@ -6132,7 +6132,7 @@ class P115Client(P115OpenClient):
         )
 
     @overload
-    def _clouddownload_app_request(
+    def _clouddownload_request(
         self, 
         payload: dict = {}, 
         /, 
@@ -6145,7 +6145,7 @@ class P115Client(P115OpenClient):
     ) -> dict:
         ...
     @overload
-    def _clouddownload_app_request(
+    def _clouddownload_request(
         self, 
         payload: dict = {}, 
         /, 
@@ -6157,7 +6157,7 @@ class P115Client(P115OpenClient):
         **request_kwargs, 
     ) -> Coroutine[Any, Any, dict]:
         ...
-    def _clouddownload_app_request(
+    def _clouddownload_request(
         self, 
         payload: dict = {}, 
         /, 
@@ -6246,7 +6246,7 @@ class P115Client(P115OpenClient):
         )
 
     @overload
-    def _clouddownload_request(
+    def clouddownload_request(
         self, 
         payload: dict = {}, 
         /, 
@@ -6260,7 +6260,7 @@ class P115Client(P115OpenClient):
     ) -> dict:
         ...
     @overload
-    def _clouddownload_request(
+    def clouddownload_request(
         self, 
         payload: dict = {}, 
         /, 
@@ -6273,7 +6273,7 @@ class P115Client(P115OpenClient):
         **request_kwargs, 
     ) -> Coroutine[Any, Any, dict]:
         ...
-    def _clouddownload_request(
+    def clouddownload_request(
         self, 
         payload: dict = {}, 
         /, 
@@ -6291,7 +6291,7 @@ class P115Client(P115OpenClient):
             case "ssp":
                 call = self._clouddownload_lixianssp_request
             case _:
-                call = self._clouddownload_app_request
+                call = self._clouddownload_request
         return call(
             payload, 
             action, 
@@ -6429,7 +6429,7 @@ class P115Client(P115OpenClient):
         """
         if isinstance(payload, int):
             payload = {"torrent": payload}
-        return self._clouddownload_request(
+        return self.clouddownload_request(
             payload, 
             "get_id", 
             method=method, 
@@ -6477,7 +6477,7 @@ class P115Client(P115OpenClient):
 
         GET https://clouddownload.115.com/?ac=get_quota_info
         """
-        return self._clouddownload_request(
+        return self.clouddownload_request(
             ac="get_quota_info", 
             method=method, 
             type=type, 
@@ -6524,7 +6524,7 @@ class P115Client(P115OpenClient):
 
         GET https://clouddownload.115.com/?ac=get_quota_package_array
         """
-        return self._clouddownload_request(
+        return self.clouddownload_request(
             ac="get_quota_package_array", 
             method=method, 
             type=type, 
@@ -6571,7 +6571,7 @@ class P115Client(P115OpenClient):
 
         GET https://clouddownload.115.com/?ac=get_quota_package_info
         """
-        return self._clouddownload_request(
+        return self.clouddownload_request(
             ac="get_quota_package_info", 
             method=method, 
             type=type, 
@@ -6699,7 +6699,7 @@ class P115Client(P115OpenClient):
         """
         if isinstance(payload, str):
             payload = {"info_hash": payload}
-        return self._clouddownload_request(
+        return self.clouddownload_request(
             payload, 
             "get_user_task", 
             method=method, 
@@ -6763,7 +6763,7 @@ class P115Client(P115OpenClient):
         """
         if isinstance(payload, str):
             payload = {"info_hash": payload}
-        return self._clouddownload_request(
+        return self.clouddownload_request(
             payload, 
             "add_task_bt", 
             method=method, 
@@ -6821,7 +6821,7 @@ class P115Client(P115OpenClient):
         """
         if isinstance(payload, str):
             payload = {"url": payload}
-        return self._clouddownload_request(
+        return self.clouddownload_request(
             payload, 
             "add_task_url", 
             method=method, 
@@ -6886,7 +6886,7 @@ class P115Client(P115OpenClient):
             payload = {f"url[{i}]": url for i, url in enumerate(payload) if url}
             if not payload:
                 raise ValueError("no `url` specified")
-        return self._clouddownload_request(
+        return self.clouddownload_request(
             payload, 
             "add_task_urls", 
             method=method, 
@@ -6949,7 +6949,7 @@ class P115Client(P115OpenClient):
         """
         if isinstance(payload, int):
             payload = {"flag": payload}
-        return self._clouddownload_request(
+        return self.clouddownload_request(
             payload, 
             "task_clear", 
             method=method, 
@@ -7005,7 +7005,7 @@ class P115Client(P115OpenClient):
         """
         if isinstance(payload, int):
             payload = {"flag": payload}
-        return self._clouddownload_request(
+        return self.clouddownload_request(
             payload, 
             "get_task_cnt", 
             method=method, 
@@ -7053,7 +7053,7 @@ class P115Client(P115OpenClient):
 
         GET https://clouddownload.115.com/?ac=task_count
         """
-        return self._clouddownload_request(
+        return self.clouddownload_request(
             action="task_count", 
             method=method, 
             type=type, 
@@ -7115,7 +7115,7 @@ class P115Client(P115OpenClient):
             payload = {f"hash[{i}]": hash for i, hash in enumerate(payload)}
             if not payload:
                 raise ValueError("no `hash` (info_hash) specified")
-        return self._clouddownload_request(
+        return self.clouddownload_request(
             payload, 
             "task_del", 
             method=method, 
@@ -7174,7 +7174,7 @@ class P115Client(P115OpenClient):
         if isinstance(payload, int):
             payload = {"page": payload}
         payload.setdefault("page_size", 30)
-        return self._clouddownload_request(
+        return self.clouddownload_request(
             payload, 
             "task_lists", 
             method=method, 
@@ -7230,7 +7230,7 @@ class P115Client(P115OpenClient):
         """
         if isinstance(payload, str):
             payload = {"info_hash": payload}
-        return self._clouddownload_request(
+        return self.clouddownload_request(
             payload, 
             "pause_task", 
             method=method, 
@@ -7281,12 +7281,29 @@ class P115Client(P115OpenClient):
 
         POST https://clouddownload.115.com/?ac=restart
 
+        .. tip::
+            经常会遇到批量添加的磁力链接，因为空间不足而失败，此接口可以用于重试
+
+            .. code:: python
+
+                from p115client import P115Client
+                from p115client.tool import *
+                client = P115Client.from_path()
+
+                while True:
+                    resp = client.clouddownload_task_list({"stat": 9})
+                    tasks = [task for task in resp["tasks"] if task["status"] == 2]
+                    if not tasks:
+                        break
+                    for task in tasks:
+                        print(client.clouddownload_task_restart(task["info_hash"]))
+
         :payload:
             - info_hash: str 💡 待重试任务的 info_hash
         """
         if isinstance(payload, str):
             payload = {"info_hash": payload}
-        return self._clouddownload_request(
+        return self.clouddownload_request(
             payload, 
             "restart", 
             method=method, 
@@ -7342,7 +7359,7 @@ class P115Client(P115OpenClient):
         """
         if isinstance(payload, str):
             payload = {"info_hash": payload}
-        return self._clouddownload_request(
+        return self.clouddownload_request(
             payload, 
             "resume_task", 
             method=method, 
@@ -7398,7 +7415,7 @@ class P115Client(P115OpenClient):
         """
         if isinstance(payload, str):
             payload = {"sha1": payload}
-        return self._clouddownload_request(
+        return self.clouddownload_request(
             payload, 
             "torrent", 
             method=method, 
@@ -8087,8 +8104,8 @@ class P115Client(P115OpenClient):
             - page: int = 1 💡 第几页
             - per_page: int = 5000 💡 每页大小，目前最大为 5000
         """
-        if app in ("", "chrome"):
-            api = complete_url("/app/chrome/downfiles", base_url)
+        if app in ("", "web", "desktop", "chrome"):
+            api = complete_url(f"/app/{version}/chrome/downfiles", base_url)
         else:
             if app not in ("windows", "mac", "linux", "os_windows", "os_mac", "os_linux"):
                 app = "os_windows"
@@ -8149,7 +8166,7 @@ class P115Client(P115OpenClient):
             - per_page: int = 5000 💡 每页大小，目前最大为 5000
         """
         if app in ("", "web", "desktop", "chrome"):
-            api = complete_url("/app/chrome/downfolders", base_url)
+            api = complete_url(f"/app/{version}/chrome/downfolders", base_url)
         else:
             if app not in ("windows", "mac", "linux", "os_windows", "os_mac", "os_linux"):
                 app = "os_windows"
@@ -8165,7 +8182,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
-        app: str = "android", 
+        app: str = "chrome", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
         async_: Literal[False] = False, 
@@ -8177,7 +8194,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
-        app: str = "android", 
+        app: str = "chrome", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
         async_: Literal[True], 
@@ -8188,7 +8205,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: str | dict, 
         /, 
-        app: str = "android", 
+        app: str = "chrome", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
@@ -8205,7 +8222,10 @@ class P115Client(P115OpenClient):
             - pickcode: str 💡 提取码
             - share_id: int | str 💡 共享 id
         """
-        api = complete_url("/folder/downfolder", base_url=base_url, app=app)
+        if app in ("", "web", "desktop", "chrome"):
+            api = complete_url(f"/app/chrome/downfolder", base_url)
+        else:
+            api = complete_url("/folder/downfolder", base_url=base_url, app=app)
         if isinstance(payload, str):
             payload = {"pickcode": payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
@@ -10377,9 +10397,6 @@ class P115Client(P115OpenClient):
         .. caution::
             删除和（从回收站）还原是互斥的，同时最多只允许执行一个操作
 
-        .. caution::
-            有超过 5 万个文件和文件夹时，不能直接执行删除。如果删除的只是文件，那么在接口响应时，涉及的文件，已经删除完毕；但如果是目录，那么接口响应时，后台可能还在执行，而删除是不可并发的，因此下一个删除任务执行失败时，只需要反复重试即可
-
         :payload:
             - fid: int | str 💡 文件或目录的 id，多个用逗号 "," 隔开
             - fid[]: int | str
@@ -12435,54 +12452,6 @@ class P115Client(P115OpenClient):
         if isinstance(payload, (int, str)):
             payload = {"cid": payload}
         payload = {"limit": 32, "offset": 0, "aid": 1, "cid": 0, "cur": 1, "type": -1, **payload}
-        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
-
-    @overload
-    def fs_files_property(
-        self, 
-        payload: int | str | dict | Iterable[int | str], 
-        /, 
-        base_url: str | Callable[[], str] = "https://webapi.115.com", 
-        *, 
-        async_: Literal[False] = False, 
-        **request_kwargs, 
-    ) -> dict:
-        ...
-    @overload
-    def fs_files_property(
-        self, 
-        payload: int | str | dict | Iterable[int | str], 
-        /, 
-        base_url: str | Callable[[], str] = "https://webapi.115.com", 
-        *, 
-        async_: Literal[True], 
-        **request_kwargs, 
-    ) -> Coroutine[Any, Any, dict]:
-        ...
-    def fs_files_property(
-        self, 
-        payload: int | str | dict | Iterable[int | str], 
-        /, 
-        base_url: str | Callable[[], str] = "https://webapi.115.com", 
-        *, 
-        async_: Literal[False, True] = False, 
-        **request_kwargs, 
-    ) -> dict | Coroutine[Any, Any, dict]:
-        """获取文件属性
-
-        GET https://webapi.115.com/files/property
-
-        .. danger::
-            这个接口暂不可用
-
-        :payload:
-            - file_ids: int | str 💡 文件或目录 id，多个用逗号 "," 隔开
-        """
-        api = complete_url("/files/property", base_url=base_url)
-        if isinstance(payload, (int, str)):
-            payload = {"file_ids": payload}
-        elif not isinstance(payload, dict):
-            payload = {"file_ids": ",".join(map(str, payload))}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -23727,9 +23696,6 @@ class P115Client(P115OpenClient):
         """回收站：还原
 
         POST https://webapi.115.com/rb/revert
-
-        .. caution::
-            ⚠️ 请不要并发执行，限制在 5 万个文件和目录以内
 
         :payload:
             - rid[0]: int | str

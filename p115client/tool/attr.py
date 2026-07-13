@@ -1684,6 +1684,7 @@ def get_id_to_name(
     size: int = -1, 
     cid: int | str = 0, 
     ensure_file: None | bool = None, 
+    recursive: bool = True, 
     app: str = "web", 
     *, 
     async_: Literal[False] = False, 
@@ -1697,6 +1698,7 @@ def get_id_to_name(
     size: int = -1, 
     cid: int | str = 0, 
     ensure_file: None | bool = None, 
+    recursive: bool = True, 
     app: str = "web", 
     *, 
     async_: Literal[True], 
@@ -1709,6 +1711,7 @@ def get_id_to_name(
     size: int = -1, 
     cid: int | str = 0, 
     ensure_file: None | bool = None, 
+    recursive: bool = True, 
     app: str = "web", 
     *, 
     async_: Literal[False, True] = False, 
@@ -1722,13 +1725,14 @@ def get_id_to_name(
     :param client: 115 客户端或 cookies
     :param name: 文件名
     :param size: 文件大小
-    :param cid: 顶层目录 id
+    :param cid: 顶层目录 id 或 pickcode
     :param ensure_file: 是否确保为文件
 
         - True:  确定是文件
         - False: 确定是目录
         - None:  不确定
 
+    :param recursive: 如果为 False，只搜索直属一级，否则搜索目录树
     :param app: 使用指定 app（设备）的接口
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
@@ -1738,6 +1742,7 @@ def get_id_to_name(
     assert name
     if isinstance(client, (str, PathLike)):
         client = P115Client(client)
+    cid = to_id(cid)
     def gen_step():
         if not isinstance(client, P115Client) or app == "open":
             search: Callable = client.fs_search_open
@@ -1759,7 +1764,7 @@ def get_id_to_name(
             resp = yield search(payload, async_=async_, **request_kwargs)
         check_response(resp)
         for attr in map(normalize_attr, resp["data"]):
-            if attr["name"] == name and (
+            if attr["name"] == name and (recursive or attr["parent_id"] == cid) and (
                 not ensure_file or 
                 size < 0 or 
                 attr["size"] == size

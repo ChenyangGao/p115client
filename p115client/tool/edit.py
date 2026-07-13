@@ -5,11 +5,13 @@ __all__ = [
     "update_abstract", "update_desc", "update_star", "update_label", "update_score", 
     "update_top", "update_show_play_long", "update_category_shortcut", "batch_unstar", 
     "update_name", "post_event", "makedir", "iter_batch_makedir", "batch_makedir", 
-    "batch_copy", "batch_delete", "batch_move", "batch_recyclebin_clean", 
-    "batch_recyclebin_revert", "batch_hide", "copyfile", "renamefile", "transferfile", 
+    "batch_copy", "batch_copy_files", "batch_delete", "batch_delete_files", 
+    "batch_move", "batch_move_files", "batch_recyclebin_clean", "batch_recyclebin_revert", 
+    "batch_hide", "copyfile", "renamefile", "transferfile", 
 ]
 __doc__ = "这个模块提供了一些和修改文件或目录信息有关的函数"
 
+from collections import defaultdict
 from collections.abc import (
     AsyncIterable, AsyncIterator, Callable, Coroutine, Iterable, 
     Iterator, Mapping, MutableMapping, 
@@ -19,10 +21,11 @@ from functools import partial
 from itertools import batched
 from os import PathLike
 from typing import cast, overload, Any, Literal
+from types import EllipsisType
 
 from concurrenttools import conmap
 from iterutils import (
-    chunked, foreach, map as do_map, run_gen_step, as_gen_step, 
+    chunked, collect, foreach, map as do_map, run_gen_step, as_gen_step, 
     through, 
 )
 from p115pickcode import to_id
@@ -1045,7 +1048,7 @@ def batch_makedir(
 
     :param client: 115 客户端或 cookies
     :param pairs: 一系列的 **名字或相对路径** 或者 (**目录的 id 或 pickcode**, **名字或相对路径**) 的 2 元组
-    :param pid: 目录的 id 或 pickcode 或 path，如果输入的是 **名字或相对路径**，则创建在此目录下
+    :param pid: 目标目录的 id 或 pickcode 或 path，如果输入的是 **名字或相对路径**，则创建在此目录下
     :param contain_dir: 如果为 True，则要创建的是相对路径（文件存在也能正确返回），否则就是一个文件（即使其中包含 "/"，但文件存在时会报错）
     :param mapping: 结果缓存，如果要创建的对象在此中，则会被跳过
     :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
@@ -1112,8 +1115,7 @@ def batch_makedir(
 def batch_copy(
     client: str | PathLike | P115Client | P115OpenClient, 
     ids: int | str | Iterable[int | str], 
-    /, 
-    pid: int = 0, 
+    pid: int | str = 0, 
     batch_size: int = 1_000, 
     app: str = "android", 
     *, 
@@ -1125,8 +1127,7 @@ def batch_copy(
 def batch_copy(
     client: str | PathLike | P115Client | P115OpenClient, 
     ids: int | str | Iterable[int | str], 
-    /, 
-    pid: int = 0, 
+    pid: int | str = 0, 
     batch_size: int = 1_000, 
     app: str = "android", 
     *, 
@@ -1137,8 +1138,7 @@ def batch_copy(
 def batch_copy(
     client: str | PathLike | P115Client | P115OpenClient, 
     ids: int | str | Iterable[int | str], 
-    /, 
-    pid: int = 0, 
+    pid: int | str = 0, 
     batch_size: int = 1_000, 
     app: str = "android", 
     *, 
@@ -1152,7 +1152,7 @@ def batch_copy(
 
     :param client: 115 客户端或 cookies
     :param ids: 一组文件或目录的 id 或 pickcode
-    :param pid: 目录的 id 或 pickcode
+    :param pid: 目标目录的 id 或 pickcode
     :param batch_size: 批次大小，分批次，每次提交的 id 数
     :param app: 使用此设备的接口
     :param async_: 是否异步
@@ -1171,12 +1171,139 @@ def batch_copy(
         ids = ids,
     pid = to_id(pid)
     def gen_step():
-        for batch in batched(map(to_id, ids), batch_size):
-            while True:
-                with suppress(P115BusyOSError):
-                    resp = yield fs_copy(batch, pid=pid, async_=async_, **request_kwargs)
-                    check_response(resp)
-                    break
+        if batch_size <= 0:
+            resp = yield fs_copy(map(to_id, ids), pid=pid, async_=async_, **request_kwargs)
+            check_response(resp)
+        else:
+            for batch in batched(map(to_id, ids), batch_size):
+                while True:
+                    with suppress(P115BusyOSError):
+                        resp = yield fs_copy(batch, pid=pid, async_=async_, **request_kwargs)
+                        check_response(resp)
+                        break
+    return run_gen_step(gen_step, async_)
+
+
+# TODO: 还应该支持，当目标存在同名文件时，允许：1) 跳过 2) 替换 3) 共存
+@overload
+def batch_copy_files(
+    client: str | PathLike | P115Client | P115OpenClient, 
+    top: int | str, 
+    pid: int | str = 0, 
+    flatten: bool = False, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = ..., 
+    app: str = "web", 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> dict:
+    ...
+@overload
+def batch_copy_files(
+    client: str | PathLike | P115Client | P115OpenClient, 
+    top: int | str, 
+    pid: int | str = 0, 
+    flatten: bool = False, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = ..., 
+    app: str = "web", 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> Coroutine[Any, Any, dict]:
+    ...
+def batch_copy_files(
+    client: str | PathLike | P115Client | P115OpenClient, 
+    top: int | str, 
+    pid: int | str = 0, 
+    flatten: bool = False, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = ..., 
+    app: str = "web", 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+) -> dict | Coroutine[Any, Any, dict]:
+    """批量复制某个目录下的所有文件（不包括目录）
+
+    :param client: 115 客户端或 cookies
+    :param top: 顶层目录 id
+    :param pid: 目标目录的 id 或 pickcode
+    :param flatten: 如果为 True，则会把文件直接移动到 ``pid`` 之下，否则会创建次级目录
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
+    :param app: 使用此设备的接口
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+
+    :return: 字典，key 是目标目录 id，value 是文件 id 的列表
+    """
+    if isinstance(client, (str, PathLike)):
+        client = P115Client(client)
+    iter_files: Callable
+    if app == "open" or not isinstance(client, P115Client):
+        from .iterdir import iter_files
+    else:
+        if app not in ("", "web", "desktop", "aps"):
+            request_kwargs["app"] = app
+        from .download import iter_download_files as iter_files
+    pid = to_id(pid)
+    def gen_step():
+        cid = to_id(top)
+        if cid == pid:
+            return {}
+        dir_map: defaultdict[int, int] = defaultdict(lambda: pid)
+        if not flatten:
+            from .attr import get_id_to_name
+            from .iterdir import iter_dirs
+            dirs = yield collect(iter_dirs(
+                client, 
+                cid, 
+                id_to_dirnode=id_to_dirnode, 
+                async_=async_, # type: ignore
+                **request_kwargs, 
+            ))
+            for attr in dirs:
+                name = attr["name"]
+                try:
+                    dir_map[attr["id"]] = yield makedir(
+                        client, 
+                        attr["name"], 
+                        pid=dir_map[attr["parent_id"]], 
+                        contain_dir="/" not in name, 
+                        app=app, 
+                        async_=async_, 
+                        **request_kwargs, 
+                    )
+                except FileExistsError:
+                    dir_map[attr["id"]] = yield get_id_to_name(
+                        client, 
+                        name, 
+                        cid=dir_map[attr["parent_id"]], 
+                        ensure_file=False, 
+                        recursive=False, 
+                        app=app, 
+                        async_=async_, 
+                        **request_kwargs, 
+                    )
+        d: defaultdict[int, list[int]] = defaultdict(list)
+        yield foreach(
+            lambda attr: d[attr["parent_id"]].append(attr["id"]), 
+            iter_files(
+                client, 
+                cid, 
+                id_to_dirnode=id_to_dirnode, 
+                max_workers=None, 
+                app=app, 
+                async_=async_, 
+                **request_kwargs, 
+            ), 
+        )
+        result: dict[int, list[int]] = {}
+        for cid, ids in d.items():
+            to_cid = dir_map[cid]
+            if cid == to_cid:
+                continue
+            yield batch_copy(client, ids, pid=to_cid, app=app, async_=async_, **request_kwargs)
+            result[to_cid] = ids
+        return result
     return run_gen_step(gen_step, async_)
 
 
@@ -1184,7 +1311,6 @@ def batch_copy(
 def batch_delete(
     client: str | PathLike | P115Client | P115OpenClient, 
     ids: int | str | Iterable[int | str], 
-    /, 
     batch_size: int = 1_000, 
     app: str = "android", 
     *, 
@@ -1196,7 +1322,6 @@ def batch_delete(
 def batch_delete(
     client: str | PathLike | P115Client | P115OpenClient, 
     ids: int | str | Iterable[int | str], 
-    /, 
     batch_size: int = 1_000, 
     app: str = "android", 
     *, 
@@ -1207,7 +1332,6 @@ def batch_delete(
 def batch_delete(
     client: str | PathLike | P115Client | P115OpenClient, 
     ids: int | str | Iterable[int | str], 
-    /, 
     batch_size: int = 1_000, 
     app: str = "android", 
     *, 
@@ -1248,11 +1372,113 @@ def batch_delete(
 
 
 @overload
+def batch_delete_files(
+    client: str | PathLike | P115Client | P115OpenClient, 
+    top: int | str = 0, 
+    batch_size: int = 1_000, 
+    app: str = "web", 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> int:
+    ...
+@overload
+def batch_delete_files(
+    client: str | PathLike | P115Client | P115OpenClient, 
+    top: int | str = 0, 
+    batch_size: int = 1_000, 
+    app: str = "web", 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> Coroutine[Any, Any, int]:
+    ...
+def batch_delete_files(
+    client: str | PathLike | P115Client | P115OpenClient, 
+    top: int | str = 0, 
+    batch_size: int = 1_000, 
+    app: str = "web", 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+) -> int | Coroutine[Any, Any, int]:
+    """批量删除某个目录下的所有文件（不包括目录）
+
+    :param client: 115 客户端或 cookies
+    :param top: 顶层目录 id
+    :param batch_size: 每批次大小
+    :param app: 使用此设备的接口
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+
+    :return: 删除的文件总数
+    """
+    if isinstance(client, (str, PathLike)):
+        client = P115Client(client)
+    from .fs_files import fs_files
+    def get_ids_by_fs_files(top=top, /):
+        resp = yield fs_files(
+            client, 
+            {"cid": to_id(top), "show_dir": 0, "cur": 0, "limit": batch_size}, 
+            async_=async_, 
+            **request_kwargs, 
+        )
+        return resp["has_next_page"], [a["fid"] for a in resp["data"]]
+    if app == "open" or not isinstance(client, P115Client):
+        fs_delete: Callable = client.fs_delete_open
+        get_ids: Callable = get_ids_by_fs_files
+    else:
+        if app in ("", "web", "desktop", "aps"):
+            fs_delete = client.fs_delete
+        else:
+            fs_delete = client.fs_delete_app
+            request_kwargs["app"] = app
+        def get_ids_by_download_files(top=top, /):
+            resp = yield client.download_files_app(
+                {"pickcode": client.to_pickcode(top), "per_page": batch_size}, 
+                async_=async_, 
+                **request_kwargs, 
+            )
+            check_response(resp)
+            return resp["data"]["has_next_page"], [to_id(a["pc"]) for a in resp["data"]["list"]]
+        if to_id(top):
+            get_ids = get_ids_by_download_files
+        else:
+            dirs: None | list[dict] = None
+            def get_ids():
+                nonlocal dirs
+                if dirs is None:
+                    from .iterdir import iterdir
+                    dirs = yield collect(iterdir(client, async_=async_, ensure_file=False, **request_kwargs))
+                if dirs:
+                    has_next_page, ids = yield from get_ids_by_download_files(dirs[-1]["pickcode"])
+                    if not has_next_page:
+                        dirs.pop()
+                    return True, ids
+                else:
+                    return (yield from get_ids_by_fs_files(0))
+    def gen_step():
+        has_next_page = True
+        total = 0
+        while has_next_page:
+            has_next_page, ids = yield from get_ids()
+            if ids:
+                resp = yield fs_delete(
+                    ids, 
+                    async_=async_, 
+                    **request_kwargs, 
+                )
+                check_response(resp)
+                total += len(ids)
+        return total
+    return run_gen_step(gen_step, async_)
+
+
+@overload
 def batch_move(
     client: str | PathLike | P115Client | P115OpenClient, 
     ids: int | str | Iterable[int | str], 
-    /, 
-    pid: int = 0, 
+    pid: int | str = 0, 
     batch_size: int = 1_000, 
     app: str = "android", 
     *, 
@@ -1264,8 +1490,7 @@ def batch_move(
 def batch_move(
     client: str | PathLike | P115Client | P115OpenClient, 
     ids: int | str | Iterable[int | str], 
-    /, 
-    pid: int = 0, 
+    pid: int | str = 0, 
     batch_size: int = 1_000, 
     app: str = "android", 
     *, 
@@ -1276,8 +1501,7 @@ def batch_move(
 def batch_move(
     client: str | PathLike | P115Client | P115OpenClient, 
     ids: int | str | Iterable[int | str], 
-    /, 
-    pid: int = 0, 
+    pid: int | str = 0, 
     batch_size: int = 1_000, 
     app: str = "android", 
     *, 
@@ -1291,7 +1515,7 @@ def batch_move(
 
     :param client: 115 客户端或 cookies
     :param ids: 一组文件或目录的 id 或 pickcode
-    :param pid: 目录的 id 或 pickcode
+    :param pid: 目标目录的 id 或 pickcode
     :param batch_size: 批次大小，分批次，每次提交的 id 数
     :param app: 使用此设备的接口
     :param async_: 是否异步
@@ -1316,6 +1540,130 @@ def batch_move(
                     resp = yield fs_move(batch, pid=pid, async_=async_, **request_kwargs)
                     check_response(resp)
                     break
+    return run_gen_step(gen_step, async_)
+
+
+# TODO: 当 flatten=True 时，可以像 batch_delete_files 一样进行一些优化，而不必最先获取文件列表
+# TODO: 还应该支持，当目标存在同名文件时，允许：1) 跳过 2) 替换 3) 共存
+@overload
+def batch_move_files(
+    client: str | PathLike | P115Client | P115OpenClient, 
+    top: int | str, 
+    pid: int | str = 0, 
+    flatten: bool = False, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = ..., 
+    app: str = "web", 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> dict:
+    ...
+@overload
+def batch_move_files(
+    client: str | PathLike | P115Client | P115OpenClient, 
+    top: int | str, 
+    pid: int | str = 0, 
+    flatten: bool = False, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = ..., 
+    app: str = "web", 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> Coroutine[Any, Any, dict]:
+    ...
+def batch_move_files(
+    client: str | PathLike | P115Client | P115OpenClient, 
+    top: int | str, 
+    pid: int | str = 0, 
+    flatten: bool = False, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = ..., 
+    app: str = "web", 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+) -> dict | Coroutine[Any, Any, dict]:
+    """批量移动某个目录下的所有文件（不包括目录）
+
+    :param client: 115 客户端或 cookies
+    :param top: 顶层目录 id
+    :param pid: 目标目录的 id 或 pickcode
+    :param flatten: 如果为 True，则会把文件直接移动到 ``pid`` 之下，否则会创建次级目录
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
+    :param app: 使用此设备的接口
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+
+    :return: 字典，key 是目标目录 id，value 是文件 id 的列表
+    """
+    if isinstance(client, (str, PathLike)):
+        client = P115Client(client)
+    iter_files: Callable
+    if app == "open" or not isinstance(client, P115Client):
+        from .iterdir import iter_files
+    else:
+        if app not in ("", "web", "desktop", "aps"):
+            request_kwargs["app"] = app
+        from .download import iter_download_files as iter_files
+    pid = to_id(pid)
+    def gen_step():
+        cid = to_id(top)
+        if cid == pid:
+            return {}
+        dir_map: defaultdict[int, int] = defaultdict(lambda: pid)
+        if not flatten:
+            from .attr import get_id_to_name
+            from .iterdir import iter_dirs
+            dirs = yield collect(iter_dirs(
+                client, 
+                cid, 
+                id_to_dirnode=id_to_dirnode, 
+                async_=async_, # type: ignore
+                **request_kwargs, 
+            ))
+            for attr in dirs:
+                name = attr["name"]
+                try:
+                    dir_map[attr["id"]] = yield makedir(
+                        client, 
+                        attr["name"], 
+                        pid=dir_map[attr["parent_id"]], 
+                        contain_dir="/" not in name, 
+                        app=app, 
+                        async_=async_, 
+                        **request_kwargs, 
+                    )
+                except FileExistsError:
+                    dir_map[attr["id"]] = yield get_id_to_name(
+                        client, 
+                        name, 
+                        cid=dir_map[attr["parent_id"]], 
+                        ensure_file=False, 
+                        recursive=False, 
+                        app=app, 
+                        async_=async_, 
+                        **request_kwargs, 
+                    )
+        d: defaultdict[int, list[int]] = defaultdict(list)
+        yield foreach(
+            lambda attr: d[attr["parent_id"]].append(attr["id"]), 
+            iter_files(
+                client, 
+                cid, 
+                id_to_dirnode=id_to_dirnode, 
+                max_workers=None, 
+                app=app, 
+                async_=async_, 
+                **request_kwargs, 
+            ), 
+        )
+        result: dict[int, list[int]] = {}
+        for cid, ids in d.items():
+            to_cid = dir_map[cid]
+            if cid == to_cid:
+                continue
+            yield batch_move(client, ids, pid=to_cid, app=app, async_=async_, **request_kwargs)
+            result[to_cid] = ids
+        return result
     return run_gen_step(gen_step, async_)
 
 
@@ -1465,7 +1813,6 @@ def batch_recyclebin_revert(
 def batch_hide(
     client: str | PathLike | P115Client, 
     ids: int | str | Iterable[int | str], 
-    /, 
     hidden: bool = True, 
     batch_size: int = 10_000, 
     app: str = "web", 
@@ -1478,7 +1825,6 @@ def batch_hide(
 def batch_hide(
     client: str | PathLike | P115Client, 
     ids: int | str | Iterable[int | str], 
-    /, 
     hidden: bool = True, 
     batch_size: int = 10_000, 
     app: str = "web", 
@@ -1490,7 +1836,6 @@ def batch_hide(
 def batch_hide(
     client: str | PathLike | P115Client, 
     ids: int | str | Iterable[int | str], 
-    /, 
     hidden: bool = True, 
     batch_size: int = 10_000, 
     app: str = "web", 
@@ -1893,6 +2238,6 @@ def transferfile(
         ))
     return run_gen_step(gen_step, async_)
 
+# TODO: 增加 batch_revert 方法
 # TODO: 对于移动、删除、还原，一次之后，再罗列就可以不包括被操作过的，因此可以优化
-# TODO: 对于批量复制和删除，为了避免 > 5万 后不能操作的尴尬，可以罗列出所有文件 id，批量处理
-# TODO: 修改封面、设置共享
+# TODO: 增加批量修改封面、设置共享等
