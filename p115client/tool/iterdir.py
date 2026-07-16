@@ -8,18 +8,18 @@ __all__ = [
     "iter_files_frament", "traverse_tree", "traverse_tree_with_path", "iter_nodes", 
     "iter_nodes_skim", "iter_nodes_by_pickcode", "iter_nodes_using_update", 
     "iter_nodes_using_info", "iter_nodes_using_event",  "iter_dir_nodes_using_star", 
-    "iter_parents", "iter_dupfiles", "iter_dupfile_ids", "iter_dupfile_unique_keys", 
-    "get_dupfile_unique_keys", "iter_media_files", "search_iter", "share_iterdir", 
-    "share_iterdir_traverse", "share_iterdir_walk", "share_iter_files", "share_search_iter", 
-    "extract_iterdir", "extract_iterdir_traverse", "extract_iterdir_walk", "extract_iter_files", 
-    "iter_id_to_dirnode", 
+    "iter_parents", "iter_keyed_files", "iter_keyed_dupfiles", "iter_keyed_ids", 
+    "iter_keyed_dupfile_ids", "iter_unique_keys", 
+    "iter_media_files", "search_iter", "share_iterdir", "share_iterdir_traverse", 
+    "share_iterdir_walk", "share_iter_files", "share_search_iter", "extract_iterdir", 
+    "extract_iterdir_traverse", "extract_iterdir_walk", "extract_iter_files", "iter_id_to_dirnode", 
 ]
 __doc__ = "这个模块提供了一些和目录信息罗列有关的函数"
 
 from asyncio import create_task, sleep as async_sleep, Task
 from collections.abc import (
-    AsyncIterable, AsyncIterator, Callable, Coroutine, Generator, 
-    Iterable, Iterator, Mapping, MutableMapping, Sequence, 
+    AsyncIterable, AsyncIterator, Callable, Generator, Iterable, 
+    Iterator, Mapping, MutableMapping, MutableSet, Sequence, 
 )
 from contextlib import contextmanager
 from concurrent.futures import Future
@@ -34,7 +34,7 @@ from types import EllipsisType
 from typing import cast, overload, Any, Literal
 from warnings import warn
 
-from asynctools import to_list
+from asynctools import async_collect
 from concurrenttools import run_as_thread, conmap
 from dicttools import get_first
 from errno2 import errno
@@ -43,14 +43,13 @@ from iterdir import iterdir_generic, walk_generic
 from iterutils import (
     bfs_gen, chunked, chain, chain_from_iterable, collect, foreach, 
     run_gen_step, run_gen_step_iter, through, with_iter_next, 
-    map as do_map, filter as do_filter, Yield, YieldFrom, 
+    map as do_map, filter as do_filter, iter_unique, Yield, YieldFrom, 
 )
 from iter_collect import iter_keyed_dups, SupportsLT
-from orjson import loads
 from p115pickcode import pickcode_to_id, to_id
 from posixpatht import splitext
 
-from ..client import check_response, P115Client, P115OpenClient
+from ..client import check_response, json_maybe_decrypt_loads, P115Client, P115OpenClient
 from ..const import ID_TO_DIRNODE_CACHE
 from ..exception import throw, P115Warning, P115FileNotFoundError
 from ..type import DirNode
@@ -571,7 +570,7 @@ def ensure_attr_path_using_star_event[D: dict](
         elif isinstance(attrs, Sequence):
             cache = attrs
         elif isinstance(attrs, AsyncIterable):
-            cache = yield to_list(attrs)
+            cache = yield async_collect(attrs)
         else:
             cache = list(attrs)
         if cache:
@@ -669,6 +668,33 @@ def _iter_fs_files(
     **request_kwargs, 
 ) -> Iterator[dict] | AsyncIterator[dict]:
     """迭代目录，获取文件信息
+
+    .. tip::
+        当 ``app="web"`` 时，还可以获取其它 ``aid`` 的文件列表，例如，你可以用下面的代码获取所有已经被永久删除且不超过 200 MB 的文件信息
+
+        .. code:: python
+
+            from p115client import P115Client
+            from p115client.tool.iterdir import _iter_fs_files
+            client = P115Client.from_path()
+
+            # NOTE: 你还可以指定 suffix 或 type，做进一步筛选
+            files = list(_iter_fs_files(
+                client, 
+                {"aid": 120, "show_dir": 0, "max_size": 1024*1024*200}, 
+                max_workers=None， 
+            ))
+
+        更进一步的，你还可以获取已经被删除的所有文件和一级目录，这些文件可以随时用于恢复（如果你知道怎么做的话）
+
+        .. code:: python
+
+            from p115client import P115Client
+            from p115client.tool.iterdir import _iter_fs_files
+            client = P115Client.from_path()
+
+            folders = list(_iter_fs_files(client, {"aid": 120, "nf": 1}, max_workers=None))
+            files = list(_iter_fs_files(client, {"aid": 120, "show_dir": 0}, max_workers=None, cooldown=0.1))
 
     :param client: 115 客户端或 cookies
     :param payload: 请求参数（字典）或 id 或 pickcode
@@ -796,8 +822,12 @@ def iterdir(
     page_size: int = 0, 
     first_page_size: int = 0, 
     start: int = 0, 
+    suffix: str = "", 
+    type: Literal[1, 2, 3, 4, 5, 6, 7, 99] = 99, 
     order: Literal["file_name", "file_size", "file_type", "user_utime", "user_ptime", "user_otime"] = "user_ptime", 
     asc: Literal[0, 1] = 1, 
+    min_size: int = 0, 
+    max_size: int = 0, 
     show_dir: Literal[0, 1] = 1, 
     fc_mix: Literal[0, 1] = 1, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
@@ -822,8 +852,12 @@ def iterdir(
     page_size: int = 0, 
     first_page_size: int = 0, 
     start: int = 0, 
+    suffix: str = "", 
+    type: Literal[1, 2, 3, 4, 5, 6, 7, 99] = 99, 
     order: Literal["file_name", "file_size", "file_type", "user_utime", "user_ptime", "user_otime"] = "user_ptime", 
     asc: Literal[0, 1] = 1, 
+    min_size: int = 0, 
+    max_size: int = 0, 
     show_dir: Literal[0, 1] = 1, 
     fc_mix: Literal[0, 1] = 1, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
@@ -847,8 +881,12 @@ def iterdir(
     page_size: int = 0, 
     first_page_size: int = 0, 
     start: int = 0, 
+    suffix: str = "", 
+    type: Literal[1, 2, 3, 4, 5, 6, 7, 99] = 99, 
     order: Literal["file_name", "file_size", "file_type", "user_utime", "user_ptime", "user_otime"] = "user_ptime", 
     asc: Literal[0, 1] = 1, 
+    min_size: int = 0, 
+    max_size: int = 0, 
     show_dir: Literal[0, 1] = 1, 
     fc_mix: Literal[0, 1] = 1, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
@@ -872,6 +910,18 @@ def iterdir(
     :param page_size: 分页大小
     :param first_page_size: 首次拉取的分页大小，如果 <= 0，则和 `page_size` 相同
     :param start: 开始索引，从 0 开始
+    :param suffix: 后缀名（优先级高于 type）
+    :param type: 文件类型
+
+        - 1: 文档
+        - 2: 图片
+        - 3: 音频
+        - 4: 视频
+        - 5: 压缩包
+        - 6: 应用
+        - 7: 书籍
+        - 99: 所有文件
+
     :param order: 排序
 
         - "file_name": 文件名
@@ -882,6 +932,8 @@ def iterdir(
         - "user_otime": 上一次打开时间
 
     :param asc: 升序排列。0: 否，1: 是
+    :param min_size: 最小的文件大小
+    :param max_size: 最大的文件大小（含），0 表示不限
     :param show_dir: 展示文件夹。0: 否，1: 是
     :param fc_mix: 文件夹置顶。0: 文件夹在文件之前，1: 文件和文件夹混合并按指定排序
     :param normalize_attr: 把数据进行转换处理，使之便于阅读
@@ -909,13 +961,20 @@ def iterdir(
 
     :return: 迭代器，返回此目录内的文件信息（文件和目录）
     """
+    if use_media_api:
+        if suffix:
+            raise ValueError("media api does not support filtering by suffix")
+        if min_size or max_size:
+            raise ValueError("media api does not support filtering by size")
     if isinstance(cid, Mapping):
         cid = cast(int | str, get_first(cid, "id", "pickcode"))
     return _iter_fs_files(
         client, 
         payload={
             "asc": asc, "cid": to_id(cid), "cur": 1, "count_folders": 1, 
-            "fc_mix": fc_mix, "show_dir": show_dir, "o": order, "offset": start, 
+            "fc_mix": fc_mix, "min_size": min_size, "max_size": max_size, 
+            "o": order, "offset": start, "show_dir": show_dir, 
+            "suffix": suffix, "type": type, 
         }, 
         page_size=page_size, 
         first_page_size=first_page_size, 
@@ -1449,6 +1508,8 @@ def iter_files(
     order: Literal["file_name", "file_size", "file_type", "user_utime", "user_ptime", "user_otime"] = "user_ptime", 
     asc: Literal[0, 1] = 1, 
     cur: Literal[0, 1] = 0, 
+    min_size: int = 0, 
+    max_size: int = 0, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     use_media_api: bool = False, 
@@ -1472,6 +1533,8 @@ def iter_files(
     order: Literal["file_name", "file_size", "file_type", "user_utime", "user_ptime", "user_otime"] = "user_ptime", 
     asc: Literal[0, 1] = 1, 
     cur: Literal[0, 1] = 0, 
+    min_size: int = 0, 
+    max_size: int = 0, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     use_media_api: bool = False, 
@@ -1494,6 +1557,8 @@ def iter_files(
     order: Literal["file_name", "file_size", "file_type", "user_utime", "user_ptime", "user_otime"] = "user_ptime", 
     asc: Literal[0, 1] = 1, 
     cur: Literal[0, 1] = 0, 
+    min_size: int = 0, 
+    max_size: int = 0, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     use_media_api: bool = False, 
@@ -1533,6 +1598,8 @@ def iter_files(
         - "user_otime": 上一次打开时间
 
     :param asc: 升序排列。0: 否，1: 是
+    :param min_size: 最小的文件大小
+    :param max_size: 最大的文件大小（含），0 表示不限
     :param cur: 仅当前目录。0: 否（将遍历子目录树上所有叶子节点），1: 是
     :param normalize_attr: 把数据进行转换处理，使之便于阅读
     :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
@@ -1545,6 +1612,11 @@ def iter_files(
 
     :return: 迭代器，返回此目录内的（所有文件）文件信息
     """
+    if use_media_api:
+        if suffix:
+            raise ValueError("media api does not support filtering by suffix")
+        if min_size or max_size:
+            raise ValueError("media api does not support filtering by size")
     if isinstance(cid, Mapping):
         cid = cast(int | str, get_first(cid, "id", "pickcode"))
     suffix = suffix.strip(".")
@@ -1552,7 +1624,8 @@ def iter_files(
         raise ValueError("please set the non-zero value of suffix or type")
     payload: dict = {
         "asc": asc, "cid": to_id(cid), "count_folders": 0, "cur": cur, 
-        "o": order, "offset": 0, "show_dir": 0, 
+        "max_size": max_size, "min_size": min_size, "o": order, 
+        "offset": 0, "show_dir": 0, 
     }
     if suffix:
         payload["suffix"] = suffix
@@ -1586,6 +1659,8 @@ def iter_files_with_path(
     order: Literal["file_name", "file_size", "file_type", "user_utime", "user_ptime", "user_otime"] = "user_ptime", 
     asc: Literal[0, 1] = 1, 
     cur: Literal[0, 1] = 0, 
+    min_size: int = 0, 
+    max_size: int = 0, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
     escape: None | bool | Callable[[str], str] = True, 
     with_ancestors: bool = False, 
@@ -1612,6 +1687,8 @@ def iter_files_with_path(
     order: Literal["file_name", "file_size", "file_type", "user_utime", "user_ptime", "user_otime"] = "user_ptime", 
     asc: Literal[0, 1] = 1, 
     cur: Literal[0, 1] = 0, 
+    min_size: int = 0, 
+    max_size: int = 0, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
     escape: None | bool | Callable[[str], str] = True, 
     with_ancestors: bool = False, 
@@ -1637,6 +1714,8 @@ def iter_files_with_path(
     order: Literal["file_name", "file_size", "file_type", "user_utime", "user_ptime", "user_otime"] = "user_ptime", 
     asc: Literal[0, 1] = 1, 
     cur: Literal[0, 1] = 0, 
+    min_size: int = 0, 
+    max_size: int = 0, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
     escape: None | bool | Callable[[str], str] = True, 
     with_ancestors: bool = False, 
@@ -1679,6 +1758,8 @@ def iter_files_with_path(
         - "user_otime": 上一次打开时间
 
     :param asc: 升序排列。0: 否，1: 是
+    :param min_size: 最小的文件大小
+    :param max_size: 最大的文件大小（含），0 表示不限
     :param cur: 仅当前目录。0: 否（将遍历子目录树上所有叶子节点），1: 是
     :param normalize_attr: 把数据进行转换处理，使之便于阅读
     :param escape: 对文件名进行转义
@@ -1743,6 +1824,8 @@ def iter_files_with_path(
             type=type, 
             order=order, 
             asc=asc, 
+            min_size=min_size, 
+            max_size=max_size, 
             cur=cur, 
             normalize_attr=normalize_attr, 
             id_to_dirnode=id_to_dirnode, 
@@ -1788,6 +1871,8 @@ def iter_files_with_path(
                     lambda a: fetch_dirs(a["pickcode"]), 
                     iterdir(
                         client, 
+                        min_size=min_size, 
+                        max_size=max_size, 
                         ensure_file=False, 
                         id_to_dirnode=id_to_dirnode, 
                         app=app, 
@@ -1822,6 +1907,8 @@ def iter_files_with_path(
                 type=type, 
                 order=order, 
                 asc=asc, 
+                min_size=min_size, 
+                max_size=max_size, 
                 cur=cur, 
                 normalize_attr=normalize_attr, 
                 id_to_dirnode=id_to_dirnode, 
@@ -2881,7 +2968,7 @@ def iter_nodes_using_info(
             partial(client.fs_category_get_app, base_url="https://proapi.115.com", app=app), 
         )).__next__
     def parse(_, content: bytes):
-        resp = loads(content)
+        resp = json_maybe_decrypt_loads(content)
         if app == "open":
             check_response(resp)
             resp = resp["data"]
@@ -3251,7 +3338,7 @@ def iter_parents(
             ))
         ret = conmap(call, (2, 3), max_workers=2, async_=async_)
         if async_:
-            ret = yield to_list(ret)
+            ret = yield async_collect(ret)
         resp2, resp3 = cast(Iterable, ret)
         l2 = [d["file_name"] for d in resp2["data"]]
         l3 = (d["file_name"] for d in resp3["data"])
@@ -3265,7 +3352,81 @@ def iter_parents(
 
 
 @overload
-def iter_dupfiles[K](
+def iter_keyed_files[K](
+    client: str | PathLike | P115Client, 
+    cid: int | str | Mapping = 0, 
+    key: Callable[[dict], K] = itemgetter("sha1", "size"), 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
+    max_workers: None | int = None, 
+    is_skim: bool = True, 
+    with_path: bool = False, 
+    app: str = "android", 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> Iterator[tuple[K, dict]]:
+    ...
+@overload
+def iter_keyed_files[K](
+    client: str | PathLike | P115Client, 
+    cid: int | str | Mapping = 0, 
+    key: Callable[[dict], K] = itemgetter("sha1", "size"), 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
+    max_workers: None | int = None, 
+    is_skim: bool = True, 
+    with_path: bool = False, 
+    app: str = "android", 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> AsyncIterator[tuple[K, dict]]:
+    ...
+def iter_keyed_files[K](
+    client: str | PathLike | P115Client, 
+    cid: int | str | Mapping = 0, 
+    key: Callable[[dict], K] = itemgetter("sha1", "size"), 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
+    max_workers: None | int = None, 
+    is_skim: bool = True, 
+    with_path: bool = False, 
+    app: str = "android", 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+) -> Iterator[tuple[K, dict]] | AsyncIterator[tuple[K, dict]]:
+    """遍历以迭代获得所有文件信息
+
+    :param client: 115 客户端或 cookies
+    :param cid: 待被遍历的目录 id 或 pickcode
+    :param key: 函数，用来给文件分组，当多个文件被分配到同一组时，它们相互之间是重复文件关系
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
+    :param max_workers: 最大并发数，如果为 None 或 < 0 则自动确定，如果为 0 则单工作者惰性执行
+    :param is_skim: 是否拉取简要信息
+    :param with_path: 是否需要 "path" 和 "ancestors" 字段
+    :param app: 使用指定 app（设备）的接口
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+
+    :return: 迭代器，返回 key 和 文件信息 的元组
+    """
+    return do_map(
+        lambda attr, /: (key(attr), attr), 
+        iter_files_shortcut(
+            client, 
+            cid, 
+            id_to_dirnode=id_to_dirnode, 
+            max_workers=max_workers, 
+            is_skim=is_skim, 
+            with_path=with_path, 
+            app=app, 
+            async_=async_, # type: ignore
+            **request_kwargs, 
+        ), 
+    )
+
+
+@overload
+def iter_keyed_dupfiles[K](
     client: str | PathLike | P115Client, 
     cid: int | str | Mapping = 0, 
     key: Callable[[dict], K] = itemgetter("sha1", "size"), 
@@ -3281,7 +3442,7 @@ def iter_dupfiles[K](
 ) -> Iterator[tuple[K, dict]]:
     ...
 @overload
-def iter_dupfiles[K](
+def iter_keyed_dupfiles[K](
     client: str | PathLike | P115Client, 
     cid: int | str | Mapping = 0, 
     key: Callable[[dict], K] = itemgetter("sha1", "size"), 
@@ -3296,7 +3457,7 @@ def iter_dupfiles[K](
     **request_kwargs, 
 ) -> AsyncIterator[tuple[K, dict]]:
     ...
-def iter_dupfiles[K](
+def iter_keyed_dupfiles[K](
     client: str | PathLike | P115Client, 
     cid: int | str | Mapping = 0, 
     key: Callable[[dict], K] = itemgetter("sha1", "size"), 
@@ -3318,9 +3479,9 @@ def iter_dupfiles[K](
     :param keep_first: 保留某个重复文件不输出，除此以外的重复文件都输出
 
         - 如果为 None，则输出所有重复文件（不作保留）
-        - 如果是 Callable，则保留值最小的那个文件
         - 如果为 True，则保留最早入组的那个文件
         - 如果为 False，则保留最晚入组的那个文件
+        - 如果是 Callable，则会对文件信息进行计算，保留值最小的那个文件
 
     :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
     :param max_workers: 最大并发数，如果为 None 或 < 0 则自动确定，如果为 0 则单工作者惰性执行
@@ -3349,40 +3510,58 @@ def iter_dupfiles[K](
     )
 
 
-# TODO: 优化，用一个 iter_collect 函数实现
 @overload
-def iter_dupfile_ids(
+def iter_keyed_ids[K](
     client: str | PathLike | P115Client, 
     cid: int | str | Mapping = 0, 
     max_workers: None | int = None, 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
-) -> Iterator[int]:
+) -> Iterator[tuple[K, int]]:
     ...
 @overload
-def iter_dupfile_ids(
+def iter_keyed_ids[K](
     client: str | PathLike | P115Client, 
     cid: int | str | Mapping = 0, 
     max_workers: None | int = None, 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
-) -> AsyncIterator[int]:
+) -> AsyncIterator[tuple[K, int]]:
     ...
-def iter_dupfile_ids(
+def iter_keyed_ids[K](
     client: str | PathLike | P115Client, 
     cid: int | str | Mapping = 0, 
     max_workers: None | int = None, 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
-) -> Iterator[int] | AsyncIterator[int]:
-    """获取重复文件的 id
+) -> Iterator[tuple[K, int]] | AsyncIterator[tuple[K, int]]:
+    """遍历以迭代获得所有文件的 id
 
-    .. tip::
-        会把从第 2 次开始遇到的所有重复文件 id 全部输出，因此只要你把输出的 id 所对应的文件全部删除，就可以完成实际的去重。
-        假如你需要更精确地确定重复文件中哪一个应该保留，请用 ``iter_dupfiles()`` 函数。
+    .. note::
+        直接用 ("sha1", "size") 作为 key，不支持自己指定，如若不然，请用 ``iter_keyed_dupfiles``
+
+    .. note::
+        可以作为一个依据，用来找寻其它目录中，已经在此目录中的重复文件
+
+        .. code:: python
+
+            from p115client import P115Client
+            from p115client.tool import *
+            client = P115Client.from_path()
+
+            # NOTE: cid1 是作为基准的目录 id，其它目录中是否有重复文件以此为准
+            cid1 = ...
+            seen = {key for key, _ in iter_keyed_ids(client, cid1)}
+            # NOTE: cid2 是目标 id，用来找寻重复文件
+            cid2 = ...
+            n = 0
+            for key, file_id in iter_keyed_ids(client, cid2):
+                if key in seen:
+                    n += 1
+                    print(f"[{n}] 发现重复文件: {key=!r}, {file_id=!r}")
 
     :param client: 115 客户端或 cookies
     :param cid: 待被遍历的目录 id 或 pickcode
@@ -3390,14 +3569,13 @@ def iter_dupfile_ids(
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
 
-    :return: 迭代器，返回一组 id
+    :return: 迭代器，返回 key 和 文件 id 的元组
     """
     from .download import iter_download_nodes
     request_kwargs["app"] = "os_windows"
-    def gen_step():
-        seen: set[tuple[str, int]] = set()
-        add = seen.add
-        with with_iter_next(iter_download_nodes(
+    return do_map(
+        lambda info, /: ((info["sha1"], info["fs"]), to_id(info["pc"])), 
+        iter_download_nodes(
             client, 
             cid, 
             files=True, 
@@ -3405,42 +3583,107 @@ def iter_dupfile_ids(
             max_workers=max_workers, 
             async_=async_, 
             **request_kwargs, 
-        )) as get_next:
-            while True:
-                info = yield get_next()
-                key = (info["sha1"], info["fs"])
-                if key in seen:
-                    yield Yield(to_id(info["pc"]))
-                else:
-                    add(key)
-    return run_gen_step_iter(gen_step, async_)
+        ), 
+    )
 
 
-# TODO iter_collect 增加函数 iter_dup_keys，只用于罗列重复的 key，这样便可简化 iter_dupfile_unique_keys
 @overload
-def iter_dupfile_unique_keys(
+def iter_keyed_dupfile_ids[K](
+    client: str | PathLike | P115Client, 
+    cid: int | str | Mapping = 0, 
+    keep_first: None | bool = None, 
+    max_workers: None | int = None, 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> Iterator[tuple[K, int]]:
+    ...
+@overload
+def iter_keyed_dupfile_ids[K](
+    client: str | PathLike | P115Client, 
+    cid: int | str | Mapping = 0, 
+    keep_first: None | bool = None, 
+    max_workers: None | int = None, 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> AsyncIterator[tuple[K, int]]:
+    ...
+def iter_keyed_dupfile_ids[K](
+    client: str | PathLike | P115Client, 
+    cid: int | str | Mapping = 0, 
+    keep_first: None | bool = None, 
+    max_workers: None | int = None, 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+) -> Iterator[tuple[K, int]] | AsyncIterator[tuple[K, int]]:
+    """遍历以迭代获得所有重复文件的 id
+
+    .. note::
+        直接用 ("sha1", "size") 作为 key，不支持自己指定，如若不然，请用 ``iter_keyed_dupfiles``
+
+    :param client: 115 客户端或 cookies
+    :param cid: 待被遍历的目录 id 或 pickcode
+    :param keep_first: 保留某个重复文件不输出，除此以外的重复文件都输出
+
+        - 如果为 None，则输出所有重复文件（不作保留）
+        - 如果为 True，则保留最早入组的那个文件
+        - 如果为 False，则保留最晚入组的那个文件
+
+    :param max_workers: 最大并发数，如果为 None 或 < 0 则自动确定，如果为 0 则单工作者惰性执行
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+
+    :return: 迭代器，返回 key 和 重复文件 id 的元组
+    """
+    from .download import iter_download_nodes
+    request_kwargs["app"] = "os_windows"
+    return do_map(
+        lambda pair, /: (pair[0], to_id(pair[1]["pc"])), 
+        iter_keyed_dups(
+            iter_download_nodes(
+                client, 
+                cid, 
+                files=True, 
+                get_raw=True, 
+                max_workers=max_workers, 
+                async_=async_, 
+                **request_kwargs, 
+            ), 
+            key=itemgetter("sha1", "fs"), 
+            keep_first=keep_first, 
+        )
+    )
+
+
+@overload
+def iter_unique_keys(
     client: str | PathLike | P115Client, 
     cid: int | str | Mapping = 0, 
     max_workers: None | int = None, 
+    seen: None | MutableSet[tuple[str, int]] = None, 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
 ) -> Iterable[tuple[str, int]]:
     ...
 @overload
-def iter_dupfile_unique_keys(
+def iter_unique_keys(
     client: str | PathLike | P115Client, 
     cid: int | str | Mapping = 0, 
     max_workers: None | int = None, 
+    seen: None | MutableSet[tuple[str, int]] = None, 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
 ) -> AsyncIterable[tuple[str, int]]:
     ...
-def iter_dupfile_unique_keys(
+def iter_unique_keys(
     client: str | PathLike | P115Client, 
     cid: int | str | Mapping = 0, 
     max_workers: None | int = None, 
+    seen: None | MutableSet[tuple[str, int]] = None, 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -3457,81 +3700,21 @@ def iter_dupfile_unique_keys(
     """
     from .download import iter_download_nodes
     request_kwargs["app"] = "os_windows"
-    def gen_step():
-        seen: set[tuple[str, int]] = set()
-        add = seen.add
-        with with_iter_next(iter_download_nodes(
-            client, 
-            cid, 
-            files=True, 
-            get_raw=True, 
-            max_workers=max_workers, 
-            async_=async_, 
-            **request_kwargs, 
-        )) as get_next:
-            while True:
-                info = yield get_next()
-                key = (info["sha1"], info["fs"])
-                if key not in seen:
-                    yield Yield(key)
-                    add(key)
-    return run_gen_step_iter(gen_step, async_)
-
-
-@overload
-def get_dupfile_unique_keys(
-    client: str | PathLike | P115Client, 
-    cid: int | str | Mapping = 0, 
-    max_workers: None | int = None, 
-    *, 
-    async_: Literal[False] = False, 
-    **request_kwargs, 
-) -> set[tuple[str, int]]:
-    ...
-@overload
-def get_dupfile_unique_keys(
-    client: str | PathLike | P115Client, 
-    cid: int | str | Mapping = 0, 
-    max_workers: None | int = None, 
-    *, 
-    async_: Literal[True], 
-    **request_kwargs, 
-) -> Coroutine[Any, Any, set[tuple[str, int]]]:
-    ...
-def get_dupfile_unique_keys(
-    client: str | PathLike | P115Client, 
-    cid: int | str | Mapping = 0, 
-    max_workers: None | int = None, 
-    *, 
-    async_: Literal[False, True] = False, 
-    **request_kwargs, 
-) -> set[tuple[str, int]] | Coroutine[Any, Any, set[tuple[str, int]]]:
-    """获取某个目录中，所有不重复的 (sha1, size) 集合
-
-    :param client: 115 客户端或 cookies
-    :param cid: 待被遍历的目录 id 或 pickcode
-    :param max_workers: 最大并发数，如果为 None 或 < 0 则自动确定，如果为 0 则单工作者惰性执行
-    :param async_: 是否异步
-    :param request_kwargs: 其它请求参数
-
-    :return: (sha1, size) 的集合
-    """
-    from .download import iter_download_nodes
-    request_kwargs["app"] = "os_windows"
-    it = iter_download_nodes(
-        client, 
-        cid, 
-        files=True, 
-        get_raw=True, 
-        max_workers=max_workers, 
-        async_=async_, 
-        **request_kwargs, 
+    return iter_unique(
+        do_map(
+            itemgetter("sha1", "fs"), 
+            iter_download_nodes(
+                client, 
+                cid, 
+                files=True, 
+                get_raw=True, 
+                max_workers=max_workers, 
+                async_=async_, 
+                **request_kwargs, 
+            ), 
+        ), 
+        seen=seen, 
     )
-    if async_:
-        async def get():
-            return {(a["sha1"], a["fs"]) async for a in cast(AsyncIterable, it)}
-        return get()
-    return {(a["sha1"], a["fs"]) for a in cast(Iterable, it)}
 
 
 @overload
@@ -4254,27 +4437,8 @@ def share_iter_files(
             payload["receive_code"] = resp["data"]["receive_code"]
         if id_to_dirnode is None:
             id_to_dirnode = ID_TO_DIRNODE_CACHE[payload["share_code"]]
-        def load_cid(cid: int, /):
+        def load_cid_snap_first(cid, /):
             payload["cid"] = cid
-            resp = yield share_downlist(
-                payload, 
-                async_=async_, 
-                **request_kwargs, 
-            )
-            check_response(resp)
-            for info in resp["data"]["list"]:
-                fid, hash = info["fid"].split("_", 1)
-                attr = {"id": int(fid), "hash": hash}
-                if "fn" in info:
-                    attr["size"] = int(info["si"])
-                    attr["name"] = info["fn"]
-                    attr["path"] = f"/{info['pt']}/{info['fn']}"
-                else:
-                    attr["dir"] = "/" + info["pt"]
-                yield Yield(attr)
-        if cid:
-            yield from load_cid(cid)
-        else:
             with with_iter_next(share_iterdir(
                 client, 
                 **payload, 
@@ -4290,6 +4454,33 @@ def share_iter_files(
                     else:
                         attr["path"] = "/" + attr["name"]
                         yield Yield(attr)
+        def load_cid(cid: int, /):
+            payload["cid"] = cid
+            resp = yield share_downlist(
+                payload, 
+                async_=async_, 
+                **request_kwargs, 
+            )
+            if resp.get("errno") == 4100030:
+                yield from load_cid_snap_first(cid)
+            else:
+                check_response(resp)
+                for info in resp["data"]["list"]:
+                    fid, _, hash = info["fid"].partition("_")
+                    attr: dict = {"id": int(fid)}
+                    if hash:
+                        attr["hash"] = hash
+                    if "fn" in info:
+                        attr["size"] = int(info["si"])
+                        attr["name"] = info["fn"]
+                        attr["path"] = f"/{info['pt']}/{info['fn']}"
+                    else:
+                        attr["dir"] = "/" + info["pt"]
+                    yield Yield(attr)
+        if cid:
+            yield from load_cid(cid)
+        else:
+            yield from load_cid_snap_first(cid)
     return run_gen_step_iter(gen_step, async_)
 
 

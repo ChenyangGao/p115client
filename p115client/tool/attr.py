@@ -102,16 +102,26 @@ def normalize_attr_web[D: dict[str, Any]](
     attr: dict[str, Any] = dict_cls()
     if default:
         attr.update(default)
-    is_dir = attr["is_dir"] = "fid" not in info
+    if "fc" in info:
+        is_dir = int(info["fc"]) == 0
+    elif "sha" in info:
+        is_dir = bool(info["sha"])
+    elif "sha1" in info:
+        is_dir = bool(info["sha1"])
+    elif "cid" in info:
+        is_dir = "fid" not in info
+    else:
+        is_dir = not ("s" in info or "fs" in info)
+    attr["is_dir"] = is_dir
     if is_dir:
         attr["id"] = int(info["cid"])        # category_id
         attr["parent_id"] = int(info["pid"]) # parent_id
     else:
         attr["id"] = int(info["fid"])        # file_id
         attr["parent_id"] = int(info["cid"]) # category_id
-    attr["name"] = info.get("n") or info["file_name"]
-    attr["sha1"] = info.get("sha") or ""
-    attr["size"] = int(info.get("s") or 0)
+    attr["name"] = info.get("n") or info.get("fn") or info["file_name"]
+    attr["sha1"] = info.get("sha") or info.get("sha1") or ""
+    attr["size"] = int(info.get("s") or info.get("fs") or 0)
     if "pc" in info:
         attr["pickcode"] = info["pc"]
     if simple:
@@ -253,12 +263,20 @@ def normalize_attr_app[D: dict[str, Any]](
     attr: dict[str, Any] = dict_cls()
     if default:
         attr.update(default)
-    is_dir = attr["is_dir"] = info["fc"] == "0" # file_category
+    if "fc" in info:
+        is_dir = int(info["fc"]) == 0
+    elif "sha" in info:
+        is_dir = bool(info["sha"])
+    elif "sha1" in info:
+        is_dir = bool(info["sha1"])
+    else:
+        is_dir = not ("s" in info or "fs" in info)
+    attr["is_dir"] = is_dir
     attr["id"] = int(info["fid"])               # file_id
     attr["parent_id"] = int(info["pid"])        # parent_id
-    attr["name"] = info["fn"]
-    sha1 = attr["sha1"] = info.get("sha1") or ""
-    attr["size"] = int(info.get("fs") or 0)
+    attr["name"] = info.get("fn") or info.get("n") or info["file_name"]
+    sha1 = attr["sha1"] = info.get("sha1") or info.get("sha") or ""
+    attr["size"] = int(info.get("fs") or info.get("s") or 0)
     if "pc" in info:
         attr["pickcode"] = info["pc"]
     if simple:
@@ -384,16 +402,23 @@ def normalize_attr_app2[D: dict[str, Any]](
     attr: dict[str, Any] = dict_cls()
     if default:
         attr.update(default)
+    if "file_category" in info:
+        is_dir = int(info["file_category"]) == 0
+    elif "sha1" in info:
+        is_dir = bool(info["sha1"])
+    elif "file_sha1" in info:
+        is_dir = bool(info["file_sha1"])
+    elif "category_id" in info:
+        is_dir = "file_id" not in info
+    else:
+        is_dir = not ("file_size" in info or "size" in info)
+    attr["is_dir"] = is_dir
     if "file_id" in info and "parent_id" in info:
-        if "file_category" in info:
-            is_dir = not int(info["file_category"])
-        else:
-            is_dir = bool(info.get("sha1") or info.get("file_sha1") or info.get("pick_code", "").startswith("f"))
         attr["id"] = int(info["file_id"])
         attr["parent_id"] = int(info["parent_id"])
         attr["name"] = info["file_name"]
     else:
-        if is_dir := "file_id" not in info:
+        if is_dir:
             attr["id"] = int(info["category_id"])
             attr["parent_id"] = int(info["parent_id"])
             attr["name"] = info["category_name"]
@@ -401,7 +426,6 @@ def normalize_attr_app2[D: dict[str, Any]](
             attr["id"] = int(info["file_id"])
             attr["parent_id"] = int(info["category_id"])
             attr["name"] = info["file_name"]
-    attr["is_dir"] = is_dir
     attr["sha1"] = info.get("sha1") or info.get("file_sha1") or ""
     attr["size"] = int(info.get("file_size") or 0)
     if "pick_code" in info:
@@ -2378,7 +2402,7 @@ def get_url(
     is_posixpath: bool = False, 
     refresh: bool = False, 
     id_to_dirnode: EllipsisType | MutableMapping[int, tuple[str, int]] | None = None, 
-    app: str = "android", 
+    app: str = "os_windows", 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -2397,7 +2421,7 @@ def get_url(
     is_posixpath: bool = False, 
     refresh: bool = False, 
     id_to_dirnode: EllipsisType | MutableMapping[int, tuple[str, int]] | None = None, 
-    app: str = "android", 
+    app: str = "os_windows", 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -2415,12 +2439,20 @@ def get_url(
     is_posixpath: bool = False, 
     refresh: bool = False, 
     id_to_dirnode: EllipsisType | MutableMapping[int, tuple[str, int]] | None = None, 
-    app: str = "android", 
+    app: str = "os_windows", 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
 ) -> P115URL | Coroutine[Any, Any, P115URL]:
     """获取文件的下载链接
+
+    .. attention::
+        在自己网盘中的文件，只要大于 200 MB 且被违规封禁，则获取不了下载链接
+
+    .. tip::
+        - 文件 <= 50 MB，只要有 ``sha1``，就能下载，无论是否在自己网盘，此时可视同图片
+        - 文件 <= 200 MB，无论文件是否永久删除，还是违规封禁，都能获取下载链接
+        - 文件 > 200 MB，只要没有被违规封禁，在无论是否永久删除，都能获取下载链接
 
     :param client: 115 客户端或 cookies
     :param value: 文件的 id, pickcode, sha1, path, name 其一
@@ -2443,6 +2475,16 @@ def get_url(
     if share_code:
         def gen_step():
             assert isinstance(client, P115Client)
+            if (0 <= size <= 1024 * 1024 * 50 
+                and is_valid_sha1(value)
+            ):
+                from .download import get_pic_url
+                return get_pic_url(
+                    client, 
+                    value if size else "DA39A3EE5E6B4B0D3255BFEF95601890AFD80709", 
+                    async_=async_, 
+                    **request_kwargs, 
+                )
             payload = dict(share_extract_payload(share_code))
             if receive_code:
                 payload["receive_code"] = receive_code
@@ -2498,11 +2540,7 @@ def get_url(
                 async_=async_, 
                 **request_kwargs, 
             )))
-            if app == "open" or not isinstance(client, P115Client):
-                geturl = client.download_url_open
-            else:
-                geturl = client.download_url
-            return geturl(
+            return client.download_url(
                 pickcode, 
                 user_agent=user_agent, 
                 app=app, 

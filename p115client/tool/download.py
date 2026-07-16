@@ -37,7 +37,7 @@ from uuid import uuid4
 from warnings import warn
 
 from argtools import argcount
-from asynctools import async_chain
+from asynctools import async_chain_from_iterable
 from concurrenttools import conmap, run_as_thread
 from dicttools import get_first
 from errno2 import errno
@@ -214,11 +214,7 @@ def batch_get_url(
         pickcode = client.to_pickcode(pickcode)
     elif not isinstance(pickcode, str):
         pickcode = ",".join(map(client.to_pickcode, pickcode))
-    if not isinstance(client, P115Client) or app == "open":
-        get_download_urls: Callable = client.download_urls_open
-    else:
-        get_download_urls = client.download_urls
-    return get_download_urls(pickcode, async_=async_, **request_kwargs)
+    return client.download_urls(pickcode, app=app, async_=async_, **request_kwargs)
 
 
 @overload
@@ -227,7 +223,7 @@ def iter_url_batches(
     pickcodes: Iterator[int | str], 
     user_agent: str = "", 
     batch_size: int = 10, 
-    app: str = "android", 
+    app: str = "os_windows", 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -239,7 +235,7 @@ def iter_url_batches(
     pickcodes: Iterator[int | str], 
     user_agent: str = "", 
     batch_size: int = 10, 
-    app: str = "android", 
+    app: str = "os_windows", 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -250,7 +246,7 @@ def iter_url_batches(
     pickcodes: Iterator[int | str], 
     user_agent: str = "", 
     batch_size: int = 10, 
-    app: str = "android", 
+    app: str = "os_windows", 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -282,24 +278,20 @@ def iter_url_batches(
         batch_size = 1
     def gen_step():
         if batch_size == 1:
-            if not isinstance(client, P115Client) or app == "open":
-                get_download_url: Callable = client.download_url_open
-            else:
-                get_download_url = partial(client.download_url, app=app)
+            get_url = client.download_url
             for pickcode in map(client.to_pickcode, pickcodes):
-                yield Yield(get_download_url(
+                yield Yield(get_url(
                     pickcode, 
+                    app=app, 
                     async_=async_, 
                     **request_kwargs, 
                 ))
         else:
-            if not isinstance(client, P115Client) or app == "open":
-                get_download_urls: Callable = client.download_urls_open
-            else:
-                get_download_urls = client.download_urls
+            get_urls = client.download_urls
             for pcs in batched(map(client.to_pickcode, pickcodes), batch_size):
-                if urls := (yield get_download_urls(
+                if urls := (yield get_urls(
                     ",".join(pcs), 
+                    app=app, 
                     async_=async_, 
                     **request_kwargs, 
                 )):
@@ -420,12 +412,7 @@ def iter_files_with_url(
         async_=async_, 
         **request_kwargs, 
     )
-    if not isinstance(client, P115Client) or app == "open":
-        get_url: Callable[..., P115URL] = client.download_url_open
-    elif app in ("", "web", "desktop", "aps"):
-        get_url = client.download_url
-    else:
-        get_url = partial(client.download_url, app=app)
+    get_url = client.download_url
     cid = to_id(cid)
     def gen_step():
         if suffixes is None:
@@ -465,10 +452,10 @@ def iter_files_with_url(
             while True:
                 attr = yield get_next()
                 if attr.get("is_collect", False):
-                    if attr["size"] < 1024 * 1024 * 115:
+                    if attr["size"] <= 1024 * 1024 * 200:
                         attr["url"] = yield get_url(
                             attr["pickcode"], 
-                            use_web_api=True, 
+                            app="web2", 
                             async_=async_, 
                             **request_kwargs, 
                         )
@@ -477,6 +464,7 @@ def iter_files_with_url(
                 else:
                     attr["url"] = yield get_url(
                         attr["pickcode"], 
+                        app="os_windows", 
                         async_=async_, 
                         **request_kwargs, 
                     )
@@ -542,7 +530,7 @@ def iter_images_with_url(
     """获取图片文件信息和下载链接
 
     .. attention::
-        请不要把不能被 115 识别为图片的文件扩展名放在 `suffixes` 参数中传入，这只是浪费时间，最后也只能获得普通的下载链接
+        请不要把不能被 115 识别为图片的文件扩展名放在 ``suffixes`` 参数中传入，这只是浪费时间，最后也只能获得普通的下载链接
 
     :param client: 115 客户端或 cookies
     :param cid: 目录 id 或 pickcode
@@ -582,12 +570,7 @@ def iter_images_with_url(
         async_=async_, 
         **request_kwargs
     )
-    if not isinstance(client, P115Client) or app == "open":
-        get_url: Callable[..., P115URL] = client.download_url_open
-    elif app in ("", "web", "desktop", "aps"):
-        get_url = client.download_url
-    else:
-        get_url = partial(client.download_url, app=app)
+    get_url = client.download_url
     cid = to_id(cid)
     def gen_step():
         if suffixes is None:
@@ -625,10 +608,10 @@ def iter_images_with_url(
                     attr["url"] = reduce_image_url_layers(attr["thumb"])
                 except KeyError:
                     if attr.get("is_collect", False):
-                        if attr["size"] < 1024 * 1024 * 115:
+                        if attr["size"] <= 1024 * 1024 * 200:
                             attr["url"] = yield get_url(
                                 attr["pickcode"], 
-                                use_web_api=True, 
+                                app="web2", 
                                 async_=async_, 
                                 **request_kwargs, 
                             )
@@ -637,6 +620,7 @@ def iter_images_with_url(
                     else:
                         attr["url"] = yield get_url(
                             attr["pickcode"], 
+                            app="os_windows", 
                             async_=async_, 
                             **request_kwargs, 
                         )
@@ -735,20 +719,18 @@ def iter_subtitles_with_url(
     cid = _get_id(cid)
     if isinstance(client, (str, PathLike)):
         client = P115Client(client)
+    get_url = client.download_url
     if not isinstance(client, P115Client) or app == "open":
-        get_url: Callable[..., P115URL] = client.download_url_open
         fs_mkdir: Callable = client.fs_mkdir_open
         fs_copy: Callable = client.fs_copy_open
         fs_delete: Callable = client.fs_delete_open
         fs_video_subtitle: Callable = client.fs_video_subtitle_open
     elif app in ("", "web", "desktop", "aps"):
-        get_url = client.download_url
         fs_mkdir = client.fs_mkdir
         fs_copy = client.fs_copy
         fs_delete = client.fs_delete
         fs_video_subtitle = client.fs_video_subtitle
     else:
-        get_url = partial(client.download_url, app=app)
         fs_mkdir = partial(client.fs_mkdir_app, app=app)
         fs_copy = partial(client.fs_copy_app, app=app)
         fs_delete = partial(client.fs_delete_app, app=app)
@@ -759,7 +741,7 @@ def iter_subtitles_with_url(
         nonlocal suffixes
         if isinstance(suffixes, str):
             suffixes = suffixes,
-        do_chain: Callable = async_chain.from_iterable if async_ else chain.from_iterable
+        do_chain: Callable = async_chain_from_iterable if async_ else chain.from_iterable
         do_next: Callable = anext if async_ else next
         with with_iter_next(chunked(do_chain(
             iter_files(
@@ -832,10 +814,10 @@ def iter_subtitles_with_url(
                 else:
                     for attr in items:
                         if attr.get("is_collect", False):
-                            if attr["size"] < 1024 * 1024 * 115:
+                            if attr["size"] <= 1024 * 1024 * 200:
                                 attr["url"] = yield get_url(
                                     attr["pickcode"], 
-                                    use_web_api=True, 
+                                    app="web2", 
                                     async_=async_, 
                                     **request_kwargs, 
                                 )
@@ -844,6 +826,7 @@ def iter_subtitles_with_url(
                         else:
                             attr["url"] = yield get_url(
                                 attr["pickcode"], 
+                                app="os_windows", 
                                 async_=async_, 
                                 **request_kwargs, 
                             )
@@ -1910,12 +1893,7 @@ def get_remaining_open_count(
     """
     if isinstance(client, (str, PathLike)):
         client = P115Client(client)
-    if not isinstance(client, P115Client) or app == "open":
-        get_url: Callable[..., P115URL] = client.download_url_open
-    elif app in ("", "web", "desktop", "aps"):
-        get_url = client.download_url
-    else:
-        get_url = partial(client.download_url, app=app)
+    get_url = client.download_url
     def gen_step():
         cache: list = []
         add_to_cache = cache.append
@@ -1938,10 +1916,8 @@ def get_remaining_open_count(
             with with_iter_next(it) as get_next:
                 while True:
                     attr = yield get_next()
-                    if attr["size"] <= 1024 * 1024 * 200:
-                        continue
                     try:
-                        url = yield get_url(attr["pickcode"], async_=async_)
+                        url = yield get_url(attr["pickcode"], app=app, async_=async_)
                     except FileNotFoundError:
                         continue
                     request = Request(url, headers={"user-agent": ""})
@@ -1966,6 +1942,7 @@ def download_file(
     path: str = "", 
     resume: bool = True, 
     reporthook: None | Callable[[int], Any] = None, 
+    app: str = "android", 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -1978,6 +1955,7 @@ def download_file(
     path: str = "", 
     resume: bool = True, 
     reporthook: None | Callable[[int], Any] = None, 
+    app: str = "android", 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -1989,6 +1967,7 @@ def download_file(
     path: str = "", 
     resume: bool = True, 
     reporthook: None | Callable[[int], Any] = None, 
+    app: str = "android", 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -2000,6 +1979,7 @@ def download_file(
     :param path: 下载到本地路径，如果不提供或者以 "/" 结尾，则用网盘上的名字
     :param resume: 是否断点续传
     :param reporthook: 用于更新进度条
+    :param app: 使用指定 app（设备）的接口
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
 
@@ -2054,6 +2034,7 @@ def download_file(
         attr = None
         pickcode = client.to_pickcode(fid)
         fid = client.to_id(fid)
+    get_url = client.download_url
     def gen_step():
         nonlocal attr, path, resume
         if not path or path.endswith("/"):
@@ -2107,10 +2088,10 @@ def download_file(
                 return TaskResultTuple(False, NotADirectoryError(errno.EISDIR, attr))
             if isinstance(client, P115Client):
                 try:
-                    url = yield client.download_url(
+                    url = yield get_url(
                         pickcode, 
                         strict=True, 
-                        app="android", 
+                        app=app, 
                         async_=async_, 
                         **request_kwargs, 
                     )
@@ -2127,17 +2108,18 @@ def download_file(
                             return TaskResultTuple(False, NotADirectoryError(errno.EISDIR, attr))
                         if attr["size"] > 1024 * 1024 * 200:
                             return TaskResultTuple(False, e)
-                    url = yield client.download_url(
+                    url = yield get_url(
                         pickcode, 
                         strict=True, 
-                        app="web", 
+                        app="web2", 
                         async_=async_, 
                         **request_kwargs, 
                     )
             else:
-                url = client.download_url(
+                url = get_url(
                     pickcode, 
                     strict=True, 
+                    app=app, 
                     async_=async_, 
                     **request_kwargs, 
                 )

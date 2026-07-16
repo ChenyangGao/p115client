@@ -7,7 +7,7 @@ __all__ = [
     "determine_part_size", "to_cdn_url", "is_valid_id", "is_valid_sha1", 
     "is_valid_name", "is_valid_pickcode", "posix_escape_name", "lock_as_async", 
     "call_with_lock", "get_stable_point", "set_stable_point", "get_user_key", 
-    "set_user_key", 
+    "set_user_key", "normalize_pickcode", 
 ]
 __doc__ = "这个模块提供了一些工具函数，且不依赖于 p115client.client 中的实现"
 
@@ -34,7 +34,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from filelock import FileLock
 from iterutils import run_gen_step
 from orjson import loads, dumps
-from p115pickcode import is_valid_pickcode
+from p115pickcode import is_valid_pickcode, to_id, to_pickcode
 from urllib3_future_request import request
 from yarl import URL
 
@@ -43,7 +43,7 @@ from .const import _CACHE_DIR
 
 URL_PATH_TRANSTAB: Final = {b: f"%{b:X}" for b in b"?#"}
 CRE_115_CHARREF_sub: Final = re_compile("\\[\x02([0-9]+)\\]").sub
-CRE_SHARE_LINK_search: Final = re_compile(r"(?:^|(?<=/))(?P<share_code>[a-z0-9]+)(?:-|\?password=|\?)(?P<receive_code>[a-z0-9]{4})(?!==)\b").search
+CRE_SHARE_LINK_search: Final = re_compile(r"(?:^|(?<=/))(?P<share_code>[a-z0-9]+)((?:-|\?password=|\?)(?P<receive_code>[a-z0-9]{4})(?!==))?$").search
 CRE_ERR_JPG_search: Final = re_compile(r"/err/([0-9]+).jpg$").search
 
 
@@ -139,7 +139,7 @@ def complete_url(
     :param base_url: 请求基地址，例如 "https://webapi.115.com"
     :param app: 使用此设备 app 的接口
     :param version: 接口版本，会作为 ``path`` 的前缀
-    :param force_app: 如果为 False（默认），则会对某些不在接受范围内的 `app` 改用可接受的值，如果为 True 则保持原样（传什么就用什么）
+    :param force_app: 如果为 False（默认），则会对某些不在接受范围内的 `app` 改用可接受的值，如果为 True 则保持原样（传什么就用什么），如果为容器，则此容器内的 ``app`` 也会被采用
     :param domain: 域，如果 `base_url` 为空，那么 `base_url` 会被处理为 f"http://{domain}.115.com"
     :param query: 其它查询参数
 
@@ -210,8 +210,12 @@ def complete_url(
             if app in (
                 "ios", "115ios", "115ipad", "android", "115android", 
                 "harmony", "os_windows", "os_mac", "os_linux", 
-                # NOTE: 下面这几个值往往不可用，但 "wechatmini" 和 "alipaymini" 偶尔可用
-                # "wechatmini", "alipaymini", "ipad", "tv", "apple_tv", 
+                # NOTE: 这几个值偶尔可用
+                # "wechatmini", "alipaymini", 
+                # NOTE: 这几个值往往不可用
+                # "ipad", "qandroid", "qios", "qipad", "tv", "apple_tv", 
+                # NOTE: 这几个值一定不可用
+                # "web", "desktop", "chrome", 
             ):
                 pass
             elif app.endswith("ios"):
@@ -541,4 +545,10 @@ def set_user_key(user_id: int | str, user_key: str) -> str:
     with suppress(Exception):
         UID_TO_USER_KEY[user_id] = user_key
     return user_key
+
+
+def normalize_pickcode(pickcode: str, /):
+    if not pickcode.startswith("f"):
+        return pickcode
+    return to_pickcode(to_id(pickcode), stable_point=pickcode)
 

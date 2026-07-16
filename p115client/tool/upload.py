@@ -19,7 +19,7 @@ from itertools import count, dropwhile
 from os import fsdecode, PathLike
 from typing import cast, overload, Any, Literal, NamedTuple
 
-from asynctools import to_list
+from asynctools import async_collect
 from concurrenttools import threadpool_map, taskgroup_map
 from dicttools import get_first
 from dicttools import dict_map
@@ -40,7 +40,7 @@ from p115pickcode import to_id
 from yarl import URL
 
 from ..client import check_response, P115Client, P115OpenClient
-from ..exception import P115AccessError, P115BadFile
+from ..exception import P115BadFile
 from ..type import P115URL
 from ..tool import load_final_image
 from .attr import normalize_attr_simple
@@ -206,7 +206,7 @@ def iter_115_to_115(
             if attr["is_collect"]:
                 url = yield from_client.download_url(
                     attr["pickcode"], 
-                    use_web_api=True, 
+                    app="web2", 
                     async_=async_, 
                     **request_kwargs, 
                 )
@@ -244,7 +244,7 @@ def iter_115_to_115(
                     is_collect=int(info["is_collect"]), 
                     file_type=int(info["file_type"]), 
                 )
-                if attr["is_collect"] and attr["size"] >= 1024 * 1024 * 115:
+                if attr["is_collect"] and attr["size"] >= 1024 * 1024 * 200:
                     return {"type": "skip", "attr": attr, "resp": None}
             resp = yield to_client.upload_file_init(
                 filename=attr["name"], 
@@ -269,7 +269,7 @@ def iter_115_to_115(
     key_of_id = "id" if with_root else "parent_id"
     def get_pid(attr: dict, /):
         if use_iter_files:
-            if attr["is_collect"] and attr["size"] >= 1024 * 1024 * 115:
+            if attr["is_collect"] and attr["size"] >= 1024 * 1024 * 200:
                 return -1
             if from_cid:
                 dir_ = "/".join(a["name"] for a in dropwhile(
@@ -382,7 +382,7 @@ def iter_115_to_115_resume(
             if attr["is_collect"]:
                 url = yield from_client.download_url(
                     attr["pickcode"], 
-                    use_web_api=True, 
+                    app="web2", 
                     async_=async_, 
                     **request_kwargs, 
                 )
@@ -427,7 +427,7 @@ def iter_115_to_115_resume(
     dirt_to_cid: dict[tuple[str, ...], int] = {}
     key_of_id = "id" if with_root else "parent_id"
     def get_pid(attr: dict, /):
-        if attr["is_collect"] and attr["size"] >= 1024 * 1024 * 115:
+        if attr["is_collect"] and attr["size"] >= 1024 * 1024 * 200:
             return -1
         dirt = tuple(a["name"] for a in dropwhile(
             lambda a: a[key_of_id] != from_cid, 
@@ -510,8 +510,11 @@ def iter_115_to_115_resume(
                     **request_kwargs, 
                 )
                 if async_:
-                    from_files, to_files = yield to_list(
-                        taskgroup_map(to_list, (from_files, to_files), max_workers=2))
+                    from_files, to_files = yield async_collect(taskgroup_map(
+                        async_collect, # type: ignore
+                        (from_files, to_files), 
+                        max_workers=2, 
+                    ))
                 else:
                     from_files, to_files = threadpool_map(list, (from_files, to_files), max_workers=2)
                 while to_cid:

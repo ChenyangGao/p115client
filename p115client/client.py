@@ -60,10 +60,10 @@ from .const import (
 from .exception import (
     throw, P115OSError, P115Warning, P115AccessTokenError, 
     P115AuthenticationError, P115LoginError, P115OpenAppAuthLimitExceeded, 
-    P115OperationalError, 
+    P115OperationalError, P115DownloadFileNotFoundError, 
 )
 from .type import P115Cookies, P115URL
-from .util import complete_url, share_extract_payload
+from .util import complete_url, share_extract_payload, normalize_pickcode
 
 
 CRE_SET_COOKIE: Final = re_compile(r"[0-9a-f]{32}=[0-9a-f]{32}.*")
@@ -77,6 +77,13 @@ _default_code_challenge_method = "md5"
 _app_version = "36.2.28"
 
 
+def content_maybe_decrypt(content: Buffer, /) -> Buffer:
+    data = to_bytes_view(content)
+    if data[:1].tobytes() + data[-1:].tobytes() not in (b"{}", b"[]", b'""'):
+        return ecdh_aes_decrypt(data)
+    return content
+
+
 def json_loads(content: Buffer, /):
     try:
         return loads(to_bytes_view(content))
@@ -84,19 +91,24 @@ def json_loads(content: Buffer, /):
         throw(errno.ENODATA, bytes(content))
 
 
+def json_decrypt_loads(content: Buffer, /):
+    return json_loads(ecdh_aes_decrypt(content))
+
+
+def json_maybe_decrypt_loads(content: Buffer, /):
+    return json_loads(content_maybe_decrypt(content))
+
+
 def json_parse(_, content: Buffer, /):
     return json_loads(content)
 
 
 def json_decrypt_parse(_, content: Buffer, /):
-    return json_loads(ecdh_aes_decrypt(content))
+    return json_decrypt_loads(content)
 
 
 def json_maybe_decrypt_parse(_, content: Buffer, /):
-    content = to_bytes_view(content)
-    if content[:1].tobytes() + content[-1:].tobytes() in (b"{}", b"[]", b'""'):
-        return json_parse(_, content)
-    return json_decrypt_parse(_, content)
+    return json_maybe_decrypt_loads(content)
 
 
 def get_request(
@@ -106,8 +118,19 @@ def get_request(
     headers: Any = None, 
     ecdh_encrypt: bool = False, 
     request: None | Callable = None, 
+    self: None | ClientRequestMixin = None, 
     **request_kwargs, 
 ) -> tuple[Callable, dict]:
+    if self is not None:
+        request_kwargs.update(
+            url=url, 
+            method=method, 
+            payload=payload, 
+            headers=headers, 
+            ecdh_encrypt=ecdh_encrypt, 
+            request=request, 
+        )
+        return self.request, request_kwargs
     if request is None:
         from urllib3_future_request import request
     request = cast(Callable, request)
@@ -238,10 +261,15 @@ def check_response(resp: dict | Awaitable[dict], /) -> dict | Coroutine[Any, Any
                 case 20009:
                     throw(errno.ENOENT, resp)
                 # {"state": false, "errno": 20018, "error": "文件不存在或已删除。"}
+                # {"state": false, "errno": 31003, "error": "文件不存在或已删除。"}
                 # {"state": false, "errno": 50015, "error": "文件不存在或已删除。"}
+                # {"state": false, "errno": 70005, "error": "文件不存在或已删除"}
+                # {"state": false, "errno": 70008, "error": "文件不存在或已删除"}
                 # {"state": false, "errno": 90008, "error": "文件（夹）不存在或已经删除。"}
                 # {"state": false, "errno": 430004, "error": "文件（夹）不存在或已删除。"}
-                case 20018 | 50015 | 90008 | 430004:
+                case 20018 | 31003 | 50015 | 70005 | 70008 | 90008 | 430004:
+                    if resp.get("is_download"):
+                        raise P115DownloadFileNotFoundError(errno.ENOENT, resp)
                     throw(errno.ENOENT, resp)
                 # {"state": false, "errno": 20020, "error": "后缀名不正确，请重新输入"}
                 # {"state": false, "errno": 20021, "error": "后缀名不正确，请重新输入"}
@@ -250,15 +278,15 @@ def check_response(resp: dict | Awaitable[dict], /) -> dict | Coroutine[Any, Any
                 # {"state": false, "errno": 31001, "error": "所预览的文件不存在。"}
                 case 31001:
                     throw(errno.ENOENT, resp)
-                # {"state": false, "errno": 31003, "error": "文件不存在或已删除。"}
-                case 31003:
-                    throw(errno.ENOENT, resp)
                 # {"state": false, "errno": 31004, "error": "文档未上传完整，请上传完成后再进行查看。"}
                 case 31004:
                     throw(errno.ENOENT, resp)
                 # {"state": false, "errno": 50003, "error": "很抱歉，该文件提取码不存在。"}
                 case 50003:
                     throw(errno.ENOENT, resp)
+                # {"state": false, "errno": 50028, "error": "文件大小超出限制，请使用115电脑端下载"}
+                case 50028:
+                    throw(errno.EFBIG, resp)
                 # {"state": false, "errno": 50038, "error": "下载失败，含违规内容"}
                 case 50038:
                     throw(errno.EACCES, resp)
@@ -268,6 +296,9 @@ def check_response(resp: dict | Awaitable[dict], /) -> dict | Coroutine[Any, Any
                 # {"state": false, "errno": 51012, "error": "已有文件正在解压中，请稍后再试"}
                 case 51012:
                     throw(errno.EBUSY, resp)
+                # {"state": false, "errno": 70004, "error": "文件上传不完整"}
+                case 70004:
+                    throw(errno.EISDIR, resp)
                 # {"state": false, "errno": 91002, "error": "不能将文件复制到自身或其子目录下。"}
                 case 91002:
                     throw(errno.ENOTSUP, resp)
@@ -320,6 +351,12 @@ def check_response(resp: dict | Awaitable[dict], /) -> dict | Coroutine[Any, Any
                 # {"state": false, "errno": 990023, "error": "操作的文件(夹)数量超过5万个"}
                 case 990023:
                     throw(errno.ENOTSUP, resp)
+                # {"state": false, "errno": 4100026, "error": "该文件分享链接不存在或已被删除"}
+                case 4100026:
+                    throw(errno.ENOENT, resp)
+                # {"state": false, "errno": 4100030, "error": "接收文件过多"}
+                case 4100030:
+                    throw(errno.EIO, resp)
                 # {"state": 0, "errno": 40100000, "error": "参数错误！"}
                 # {"state": 0, "errno": 40100000, "error": "参数缺失"}
                 case 40100000:
@@ -450,13 +487,6 @@ def check_response(resp: dict | Awaitable[dict], /) -> dict | Coroutine[Any, Any
                 # {"state": 0, "errno": 40140136, "error": "redirect_uri 验证失败（防MITM）"}
                 case 40140136:
                     throw(errno.EINVAL, resp)
-                ##################################################
-                case 50028:
-                    throw(errno.EFBIG, resp)
-                case 70004:
-                    throw(errno.EISDIR, resp)
-                case 70005 | 70008:
-                    throw(errno.ENOENT, resp)
         elif error := resp.get("error"):
             if "文件不存在" in error or "目录不存在" in error:
                 throw(errno.ENOENT, resp)
@@ -1050,7 +1080,7 @@ class ClientRequestMixin:
                     "headers": dict(resp.headers), 
                 }
             else:
-                return json_loads(content)
+                return json_maybe_decrypt_loads(content)
         request_kwargs.setdefault("parse", parse)
         request, request_kwargs = get_request(
             url=api, params={"response_type": "code", **payload}, **request_kwargs)
@@ -2599,8 +2629,14 @@ class P115OpenClient(ClientRequestMixin):
                 **request_kwargs, 
             )
             resp["pickcode"] = pickcode
+            resp["is_download"] = True
+            data = resp.get("data")
+            if not data:
+                resp["state"] = False
+                resp["errno"] = resp.get("errno") or 50015
+                resp.setdefault("message", "文件不存在、是目录或者不支持此操作")
             check_response(resp)
-            for fid, info in resp["data"].items():
+            for fid, info in data.items():
                 url = info["url"]
                 if strict and not url:
                     throw(
@@ -2690,12 +2726,17 @@ class P115OpenClient(ClientRequestMixin):
                 **request_kwargs, 
             )
             resp["pickcode"] = pickcodes
+            resp["is_download"] = True
+            data = resp.get("data")
+            if not data:
+                resp["state"] = False
+                resp["errno"] = resp.get("errno") or 50015
+                resp.setdefault("message", "文件不存在、是目录或者不支持此操作")
+                throw(errno.EIO, resp)
             urls: dict[int, P115URL] = {}
-            if not resp["state"]:
-                if resp.get("errno") != 50003:
-                    check_response(resp)
-            else:
-                for fid, info in resp["data"].items():
+            if resp.get("errno") != 50003:
+                check_response(resp)
+                for fid, info in data.items():
                     url = info["url"]
                     if strict and not url:
                         continue
@@ -2770,7 +2811,7 @@ class P115OpenClient(ClientRequestMixin):
         else:
             headers["user-agent"] = user_agent
         def parse(_, content: bytes, /) -> dict:
-            json = json_loads(content)
+            json = json_maybe_decrypt_loads(content)
             json["headers"] = headers
             return json
         request_kwargs.setdefault("parse", parse)
@@ -2951,7 +2992,6 @@ class P115OpenClient(ClientRequestMixin):
                 - <其它>: 会被视为 0
 
             - asc: 0 | 1 = <default> 💡 是否升序排列。0:降序 1:升序
-            - code: int | str = <default>
             - count_folders: 0 | 1 = 1 💡 统计文件数和目录数
             - cur: 0 | 1 = <default>   💡 是否只显示当前目录
             - custom_order: 0 | 1 | 2 = <default> 💡 是否使用记忆排序。如果指定了 "asc"、"fc_mix"、"o" 中其一，则此参数会被自动设置为 2
@@ -2960,15 +3000,13 @@ class P115OpenClient(ClientRequestMixin):
                 - 1: 使用自定义排序（不使用记忆排序） 
                 - 2: 自定义排序（非目录置顶）
 
-            - date: str = <default> 💡 筛选日期
             - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
             - fields: str = <default>
             - for: str = <default> 💡 文件格式，例如 "doc"
-            - hide_data: str = <default> 💡 是否返回文件数据
             - is_q: 0 | 1 = <default>
             - is_share: 0 | 1 = <default>
             - min_size: int = 0 💡 最小的文件大小
-            - max_size: int = 0 💡 最大的文件大小
+            - max_size: int = 0 💡 最大的文件大小（含），<= 0 表示不限，因此并不能借此仅筛选出空文件
             - natsort: 0 | 1 = <default> 💡 是否执行自然排序(natural sorting)
             - nf: str = <default> 💡 不要显示文件（即仅显示目录），但如果 show_dir=0，则此参数无效
             - o: str = <default> 💡 用某字段排序（未定义的值会被视为 "user_utime"）
@@ -2988,7 +3026,6 @@ class P115OpenClient(ClientRequestMixin):
             - show_dir: 0 | 1 = 1 💡 是否显示目录
             - snap: 0 | 1 = <default>
             - source: str = <default>
-            - sys_dir: int | str = <default> 💡 系统通用目录
             - star: 0 | 1 = <default> 💡 是否星标文件
             - stdir: 0 | 1 = <default> 💡 筛选文件时，是否显示目录：1:展示 0:不展示
             - suffix: str = <default> 💡 后缀名（优先级高于 `type`）
@@ -6230,7 +6267,7 @@ class P115Client(P115OpenClient):
         }
         request_kwargs["ecdh_encrypt"] = False
         def parse(_, content: bytes, /) -> dict:
-            json = json_loads(content)
+            json = json_maybe_decrypt_loads(content)
             if data := json.get("data"):
                 try:
                     json["data"] = json_loads(rsa_decrypt(data))
@@ -8237,7 +8274,7 @@ class P115Client(P115OpenClient):
         /, 
         strict: bool = True, 
         user_agent: None | str = None, 
-        app: str = "chrome", 
+        app: str = "os_windows", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -8250,7 +8287,7 @@ class P115Client(P115OpenClient):
         /, 
         strict: bool = True, 
         user_agent: None | str = None, 
-        app: str = "chrome", 
+        app: str = "os_windows", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -8262,12 +8299,12 @@ class P115Client(P115OpenClient):
         /, 
         strict: bool = True, 
         user_agent: None | str = None, 
-        app: str = "chrome", 
+        app: str = "os_windows", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> P115URL | Coroutine[Any, Any, P115URL]:
-        """获取文件的下载链接，此接口是对 `download_url_app` 的封装
+        """获取文件的下载链接
 
         .. note::
             获取的直链中，部分查询参数的解释：
@@ -8307,6 +8344,7 @@ class P115Client(P115OpenClient):
                     **request_kwargs, 
                 )
                 resp["pickcode"] = pickcode
+                resp["is_download"] = True
                 check_response(resp)
                 url = resp["url"]
                 return P115URL(
@@ -8325,6 +8363,7 @@ class P115Client(P115OpenClient):
                     **request_kwargs, 
                 )
                 resp["pickcode"] = pickcode
+                resp["is_download"] = True
                 try:
                     check_response(resp)
                 except IsADirectoryError:
@@ -8348,9 +8387,15 @@ class P115Client(P115OpenClient):
                     **request_kwargs, 
                 )
                 resp["pickcode"] = pickcode
+                resp["is_download"] = True
+                data = resp.get("data")
+                if not data:
+                    resp["state"] = False
+                    resp["errno"] = resp.get("errno") or 50015
+                    resp.setdefault("message", "文件不存在、是目录或者不支持此操作")
                 check_response(resp)
-                if "url" in resp["data"]:
-                    url = resp["data"]["url"]
+                if "url" in data:
+                    url = data["url"]
                     return P115URL(
                         url, 
                         pickcode=pickcode, 
@@ -8358,7 +8403,7 @@ class P115Client(P115OpenClient):
                         is_dir=False, 
                         headers=resp["headers"], 
                     )
-                for fid, info in resp["data"].items():
+                for fid, info in data.items():
                     url = info["url"]
                     if strict and not url:
                         throw(
@@ -8388,7 +8433,7 @@ class P115Client(P115OpenClient):
         /, 
         strict: bool = True, 
         user_agent: None | str = None, 
-        app: str = "chrome", 
+        app: str = "os_windows", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -8401,7 +8446,7 @@ class P115Client(P115OpenClient):
         /, 
         strict: bool = True, 
         user_agent: None | str = None, 
-        app: str = "chrome", 
+        app: str = "os_windows", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -8413,12 +8458,12 @@ class P115Client(P115OpenClient):
         /, 
         strict: bool = True, 
         user_agent: None | str = None, 
-        app: str = "chrome", 
+        app: str = "os_windows", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict[int, P115URL] | Coroutine[Any, Any, dict[int, P115URL]]:
-        """批量获取文件的下载链接，此接口是对 `download_url_app` 的封装
+        """批量获取文件的下载链接
 
         .. note::
             获取的直链中，部分查询参数的解释：
@@ -8460,12 +8505,16 @@ class P115Client(P115OpenClient):
                 **request_kwargs, 
             )
             resp["pickcode"] = pickcodes
+            resp["is_download"] = True
+            data = resp.get("data")
+            if not data:
+                resp["state"] = False
+                resp["errno"] = resp.get("errno") or 50015
+                resp.setdefault("message", "文件不存在、是目录或者不支持此操作")
             urls: dict[int, P115URL] = {}
-            if not resp["state"]:
-                if resp.get("errno") != 50003:
-                    check_response(resp)
-            else:
-                for fid, info in resp["data"].items():
+            if resp.get("errno") != 50003:
+                check_response(resp)
+                for fid, info in data.items():
                     url = info["url"]
                     if strict and not url:
                         continue
@@ -8544,6 +8593,16 @@ class P115Client(P115OpenClient):
                 payload = {"pickcode": payload}
             elif "pickcode" not in payload:
                 payload["pickcode"] = payload["pick_code"]
+        elif app in ("os_windows", "os_mac", "os_linux", "windows", "mac", "linux"):
+            if not app.startswith("os_"):
+                app = "os_" + app
+            api = complete_url("/2.0/ufile/downurl", base_url=base_url, app=app)
+            if isinstance(payload, str):
+                payload = {"pickcode": payload}
+            elif "pickcode" not in payload:
+                payload["pickcode"] = payload["pick_code"]
+            payload["pickcode"] = ",".join(map(normalize_pickcode, payload["pickcode"].split(",")))
+            request_kwargs.setdefault("ecdh_encrypt", True)
         else:
             api = complete_url("/2.0/ufile/download", base_url=base_url, app=app)
             if isinstance(payload, str):
@@ -8557,9 +8616,9 @@ class P115Client(P115OpenClient):
         else:
             headers["user-agent"] = user_agent
         def parse(_, content: bytes, /) -> dict:
-            json = json_loads(content)
-            if json["state"]:
-                json["data"] = json_loads(rsa_decrypt(json["data"]))
+            json = json_maybe_decrypt_loads(content)
+            if json["state"] and (data := json.get("data")):
+                json["data"] = json_loads(rsa_decrypt(data))
             json["headers"] = headers
             return json
         request_kwargs.setdefault("parse", parse)
@@ -8625,7 +8684,7 @@ class P115Client(P115OpenClient):
         else:
             headers["user-agent"] = user_agent
         def parse(resp, content: bytes, /) -> dict:
-            json = json_loads(content)
+            json = json_maybe_decrypt_loads(content)
             if "Set-Cookie" in resp.headers:
                 if isinstance(resp.headers, Mapping):
                     match = CRE_SET_COOKIE.search(resp.headers["Set-Cookie"])
@@ -8698,7 +8757,7 @@ class P115Client(P115OpenClient):
                 return {
                     "state": False, 
                     "errno": 31003, 
-                    "message": "文件不存在或者是目录", 
+                    "message": "文件不存在、已删除、超过200MB或者是目录", 
                     "response": {"status": resp.status, "headers": dict(resp.headers)}, 
                 }
             json = {"state": True, "url": resp.headers["location"]}
@@ -8882,25 +8941,32 @@ class P115Client(P115OpenClient):
         """
         path = path.rstrip("/")
         def gen_step():
-            if app in ("", "web", "desktop"):
+            payload = {"pick_code": pickcode, "full_name": path.lstrip("/")}
+            if app in ("web", "desktop"):
                 resp = yield self.extract_download_url_web(
-                    {"pick_code": pickcode, "full_name": path.lstrip("/")}, 
+                    payload, 
                     user_agent=user_agent, 
                     async_=async_, 
                     **request_kwargs, 
                 )
             else:
                 resp = yield self.extract_download_url_app(
-                    {"pick_code": pickcode, "full_name": path.lstrip("/")}, 
+                    payload, 
                     user_agent=user_agent, 
                     app=app, 
                     async_=async_, 
                     **request_kwargs, 
                 )
-            from posixpath import basename
+            resp["payload"] = payload
+            resp["is_download"] = True
             check_response(resp)
-            data = resp["data"]
+            data = resp.get("data")
+            if not data:
+                resp["state"] = False
+                resp["errno"] = resp.get("errno") or 50015
+                resp.setdefault("message", "文件不存在、是目录或者不支持此操作")
             url = quote(data["url"], safe=":/?&=%#")
+            from posixpath import basename
             return P115URL(
                 url, 
                 name=basename(path), 
@@ -8962,7 +9028,7 @@ class P115Client(P115OpenClient):
         else:
             headers["user-agent"] = user_agent
         def parse(_, content: bytes, /) -> dict:
-            json = json_loads(content)
+            json = json_maybe_decrypt_loads(content)
             json["headers"] = headers
             return json
         request_kwargs.setdefault("parse", parse)
@@ -9017,7 +9083,7 @@ class P115Client(P115OpenClient):
         else:
             headers["user-agent"] = user_agent
         def parse(resp, content: bytes, /) -> dict:
-            json = json_loads(content)
+            json = json_maybe_decrypt_loads(content)
             if "Set-Cookie" in resp.headers:
                 if isinstance(resp.headers, Mapping):
                     match = CRE_SET_COOKIE.search(resp.headers["Set-Cookie"])
@@ -11458,6 +11524,17 @@ class P115Client(P115OpenClient):
                 - 6: xmind
                 - 7: 其它
 
+        .. caution::
+            ``fields`` 字段并不以返回的文件列表所有的字段名为准，而是要用其对应的完整名字，例如
+
+            - "file_id": 对应 "cid"
+            - "parent_id": 对应 "pid"
+            - "area_id": 对应 "aid"
+            - "file_name": 对应 "n"
+
+            如果其中有一个是 "cid"，则可能只返回这一个字段，而不管你又指定了其它多少字段。
+            由于这个参数的行为太过古怪且难猜，所以不建议使用，如果非要使用，建议换用 ``P115client.fs_files_app()``。
+
         :payload:
             - cid: int | str = 0 💡 目录 id，对应 parent_id
             - limit: int = 32 💡 分页大小，目前最大值是 1,150，以前是没限制的
@@ -11479,7 +11556,6 @@ class P115Client(P115OpenClient):
                 - <其它>: 会被视为 0
 
             - asc: 0 | 1 = <default> 💡 是否升序排列。0:降序 1:升序
-            - code: int | str = <default>
             - count_folders: 0 | 1 = 1 💡 统计文件数和目录数，好像也可以写成 ``countfolders``
             - cur: 0 | 1 = <default> 💡 是否只搜索当前目录
             - custom_order: 0 | 1 = <default> 💡 启用自定义排序，如果指定了 "asc"、"fc_mix"、"o" 中其一，则此参数会被自动设置为 1
@@ -11488,15 +11564,13 @@ class P115Client(P115OpenClient):
                 - 1: 使用自定义排序（不使用记忆排序） 
                 - 2: 自定义排序（非目录置顶）
 
-            - date: str = <default> 💡 筛选日期
             - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
-            - fields: str = <default>
+            - fields: str = <default> 💡 筛选字段（⚠️ 不建议使用），多个用逗号 "," 隔开，如果存在字段无效，则文件列表为空（但有计数 "count"、"file_count" 和 "folder_count"）
             - hidden: 0 | 1 = <default>
             - is_q: 0 | 1 = <default>
             - is_share: 0 | 1 = <default>
-            - last_utime: int = <default> 💡 需传入一个时间戳
             - min_size: int = 0 💡 最小的文件大小
-            - max_size: int = 0 💡 最大的文件大小
+            - max_size: int = 0 💡 最大的文件大小（含），<= 0 表示不限，因此并不能借此仅筛选出空文件
             - natsort: 0 | 1 = <default> 💡 是否执行自然排序(natural sorting) 💡 natural sorting
             - nf: str = <default> 💡 不要显示文件（即仅显示目录），但如果 show_dir=0，则此参数无效
             - o: str = <default> 💡 用某字段排序
@@ -11602,9 +11676,6 @@ class P115Client(P115OpenClient):
             如果要遍历获取所有文件，需要指定 show_dir=0 且 cur=0（或不指定 cur），这个接口并没有 type=99 时获取所有文件的意义
 
         .. note::
-            如果 `app` 为 "wechatmini" 或 "alipaymini"，则相当于 ``P115Client.fs_files_app2()``
-
-        .. note::
             一旦此接口被风控，那么同一域名下，所有路径尾部是 /files 的接口都被风控，但是如果你没有携带任何参数，竟然可以避免风控（至少可以用来获得一下文件总数，以及最近的 20 个创建的文件）。
             另外，proapi 之下，指定接口的版本为 2.0，可能会被服务器后台专门的处理，而其它版本（乃至于不指定版本），也往往被视为等同的，由此可以分为两类：2.0 版本和其它版本。
 
@@ -11628,9 +11699,12 @@ class P115Client(P115OpenClient):
 
             在根目录下且 fc_mix=0 且是特殊名字 ("最近接收", "手机相册", "云下载", "我的时光记录")，会在整个文件列表的最前面，这时可从返回信息的 "sys_count" 字段知道数目
 
+        .. tip::
+            这个接口的 ``fields`` 参数可以筛选字段，例如，当你只需要文件 id 时，只需要指定 ``client.fs_files_app({"fields": "fid"})``
+
         :payload:
             - cid: int | str = 0 💡 目录 id，对应 parent_id
-            - limit: int = 32 💡 分页大小，最大值不一定，看数据量，7,000 应该总是安全的，10,000 有可能报错，但有时也可以 20,000 而成功
+            - limit: int = 32 💡 分页大小，并没有上限，请预估返回的字节数自行调整规模，7,000 是大约安全了，如果用 ``fields`` 筛选了字段，可以增到 10,000，如果报 500 响应，则要适当减小些（或者多次尝试，偶有成功）
             - offset: int = 0 💡 分页开始的索引，索引从 0 开始计算
 
             - aid: int = 1 💡 area_id
@@ -11649,7 +11723,6 @@ class P115Client(P115OpenClient):
                 - <其它>: 会被视为 0
 
             - asc: 0 | 1 = <default> 💡 是否升序排列。0:降序 1:升序
-            - code: int | str = <default>
             - count_folders: 0 | 1 = 1 💡 统计文件数和目录数
             - cur: 0 | 1 = <default>   💡 是否只显示当前目录
             - custom_order: 0 | 1 | 2 = <default> 💡 是否使用记忆排序。如果指定了 "asc"、"fc_mix"、"o" 中其一，则此参数会被自动设置为 2
@@ -11658,15 +11731,13 @@ class P115Client(P115OpenClient):
                 - 1: 使用自定义排序（不使用记忆排序） 
                 - 2: 自定义排序（非目录置顶）
 
-            - date: str = <default> 💡 筛选日期
             - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
-            - fields: str = <default>
+            - fields: str = <default> 💡 筛选字段，多个用逗号 "," 隔开，如果所有字段都无效，则返回全部
             - for: str = <default> 💡 文件格式，例如 "doc"
-            - hide_data: str = <default> 💡 是否返回文件数据
             - is_q: 0 | 1 = <default>
             - is_share: 0 | 1 = <default>
             - min_size: int = 0 💡 最小的文件大小
-            - max_size: int = 0 💡 最大的文件大小
+            - max_size: int = 0 💡 最大的文件大小（含），<= 0 表示不限，因此并不能借此仅筛选出空文件
             - natsort: 0 | 1 = <default> 💡 是否执行自然排序(natural sorting)
             - nf: str = <default> 💡 不要显示文件（即仅显示目录），但如果 show_dir=0，则此参数无效
             - o: str = <default> 💡 用某字段排序（未定义的值会被视为 "user_utime"）
@@ -11685,7 +11756,7 @@ class P115Client(P115OpenClient):
             - show_dir: 0 | 1 = 1 💡 是否显示目录
             - snap: 0 | 1 = <default>
             - source: str = <default>
-            - sys_dir: int | str = <default> 💡 系统通用目录
+            - sys_dir: int | str = <default> 💡 系统目录编号，0:最近接收 1:手机相册 2:云下载 3:我的时光记录 4,10,20,21,22,30,40,50,60,70:(未知)
             - star: 0 | 1 = <default> 💡 是否星标文件
             - stdir: 0 | 1 = <default> 💡 筛选文件时，是否显示目录：1:展示 0:不展示
             - suffix: str = <default> 💡 后缀名（优先级高于 `type`）
@@ -11709,7 +11780,7 @@ class P115Client(P115OpenClient):
                 - 15: 图片和视频，相当于 2 和 4
                 - >= 16: 相当于 8
         """
-        api = complete_url("/ufile/files", base_url=base_url, app=app or "android", force_app=("wechatmini", "alipaymini"), version=version)
+        api = complete_url("/ufile/files", base_url=base_url, app=app, version=version)
         if payload is None:
             return self.request(url=api, async_=async_, **request_kwargs)
         if isinstance(payload, (int, str)):
@@ -11790,7 +11861,6 @@ class P115Client(P115OpenClient):
                 - <其它>: 会被视为 0
 
             - asc: 0 | 1 = <default> 💡 是否升序排列。0:降序 1:升序
-            - code: int | str = <default>
             - count_folders: 0 | 1 = 1 💡 统计文件数和目录数
             - cur: 0 | 1 = <default> 💡 是否只搜索当前目录
             - custom_order: 0 | 1 | 2 = <default> 💡 启用自定义排序，如果指定了 "asc"、"fc_mix"、"o" 中其一，则此参数会被自动设置为 2
@@ -11799,15 +11869,13 @@ class P115Client(P115OpenClient):
                 - 1: 使用自定义排序（不使用记忆排序） 
                 - 2: 自定义排序（非目录置顶）
  
-            - date: str = <default> 💡 筛选日期
             - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
-            - fields: str = <default>
             - for: str = <default> 💡 文件格式，例如 "doc"
             - hide_data: str = <default> 💡 是否返回文件数据
             - is_q: 0 | 1 = <default>
             - is_share: 0 | 1 = <default>
-            - min_size: int = 0 💡 最小的文件大小
-            - max_size: int = 0 💡 最大的文件大小
+            - min_size: int = 0 💡 （⚠️ 似乎不可用）最小的文件大小
+            - max_size: int = 0 💡 （⚠️ 似乎不可用）最大的文件大小（含），<= 0 表示不限，因此并不能借此仅筛选出空文件
             - natsort: 0 | 1 = <default> 💡 是否执行自然排序(natural sorting)
             - nf: str = <default> 💡 不要显示文件（即仅显示目录），但如果 show_dir=0，则此参数无效
             - o: str = <default> 💡 用某字段排序（未定义的值会被视为 "user_utime"）
@@ -11850,7 +11918,7 @@ class P115Client(P115OpenClient):
                 - 15: 图片和视频，相当于 2 和 4
                 - >= 16: 相当于 8
         """
-        api = complete_url("/files", base_url=base_url, app=app or "android", force_app=("wechatmini", "alipaymini"))
+        api = complete_url("/files", base_url=base_url, app=app, force_app=("wechatmini", "alipaymini"))
         if payload is None:
             return self.request(url=api, async_=async_, **request_kwargs)
         if isinstance(payload, (int, str)):
@@ -11898,17 +11966,22 @@ class P115Client(P115OpenClient):
 
         GET https://aps.115.com/natsort/files.php
 
+        .. tip::
+            这个接口的响应速度极快，在文件数特别多时，是 ``P115Client.fs_files`` 的数倍甚至数十倍的速度，更无论 ``P115Client.fs_files_app`` 了
+
         .. caution::
-            这个函数最多获取任何一种排序条件下的前 1201 条数据，当你的 `offset < 1201` 时，最多获取 `min(1201 - offset, limit)` 条数据
+            这个函数最多获取任何一种排序条件下的前 ``1200 + n`` 条数据（``n >= 0`` 是一个潜在的不定限制）。
 
-            `o` 参数无效，效果只等于 "file_name"，而 `fc_mix` 和 `asc` 可用。从技术上来讲最多获取 2402 个文件和 2402 个目录，即你可以通过 asc 取 0 或者 1，来最多获取两倍于数量上限的不同条目，然后通过指定 `show_dir=0&cur=1` 和 `show_dir=1&nf=1` 来分别只获取文件或目录。但如果有置顶的条目，置顶条目总是出现，因此会使能获取到的不同条目总数变少
+            `o` 参数无效，效果只等于 "file_name"，而 ``fc_mix`` 和 ``asc`` 可用。
 
-            当 `offset` >= 1201 或 >= 当前条件下的条目总数时，则相当于 `offset=0&fc_mix=1`，且置顶项不会置顶，且最多获取 1200 条数据
+            当 ``offset >= 1200 + n``，则相当于 ``offset=0&fc_mix=1``，即从头开始，且置顶项不会置顶
 
         .. hint::
-            文件或目录最多分别获取 max(1201, 2402 - 此类型被置顶的个数) 个，但对于文件，如果利用 type 或 suffix 进行筛选，则可以获得更多
+            从技术上来讲最多可分别获取 ``(1200 + n) * 2`` 个文件和目录，即你可以通过改变顺序（asc 取 0 或者 1），来最多获取两倍于数量上限的不同条目，然后通过指定 ``show_dir=0&cur=1`` 和 ``show_dir=1&nf=1`` 来分别只获取文件或目录。
 
-            不过在我看来，只要一个目录内的节点数超过 2,400 个，则大概就没必要使用此接口
+            不过对于文件，如果利用 ``type``、 ``suffix``、``min_size``、``max_size`` 等参数进行筛选，则可以获得更多，甚至可以是全部。
+
+            注意：如果有置顶的条目，置顶条目总是出现，因此可能会使获取到的不同条目总数变少。
 
         :payload:
             - cid: int | str = 0 💡 目录 id，对应 parent_id
@@ -11931,7 +12004,6 @@ class P115Client(P115OpenClient):
                 - <其它>: 会被视为 0
 
             - asc: 0 | 1 = <default> 💡 是否升序排列。0:降序 1:升序
-            - code: int | str = <default>
             - count_folders: 0 | 1 = 1 💡 统计文件数和目录数
             - cur: 0 | 1 = <default> 💡 是否只搜索当前目录
             - custom_order: 0 | 1 = <default> 💡 启用自定义排序，如果指定了 "asc"、"fc_mix" 中其一，则此参数会被自动设置为 1
@@ -11940,15 +12012,10 @@ class P115Client(P115OpenClient):
                 - 1: 使用自定义排序（不使用记忆排序） 
                 - 2: 自定义排序（非目录置顶）
 
-            - date: str = <default> 💡 筛选日期
             - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
-            - fields: str = <default>
-            - hide_data: str = <default> 💡 是否返回文件数据
             - is_asc: 0 | 1 = <default>
-            - is_q: 0 | 1 = <default>
-            - is_share: 0 | 1 = <default>
             - min_size: int = 0 💡 最小的文件大小
-            - max_size: int = 0 💡 最大的文件大小
+            - max_size: int = 0 💡 最大的文件大小（含），<= 0 表示不限，因此并不能借此仅筛选出空文件
             - natsort: 0 | 1 = <default>
             - order: str = <default>
             - r_all: 0 | 1 = <default>
@@ -12310,7 +12377,7 @@ class P115Client(P115OpenClient):
         GET https://webapi.115.com/files/medialist
 
         .. attention::
-            有个 bug，当 ``cur=1`` 时，似乎总是拉到空的文件列表
+            有个 bug，当 ``cid=0&cur=1`` 时，似乎总是拉到空的文件列表，此时建议换成 ``client.fs_files({"cid": 0, "cur": 1, "show_dir": 0})``
 
         :payload:
             - cid: int | str = 0 💡 目录 id，对应 parent_id
@@ -12722,6 +12789,112 @@ class P115Client(P115OpenClient):
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
+    def fs_folder_app(
+        self, 
+        payload: int | str | dict = 0, 
+        /, 
+        app: str = "android", 
+        base_url: str | Callable[[], str] = "https://proapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def fs_folder_app(
+        self, 
+        payload: int | str | dict = 0, 
+        /, 
+        app: str = "android", 
+        base_url: str | Callable[[], str] = "https://proapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def fs_folder_app(
+        self, 
+        payload: int | str | dict = 0, 
+        /, 
+        app: str = "android", 
+        base_url: str | Callable[[], str] = "https://proapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取目录列表
+
+        GET https://proapi.115.com/{app}/folder/update
+
+        .. caution::
+            似乎只能获取根目录的目录列表
+
+        :payload:
+            - offset: int = 0
+            - limit: int = 1150
+            - user_id: int | str = <default> 💡 用户 id
+            - ...
+        """
+        api = complete_url("/folder/update", base_url=base_url, app=app)
+        if not isinstance(payload, dict):
+            payload = {"cid": payload}
+        payload = {"offset": 0, "limit": 1150, "user_id": self.user_id, **payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def fs_folder_app2(
+        self, 
+        payload: int | str | dict = 0, 
+        /, 
+        app: str = "android", 
+        base_url: str | Callable[[], str] = "https://proapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def fs_folder_app2(
+        self, 
+        payload: int | str | dict = 0, 
+        /, 
+        app: str = "android", 
+        base_url: str | Callable[[], str] = "https://proapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def fs_folder_app2(
+        self, 
+        payload: int | str | dict = 0, 
+        /, 
+        app: str = "android", 
+        base_url: str | Callable[[], str] = "https://proapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取目录列表
+
+        GET https://proapi.115.com/{app}/folder
+
+        .. caution::
+            似乎只能获取根目录的目录列表
+
+        :payload:
+            - offset: int = 0
+            - limit: int = 1150
+            - user_id: int | str = <default> 💡 用户 id
+            - ...
+        """
+        api = complete_url("/folder", base_url=base_url, app=app)
+        if not isinstance(payload, dict):
+            payload = {"cid": payload}
+        payload = {"offset": 0, "limit": 1150, "user_id": self.user_id, **payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
     def fs_folder_playlong(
         self, 
         payload: int | str | dict, 
@@ -12861,6 +13034,59 @@ class P115Client(P115OpenClient):
             - ...
         """
         api = complete_url("/folder/update", base_url=base_url, app=app)
+        payload = {"aid": 1, "pid": 0, "user_id": self.user_id, **payload}
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def fs_folder_update_app2(
+        self, 
+        payload: dict, 
+        /, 
+        app: str = "android", 
+        base_url: str | Callable[[], str] = "https://proapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def fs_folder_update_app2(
+        self, 
+        payload: dict, 
+        /, 
+        app: str = "android", 
+        base_url: str | Callable[[], str] = "https://proapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def fs_folder_update_app2(
+        self, 
+        payload: dict, 
+        /, 
+        app: str = "android", 
+        base_url: str | Callable[[], str] = "https://proapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """设置文件或目录，或者创建目录
+
+        POST https://proapi.115.com/{app}/folder
+
+        .. note::
+            如果提供了 `cid` 和 `name`，则表示对 `cid` 对应的文件或目录进行改名，否则创建目录
+
+        :payload:
+            - name: str 💡 名字
+            - pid: int | str = 0 💡 在此目录 id 下创建目录
+            - aid: int = 1 💡 area_id
+            - cid: int = <default> 💡 文件或目录的 id，优先级高于 `pid`
+            - user_id: int | str = <default> 💡 用户 id
+            - ...
+        """
+        api = complete_url("/folder", base_url=base_url, app=app)
         payload = {"aid": 1, "pid": 0, "user_id": self.user_id, **payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
@@ -13571,9 +13797,8 @@ class P115Client(P115OpenClient):
                 - 1: 使用自定义排序（不使用记忆排序） 
                 - 2: 自定义排序（非目录置顶）
 
-            - date: str = <default> 💡 筛选日期
             - min_size: int = 0 💡 最小的文件大小
-            - max_size: int = 0 💡 最大的文件大小
+            - max_size: int = 0 💡 最大的文件大小（含），<= 0 表示不限，因此并不能借此仅筛选出空文件
             - natsort: 0 | 1 = <default> 💡 是否执行自然排序(natural sorting)
             - nf: str = <default> 💡 不要显示文件（即仅显示目录），但如果 show_dir=0，则此参数无效
             - o: str = <default> 💡 用某字段排序（未定义的值会被视为 "user_utime"）
@@ -16645,7 +16870,7 @@ class P115Client(P115OpenClient):
             - asc: 0 | 1 = <default> 💡 是否升序排列
             - cid: int | str = 0 💡 目录 id，对应 parent_id
             - count_folders: 0 | 1 = <default> 💡 是否统计目录数，这样就会增加 "folder_count" 和 "file_count" 字段作为统计
-            - date: str = <default> 💡 筛选日期，格式为 YYYY-MM-DD（或者 YYYY-MM 或 YYYY），具体可以看文件信息中的 "t" 字段的值
+            - date: str = <default> 💡 筛选日期，格式为 YYYY-MM-DD（或者 YYYY-MM 或者 YYYY 或者 时间戳（限定在当天）），最小单位是天，其次是月，具体可以看文件信息中的 "t" 字段的值
             - fc: 0 | 1 = <default> 💡 只显示文件或目录。1:只显示目录 2:只显示文件
             - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
             - file_label: int | str = <default> 💡 标签 id
@@ -16752,7 +16977,7 @@ class P115Client(P115OpenClient):
             - asc: 0 | 1 = <default> 💡 是否升序排列
             - cid: int | str = 0 💡 目录 id。cid=-1 时，表示不返回列表任何内容
             - count_folders: 0 | 1 = <default>
-            - date: str = <default> 💡 筛选日期
+            - date: str = <default> 💡 筛选日期，格式为 YYYY-MM-DD（或者 YYYY-MM 或者 YYYY 或者 时间戳（限定在当天）），最小单位是天，其次是月，具体可以看文件信息中的 "t" 字段的值
             - fc: 0 | 1 = <default> 💡 只显示文件或目录。1:只显示目录 2:只显示文件
             - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
             - file_label: int | str = <default> 💡 标签 id
@@ -16860,7 +17085,7 @@ class P115Client(P115OpenClient):
             - asc: 0 | 1 = <default> 💡 是否升序排列
             - cid: int | str = 0 💡 目录 id。cid=-1 时，表示不返回列表任何内容
             - count_folders: 0 | 1 = <default>
-            - date: str = <default> 💡 筛选日期
+            - date: str = <default> 💡 筛选日期，格式为 YYYY-MM-DD（或者 YYYY-MM 或者 YYYY 或者 时间戳（限定在当天）），最小单位是天，其次是月，具体可以看文件信息中的 "t" 字段的值
             - fc: 0 | 1 = <default> 💡 只显示文件或目录。1:只显示目录 2:只显示文件
             - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
             - file_label: int | str = <default> 💡 标签 id
@@ -17577,7 +17802,7 @@ class P115Client(P115OpenClient):
         else:
             payload = dict(payload, user_id=self.user_id)
         def parse(_, content: bytes, /) -> dict:
-            json = json_loads(content)
+            json = json_maybe_decrypt_loads(content)
             if json["state"] or json.get("errno") == 409:
                 json["data"] = json_loads(rsa_decrypt(json["data"]))
             return json
@@ -19424,7 +19649,7 @@ class P115Client(P115OpenClient):
         """获取当前的登录设备的信息，如果为 None，也不代表当前的 cookies 被下线，只能说明有更晚的登录到同一设备
         """
         def parse(_, content: bytes, /) -> None | dict:
-            login_devices = json_loads(content)
+            login_devices = json_maybe_decrypt_loads(content)
             if not login_devices["state"]:
                 return None
             return next(filter(cast(Callable, itemgetter("is_current")), login_devices["data"]["list"]), None)
@@ -19626,7 +19851,7 @@ class P115Client(P115OpenClient):
         api = complete_url(base_url=base_url, query={"ct": "guide", "ac": "status"})
         def parse(_, content: bytes, /) -> bool:
             try:
-                return json_loads(content)["state"]
+                return json_maybe_decrypt_loads(content)["state"]
             except:
                 return False
         request_kwargs.setdefault("parse", parse)
@@ -23953,8 +24178,9 @@ class P115Client(P115OpenClient):
     @overload
     def share_downlist(
         self, 
-        payload: dict, 
+        payload: int | str | dict, 
         /, 
+        share_url: str = "", 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
         async_: Literal[False] = False, 
@@ -23964,8 +24190,9 @@ class P115Client(P115OpenClient):
     @overload
     def share_downlist(
         self, 
-        payload: dict, 
+        payload: int | str | dict, 
         /, 
+        share_url: str = "", 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
         async_: Literal[True], 
@@ -23974,8 +24201,9 @@ class P115Client(P115OpenClient):
         ...
     def share_downlist(
         self, 
-        payload: dict, 
+        payload: int | str | dict, 
         /, 
+        share_url: str = "", 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
@@ -23986,7 +24214,7 @@ class P115Client(P115OpenClient):
         GET https://webapi.115.com/share/downlist
 
         .. attention::
-            cid 不能为 0
+            cid 不能为 0 或 空
 
         :payload:
             - share_code: str
@@ -23994,14 +24222,21 @@ class P115Client(P115OpenClient):
             - cid: int | str
         """
         api = complete_url("/share/downlist", base_url=base_url)
+        if not isinstance(payload, dict):
+            payload = {"cid": payload}
+        if share_url:
+            share_payload = share_extract_payload(share_url)
+            payload["share_code"] = share_payload["share_code"]
+            payload["receive_code"] = share_payload.get("receive_code") or ""
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
     def share_downlist_app(
         self, 
-        payload: dict, 
+        payload: int | str | dict, 
         /, 
-        app: str = "", 
+        share_url: str = "", 
+        app: str = "android", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
         async_: Literal[False] = False, 
@@ -24011,9 +24246,10 @@ class P115Client(P115OpenClient):
     @overload
     def share_downlist_app(
         self, 
-        payload: dict, 
+        payload: int | str | dict, 
         /, 
-        app: str = "", 
+        share_url: str = "", 
+        app: str = "android", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
         async_: Literal[True], 
@@ -24022,9 +24258,10 @@ class P115Client(P115OpenClient):
         ...
     def share_downlist_app(
         self, 
-        payload: dict, 
+        payload: int | str | dict, 
         /, 
-        app: str = "", 
+        share_url: str = "", 
+        app: str = "android", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
@@ -24035,7 +24272,7 @@ class P115Client(P115OpenClient):
         GET https://proapi.115.com/app/share/downlist
 
         .. attention::
-            cid 不能为 0
+            cid 不能为 0 或 空
 
         :payload:
             - share_code: str
@@ -24043,9 +24280,17 @@ class P115Client(P115OpenClient):
             - cid: int | str
         """
         if app in ("", "chrome"):
-            api = complete_url("/2.0/share/downlist", base_url=base_url, app=app)
-        else:
             api = complete_url("/app/share/downlist", base_url)
+        else:
+            if app not in ("windows", "mac", "linux", "os_windows", "os_mac", "os_linux"):
+                app = "os_windows"
+            api = complete_url("/2.0/share/downlist", base_url=base_url, app=app)
+        if not isinstance(payload, dict):
+            payload = {"cid": payload}
+        if share_url:
+            share_payload = share_extract_payload(share_url)
+            payload["share_code"] = share_payload["share_code"]
+            payload["receive_code"] = share_payload.get("receive_code") or ""
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -24053,9 +24298,9 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict, 
         /, 
-        url: str = "", 
+        share_url: str = "", 
         strict: bool = True, 
-        app: str = "", 
+        app: str = "android", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -24066,9 +24311,9 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict, 
         /, 
-        url: str = "", 
+        share_url: str = "", 
         strict: bool = True, 
-        app: str = "", 
+        app: str = "android", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -24078,9 +24323,9 @@ class P115Client(P115OpenClient):
         self, 
         payload: int | str | dict, 
         /, 
-        url: str = "", 
+        share_url: str = "", 
         strict: bool = True, 
-        app: str = "", 
+        app: str = "android", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
@@ -24101,39 +24346,30 @@ class P115Client(P115OpenClient):
 
         :return: 下载链接
         """
-        if isinstance(payload, (int, str)):
-            payload = {"file_id": payload}
-        else:
-            payload = dict(payload)
-        if url:
-            share_payload = share_extract_payload(url)
-            payload["share_code"] = share_payload["share_code"]
-            payload["receive_code"] = share_payload["receive_code"] or ""
         def gen_step():
             if app in ("web", "desktop"):
-                resp = yield self.share_download_url_web(payload, async_=async_, **request_kwargs)
+                resp = yield self.share_download_url_web(
+                    payload, share_url=share_url, async_=async_, **request_kwargs)
             else:
-                resp = yield self.share_download_url_app(payload, app=app, async_=async_, **request_kwargs)
+                resp = yield self.share_download_url_app(
+                    payload, share_url=share_url, app=app, async_=async_, **request_kwargs)
+            resp["payload"] = payload
+            resp["is_download"] = True
             check_response(resp)
-            info = resp["data"]
-            file_id = payload["file_id"]
-            if not info:
-                throw(
-                    errno.ENOENT, 
-                    f"no such id: {file_id!r}, with response {resp}", 
-                )
-            url = info["url"]
+            data = resp.get("data")
+            if not data:
+                resp["state"] = False
+                resp["errno"] = resp.get("errno") or 50015
+                resp.setdefault("message", "文件不存在、是目录或者不支持此操作")
+            url = data["url"]
             if strict and not url:
-                throw(
-                    errno.EISDIR, 
-                    f"{file_id} is a directory, with response {resp}", 
-                )
+                throw(errno.EISDIR, resp)
             return P115URL(
                 url["url"] if url else "", 
-                id=int(info["fid"]), 
-                name=info["fn"], 
-                size=int(info["fs"]), 
-                sha1=info.get("sha1", ""), 
+                id=int(data["fid"]), 
+                name=data["fn"], 
+                size=int(data["fs"]), 
+                sha1=data.get("sha1", ""), 
                 is_dir=not url, 
             )
         return run_gen_step(gen_step, async_)
@@ -24141,9 +24377,10 @@ class P115Client(P115OpenClient):
     @overload
     def share_download_url_app(
         self, 
-        payload: dict, 
+        payload: int | str | dict, 
         /, 
-        app: str = "", 
+        share_url: str = "", 
+        app: str = "android", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
         async_: Literal[False] = False, 
@@ -24153,9 +24390,10 @@ class P115Client(P115OpenClient):
     @overload
     def share_download_url_app(
         self, 
-        payload: dict, 
+        payload: int | str | dict, 
         /, 
-        app: str = "", 
+        share_url: str = "", 
+        app: str = "android", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
         async_: Literal[True], 
@@ -24164,9 +24402,10 @@ class P115Client(P115OpenClient):
         ...
     def share_download_url_app(
         self, 
-        payload: dict, 
+        payload: int | str | dict, 
         /, 
-        app: str = "", 
+        share_url: str = "", 
+        app: str = "android", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
@@ -24182,25 +24421,34 @@ class P115Client(P115OpenClient):
             - share_code: str
             - dl: 0 | 1 = <default>
         """
+        if not isinstance(payload, dict):
+            payload = {"file_id": payload}
+        if share_url:
+            share_payload = share_extract_payload(share_url)
+            payload["share_code"] = share_payload["share_code"]
+            payload["receive_code"] = share_payload.get("receive_code") or ""
         if app in ("", "chrome"):
-            api = complete_url("/2.0/share/downurl", base_url=base_url, app=app)
-            return self.request(url=api, params=payload, async_=async_, **request_kwargs)
-        else:
             api = complete_url("/app/share/downurl", base_url)
-            def parse(resp, content: bytes, /) -> dict:
-                resp = json_loads(content)
-                if resp["state"]:
-                    resp["data"] = json_loads(rsa_decrypt(resp["data"]))
-                return resp
+            def parse(_, content: bytes, /) -> dict:
+                json = json_maybe_decrypt_loads(content)
+                if json["state"] and (data := json.get("data")):
+                    json["data"] = json_loads(rsa_decrypt(data))
+                return json
             request_kwargs.setdefault("parse", parse)
             payload = {"data": rsa_encrypt(dumps(payload)).decode()}
             return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+        else:
+            if app not in ("windows", "mac", "linux", "os_windows", "os_mac", "os_linux"):
+                app = "os_windows"
+            api = complete_url("/2.0/share/downurl", base_url=base_url, app=app)
+            return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
     def share_download_url_web(
         self, 
-        payload: dict, 
+        payload: int | str | dict, 
         /, 
+        share_url: str = "", 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
         async_: Literal[False] = False, 
@@ -24210,8 +24458,9 @@ class P115Client(P115OpenClient):
     @overload
     def share_download_url_web(
         self, 
-        payload: dict, 
+        payload: int | str | dict, 
         /, 
+        share_url: str = "", 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
         async_: Literal[True], 
@@ -24220,8 +24469,9 @@ class P115Client(P115OpenClient):
         ...
     def share_download_url_web(
         self, 
-        payload: dict, 
+        payload: int | str | dict, 
         /, 
+        share_url: str = "", 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
@@ -24238,8 +24488,15 @@ class P115Client(P115OpenClient):
             - file_id: int | str
             - receive_code: str
             - share_code: str
+            - dl: int = <default>
         """
         api = complete_url("/share/downurl", base_url=base_url)
+        if not isinstance(payload, dict):
+            payload = {"file_id": payload}
+        if share_url:
+            share_payload = share_extract_payload(share_url)
+            payload["share_code"] = share_payload["share_code"]
+            payload["receive_code"] = share_payload.get("receive_code") or ""
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -24506,8 +24763,9 @@ class P115Client(P115OpenClient):
     @overload
     def share_receive(
         self, 
-        payload: dict, 
+        payload: int | str | dict, 
         /, 
+        share_url: str = "", 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
         async_: Literal[False] = False, 
@@ -24517,8 +24775,9 @@ class P115Client(P115OpenClient):
     @overload
     def share_receive(
         self, 
-        payload: dict, 
+        payload: int | str | dict, 
         /, 
+        share_url: str = "", 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
         async_: Literal[True], 
@@ -24527,8 +24786,9 @@ class P115Client(P115OpenClient):
         ...
     def share_receive(
         self, 
-        payload: dict, 
+        payload: int | str | dict, 
         /, 
+        share_url: str = "", 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
@@ -24546,13 +24806,20 @@ class P115Client(P115OpenClient):
             - is_check: 0 | 1 = <default>
         """
         api = complete_url("/share/receive", base_url=base_url)
+        if not isinstance(payload, dict):
+            payload = {"file_id": payload}
+        if share_url:
+            share_payload = share_extract_payload(share_url)
+            payload["share_code"] = share_payload["share_code"]
+            payload["receive_code"] = share_payload.get("receive_code") or ""
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
     def share_receive_app(
         self, 
-        payload: dict, 
+        payload: int | str | dict, 
         /, 
+        share_url: str = "", 
         app: str = "android", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
@@ -24563,8 +24830,9 @@ class P115Client(P115OpenClient):
     @overload
     def share_receive_app(
         self, 
-        payload: dict, 
+        payload: int | str | dict, 
         /, 
+        share_url: str = "", 
         app: str = "android", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
@@ -24574,8 +24842,9 @@ class P115Client(P115OpenClient):
         ...
     def share_receive_app(
         self, 
-        payload: dict, 
+        payload: int | str | dict, 
         /, 
+        share_url: str = "", 
         app: str = "android", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
@@ -24594,6 +24863,12 @@ class P115Client(P115OpenClient):
             - is_check: 0 | 1 = <default>
         """
         api = complete_url("/2.0/share/receive", base_url=base_url, app=app)
+        if not isinstance(payload, dict):
+            payload = {"file_id": payload}
+        if share_url:
+            share_payload = share_extract_payload(share_url)
+            payload["share_code"] = share_payload["share_code"]
+            payload["receive_code"] = share_payload.get("receive_code") or ""
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -24805,8 +25080,9 @@ class P115Client(P115OpenClient):
     @overload
     def share_search(
         self, 
-        payload: dict, 
+        payload: str | dict, 
         /, 
+        share_url: str = "", 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
         async_: Literal[False] = False, 
@@ -24816,8 +25092,9 @@ class P115Client(P115OpenClient):
     @overload
     def share_search(
         self, 
-        payload: dict, 
+        payload: str | dict, 
         /, 
+        share_url: str = "", 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
         async_: Literal[True], 
@@ -24826,8 +25103,9 @@ class P115Client(P115OpenClient):
         ...
     def share_search(
         self, 
-        payload: dict, 
+        payload: str | dict, 
         /, 
+        share_url: str = "", 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
@@ -24861,7 +25139,13 @@ class P115Client(P115OpenClient):
                 - 99: 所有文件
         """
         api = complete_url("/share/search", base_url=base_url)
+        if not isinstance(payload, dict):
+            payload = {"search_value": payload}
         payload = {"cid": 0, "limit": 32, "offset": 0, "search_value": ".", **payload}
+        if share_url:
+            share_payload = share_extract_payload(share_url)
+            payload["share_code"] = share_payload["share_code"]
+            payload["receive_code"] = share_payload.get("receive_code") or ""
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -24958,9 +25242,9 @@ class P115Client(P115OpenClient):
         self: int | str | dict | ClientRequestMixin, 
         payload: None | int | str | dict = None, 
         /, 
-        url: str = "", 
+        share_url: str = "", 
         strict: bool = True, 
-        app: str = "", 
+        app: str = "chrome", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -24971,9 +25255,9 @@ class P115Client(P115OpenClient):
         self: int | str | dict | ClientRequestMixin, 
         payload: None | int | str | dict = None, 
         /, 
-        url: str = "", 
+        share_url: str = "", 
         strict: bool = True, 
-        app: str = "", 
+        app: str = "chrome", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -24983,9 +25267,9 @@ class P115Client(P115OpenClient):
         self: int | str | dict | ClientRequestMixin, 
         payload: None | int | str | dict = None, 
         /, 
-        url: str = "", 
+        share_url: str = "", 
         strict: bool = True, 
-        app: str = "", 
+        app: str = "chrome", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
@@ -25001,7 +25285,7 @@ class P115Client(P115OpenClient):
             - receive_code: str  💡 接收码（访问密码）
             - share_code: str    💡 分享码
 
-        :param url: 分享链接，如果提供的话，会被拆解并合并到 `payload` 中，优先级较高
+        :param share_url: 分享链接，如果提供的话，会被拆解并合并到 `payload` 中，优先级较高
         :param strict: 如果为 True，当目标是目录时，会抛出 IsADirectoryError 异常
         :param app: 使用此设备的接口
         :param async_: 是否异步
@@ -25009,55 +25293,53 @@ class P115Client(P115OpenClient):
 
         :return: 下载链接
         """
-        if not isinstance(self, ClientRequestMixin):
-            payload = self
-            self = {}
-        else:
-            assert payload is not None
-        if not isinstance(payload, dict):
-            payload = {"file_id": payload}
-        if url:
-            share_payload = share_extract_payload(url)
-            payload["share_code"] = share_payload["share_code"]
-            payload["receive_code"] = share_payload["receive_code"] or ""
-        cls: type[P115Client] = __class__ # type: ignore
+        cls: P115Client = __class__ # type: ignore
         def gen_step():
             if app in ("web", "desktop"):
                 resp = yield cls.share_skip_login_download_url_web(
-                    self, payload, async_=async_, **request_kwargs)
+                    self, 
+                    payload, 
+                    share_url=share_url, 
+                    async_=async_, # type: ignore
+                    **request_kwargs, 
+                )
             else:
                 resp = yield cls.share_skip_login_download_url_app(
-                    self, payload, app=app, async_=async_, **request_kwargs)
+                    self, 
+                    payload, 
+                    share_url=share_url, 
+                    app=app, 
+                    async_=async_, # type: ignore
+                    **request_kwargs, 
+                )
+            resp["payload"] = payload
+            resp["is_download"] = True
             check_response(resp)
-            info = resp["data"]
-            file_id = payload["file_id"]
-            if not info:
-                throw(
-                    errno.ENOENT, 
-                    f"no such id: {file_id!r}, with response {resp}", 
-                )
-            url = info["url"]
+            data = resp.get("data")
+            if not data:
+                resp["state"] = False
+                resp["errno"] = resp.get("errno") or 50015
+                resp.setdefault("message", "文件不存在、是目录或者不支持此操作")
+            url = data["url"]
             if strict and not url:
-                throw(
-                    errno.EISDIR, 
-                    f"{file_id} is a directory, with response {resp}", 
-                )
+                throw(errno.EISDIR, resp)
             return P115URL(
                 url["url"] if url else "", 
-                id=int(info["fid"]), 
-                name=info["fn"], 
-                size=int(info["fs"]), 
-                sha1=info.get("sha1", ""), 
+                id=int(data["fid"]), 
+                name=data["fn"], 
+                size=int(data["fs"]), 
+                sha1=data.get("sha1", ""), 
                 is_dir=not url, 
             )
         return run_gen_step(gen_step, async_)
 
     @overload
     def share_skip_login_download_url_app(
-        self: dict | ClientRequestMixin, 
-        payload: None | dict = None, 
+        self: int | str | dict | ClientRequestMixin, 
+        payload: None | int | str | dict = None, 
         /, 
-        app: str = "", 
+        share_url: str = "", 
+        app: str = "chrome", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
         async_: Literal[False] = False, 
@@ -25066,10 +25348,11 @@ class P115Client(P115OpenClient):
         ...
     @overload
     def share_skip_login_download_url_app(
-        self: dict | ClientRequestMixin, 
-        payload: None | dict = None, 
+        self: int | str | dict | ClientRequestMixin, 
+        payload: None | int | str | dict = None, 
         /, 
-        app: str = "", 
+        share_url: str = "", 
+        app: str = "chrome", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
         async_: Literal[True], 
@@ -25077,10 +25360,11 @@ class P115Client(P115OpenClient):
     ) -> Coroutine[Any, Any, dict]:
         ...
     def share_skip_login_download_url_app(
-        self: dict | ClientRequestMixin, 
-        payload: None | dict = None, 
+        self: int | str | dict | ClientRequestMixin, 
+        payload: None | int | str | dict = None, 
         /, 
-        app: str = "", 
+        share_url: str = "", 
+        app: str = "chrome", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
@@ -25098,30 +25382,38 @@ class P115Client(P115OpenClient):
             - receive_code: str
             - share_code: str
         """
-        if isinstance(self, dict):
-            payload = self
-        else:
+        if isinstance(self, ClientRequestMixin):
             assert payload is not None
-        if app in ("", "chrome"):
-            api = complete_url("/2.0/share/skip_login_downurl", base_url=base_url, app=app)
+            request_kwargs["self"] = self
         else:
+            payload = self
+        if not isinstance(payload, dict):
+            payload = {"file_id": payload}
+        if share_url:
+            share_payload = share_extract_payload(share_url)
+            payload["share_code"] = share_payload["share_code"]
+            payload["receive_code"] = share_payload.get("receive_code") or ""
+        if app in ("", "chrome"):
             api = complete_url("/app/share/skip_login_downurl", base_url)
-            def parse(resp, content: bytes, /) -> dict:
-                resp = json_loads(content)
-                if resp["state"]:
-                    resp["data"] = json_loads(rsa_decrypt(resp["data"]))
-                return resp
+            def parse(_, content: bytes, /) -> dict:
+                json = json_maybe_decrypt_loads(content)
+                if json["state"] and (data := json.get("data")):
+                    json["data"] = json_loads(rsa_decrypt(data))
+                return json
             request_kwargs.setdefault("parse", parse)
             payload = {"data": rsa_encrypt(dumps(payload)).decode()}
+        else:
+            api = complete_url("/2.0/share/skip_login_downurl", base_url=base_url, app=app)
         request, request_kwargs = get_request(
             url=api, method="POST", data=payload, **request_kwargs)
         return request(async_=async_, **request_kwargs)
 
     @overload
     def share_skip_login_download_url_web(
-        self: dict | ClientRequestMixin, 
-        payload: None | dict = None, 
+        self: int | str | dict | ClientRequestMixin, 
+        payload: None | int | str | dict = None, 
         /, 
+        share_url: str = "", 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
         async_: Literal[False] = False, 
@@ -25130,9 +25422,10 @@ class P115Client(P115OpenClient):
         ...
     @overload
     def share_skip_login_download_url_web(
-        self: dict | ClientRequestMixin, 
-        payload: None | dict = None, 
+        self: int | str | dict | ClientRequestMixin, 
+        payload: None | int | str | dict = None, 
         /, 
+        share_url: str = "", 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
         async_: Literal[True], 
@@ -25140,9 +25433,10 @@ class P115Client(P115OpenClient):
     ) -> Coroutine[Any, Any, dict]:
         ...
     def share_skip_login_download_url_web(
-        self: dict | ClientRequestMixin, 
-        payload: None | dict = None, 
+        self: int | str | dict | ClientRequestMixin, 
+        payload: None | int | str | dict = None, 
         /, 
+        share_url: str = "", 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
@@ -25161,10 +25455,17 @@ class P115Client(P115OpenClient):
             - file_id: int | str 💡 文件 id
         """
         api = complete_url("/share/skip_login_downurl", base_url=base_url)
-        if isinstance(self, dict):
-            payload = self
-        else:
+        if isinstance(self, ClientRequestMixin):
             assert payload is not None
+            request_kwargs["self"] = self
+        else:
+            payload = self
+        if not isinstance(payload, dict):
+            payload = {"file_id": payload}
+        if share_url:
+            share_payload = share_extract_payload(share_url)
+            payload["share_code"] = share_payload["share_code"]
+            payload["receive_code"] = share_payload.get("receive_code") or ""
         request, request_kwargs = get_request(
             url=api, method="POST", data=payload, **request_kwargs)
         return request(async_=async_, **request_kwargs)
@@ -25265,9 +25566,10 @@ class P115Client(P115OpenClient):
 
     @overload
     def share_snap(
-        self: dict | ClientRequestMixin, 
-        payload: None | dict = None, 
+        self: int | str | dict | ClientRequestMixin, 
+        payload: int | str | dict = 0, 
         /, 
+        share_url: str = "", 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
         async_: Literal[False] = False, 
@@ -25276,9 +25578,10 @@ class P115Client(P115OpenClient):
         ...
     @overload
     def share_snap(
-        self: dict | ClientRequestMixin, 
-        payload: None | dict = None, 
+        self: int | str | dict | ClientRequestMixin, 
+        payload: int | str | dict = 0, 
         /, 
+        share_url: str = "", 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
         async_: Literal[True], 
@@ -25286,9 +25589,10 @@ class P115Client(P115OpenClient):
     ) -> Coroutine[Any, Any, dict]:
         ...
     def share_snap(
-        self: dict | ClientRequestMixin, 
-        payload: None | dict = None, 
+        self: int | str | dict | ClientRequestMixin, 
+        payload: int | str | dict = 0, 
         /, 
+        share_url: str = "", 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
         async_: Literal[False, True] = False, 
@@ -25320,19 +25624,26 @@ class P115Client(P115OpenClient):
                 - "user_ptime": 创建时间/修改时间
         """
         api = complete_url("/share/snap", base_url=base_url)
-        if isinstance(self, dict):
-            payload = self
+        if isinstance(self, ClientRequestMixin):
+            request_kwargs["self"] = self
         else:
-            assert payload is not None
+            payload = self
+        if not isinstance(payload, dict):
+            payload = {"cid": payload}
         payload = {"cid": 0, "limit": 32, "offset": 0, **payload}
+        if share_url:
+            share_payload = share_extract_payload(share_url)
+            payload["share_code"] = share_payload["share_code"]
+            payload["receive_code"] = share_payload.get("receive_code") or ""
         request, request_kwargs = get_request(url=api, params=payload, **request_kwargs)
         return request(async_=async_, **request_kwargs)
 
     @overload
     def share_snap_app(
         self, 
-        payload: dict, 
+        payload: int | str | dict = 0, 
         /, 
+        share_url: str = "", 
         app: str = "android", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
@@ -25343,8 +25654,9 @@ class P115Client(P115OpenClient):
     @overload
     def share_snap_app(
         self, 
-        payload: dict, 
+        payload: int | str | dict = 0, 
         /, 
+        share_url: str = "", 
         app: str = "android", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
@@ -25354,8 +25666,9 @@ class P115Client(P115OpenClient):
         ...
     def share_snap_app(
         self, 
-        payload: dict, 
+        payload: int | str | dict = 0, 
         /, 
+        share_url: str = "", 
         app: str = "android", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
@@ -25383,7 +25696,13 @@ class P115Client(P115OpenClient):
                 - "user_ptime": 创建时间/修改时间
         """
         api = complete_url("/2.0/share/snap", base_url=base_url, app=app)
+        if not isinstance(payload, dict):
+            payload = {"cid": payload}
         payload = {"cid": 0, "limit": 32, "offset": 0, **payload}
+        if share_url:
+            share_payload = share_extract_payload(share_url)
+            payload["share_code"] = share_payload["share_code"]
+            payload["receive_code"] = share_payload.get("receive_code") or ""
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -26633,7 +26952,7 @@ class P115Client(P115OpenClient):
                 **request_kwargs, 
             )
             def parse(_, content: bytes):
-                data = json_loads(content)
+                data = json_maybe_decrypt_loads(content)
                 data["oss_info"] = resp
                 return data
             request_kwargs.setdefault("parse", parse)
@@ -26811,7 +27130,7 @@ class P115Client(P115OpenClient):
                 **request_kwargs, 
             )
             def parse(_, content: bytes):
-                data = json_loads(content)
+                data = json_maybe_decrypt_loads(content)
                 data["oss_info"] = resp
                 return data
             request_kwargs.setdefault("parse", parse)
@@ -27172,13 +27491,15 @@ class P115Client(P115OpenClient):
                 - ...
         """
         api = complete_url("/proapi/3.0/index.php", base_url=base_url, query={"method": "user_info"})
-        if not isinstance(self, ClientRequestMixin):
+        if isinstance(self, ClientRequestMixin):
+            request_kwargs["self"] = self
+            if payload is None:
+                if isinstance(self, P115OpenClient):
+                    payload = self.user_id
+                else:
+                    payload = 11500
+        else:
             payload = self
-        elif payload is None:
-            if isinstance(self, P115OpenClient):
-                payload = self.user_id
-            else:
-                raise ValueError("no payload provided")
         if isinstance(payload, int):
             payload = {"uid": payload}
         elif isinstance(payload, str):
@@ -28783,7 +29104,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> P115URL | Coroutine[Any, Any, P115URL]:
-        """获取文件的下载链接，此接口是对 `download_url_app` 的封装
+        """获取共享文件的下载链接
 
         .. note::
             获取的直链中，部分查询参数的解释：
@@ -28807,14 +29128,16 @@ class P115Client(P115OpenClient):
         :return: 下载链接
         """
         def gen_step():
+            payload = {"share_id": share_id, "pick_code": pickcode}
             if app in ("web", "desktop"):
                 resp = yield self.usershare_download_url_web(
-                    {"share_id": share_id, "pick_code": pickcode}, 
+                    payload, 
                     user_agent=user_agent, 
                     async_=async_, 
                     **request_kwargs, 
                 )
-                resp["pickcode"] = pickcode
+                resp["payload"] = payload
+                resp["is_download"] = True
                 try:
                     check_response(resp)
                 except IsADirectoryError:
@@ -28831,16 +29154,22 @@ class P115Client(P115OpenClient):
                 )
             else:
                 resp = yield self.download_url_app(
-                    {"share_id": share_id, "pick_code": pickcode}, 
+                    payload, 
                     user_agent=user_agent, 
                     app=app, 
                     async_=async_, 
                     **request_kwargs, 
                 )
-                resp["pickcode"] = pickcode
+                resp["payload"] = payload
+                resp["is_download"] = True
                 check_response(resp)
-                if "url" in resp["data"]:
-                    url = resp["data"]["url"]
+                data = resp.get("data")
+                if not data:
+                    resp["state"] = False
+                    resp["errno"] = resp.get("errno") or 50015
+                    resp.setdefault("message", "文件不存在、是目录或者不支持此操作")
+                if "url" in data:
+                    url = data["url"]
                     return P115URL(
                         url, 
                         pickcode=pickcode, 
@@ -28848,7 +29177,7 @@ class P115Client(P115OpenClient):
                         is_dir=False, 
                         headers=resp["headers"], 
                     )
-                for fid, info in resp["data"].items():
+                for fid, info in data.items():
                     url = info["url"]
                     if strict and not url:
                         throw(
@@ -28908,7 +29237,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict[int, P115URL] | Coroutine[Any, Any, dict[int, P115URL]]:
-        """批量获取文件的下载链接，此接口是对 `download_url_app` 的封装
+        """批量获取共享文件的下载链接
 
         .. note::
             获取的直链中，部分查询参数的解释：
@@ -28933,19 +29262,24 @@ class P115Client(P115OpenClient):
         if not isinstance(pickcodes, str):
             pickcodes = ",".join(pickcodes)
         def gen_step():
+            payload = {"pickcode": pickcodes, "share_id": share_id}
             resp = yield self.download_url_app(
-                {"pickcode": pickcodes, "share_id": share_id}, 
+                payload, 
                 user_agent=user_agent, 
                 async_=async_, 
                 **request_kwargs, 
             )
-            resp["pickcode"] = pickcodes
+            resp["payload"] = payload
+            resp["is_download"] = True
+            data = resp.get("data")
+            if not data:
+                resp["state"] = False
+                resp["errno"] = resp.get("errno") or 50015
+                resp.setdefault("message", "文件不存在、是目录或者不支持此操作")
             urls: dict[int, P115URL] = {}
-            if not resp["state"]:
-                if resp.get("errno") != 50003:
-                    check_response(resp)
-            else:
-                for fid, info in resp["data"].items():
+            if resp.get("errno") != 50003:
+                check_response(resp)
+                for fid, info in data.items():
                     url = info["url"]
                     if strict and not url:
                         continue
@@ -29016,7 +29350,7 @@ class P115Client(P115OpenClient):
         else:
             headers["user-agent"] = user_agent
         def parse(resp, content: bytes, /) -> dict:
-            json = json_loads(content)
+            json = json_maybe_decrypt_loads(content)
             if "Set-Cookie" in resp.headers:
                 if isinstance(resp.headers, Mapping):
                     match = CRE_SET_COOKIE.search(resp.headers["Set-Cookie"])

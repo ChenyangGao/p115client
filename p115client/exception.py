@@ -4,6 +4,7 @@
 __all__ = [
     "P115Error", "P115Warning", "P115OSError", "P115AccessError", 
     "P115AuthenticationError", "P115BusyOSError", "P115DataError", 
+    "P115FileNotFoundError", "P115DownloadFileNotFoundError", 
     "P115OperationalError", "P115FileTooBig", "P115ExceededError", 
     "P115InvalidArgumentError", "P115NoSpaceError", "P115NotSupportedError", 
     "P115LoginError", "P115AccessTokenError", "P115OpenAppAuthLimitExceeded", 
@@ -72,6 +73,16 @@ class P115BusyOSError(P115OSError):
 
 class P115DataError(P115OSError):
     """当响应数据解析失败时抛出
+    """
+
+
+class P115FileNotFoundError(P115OSError, FileNotFoundError):
+    """当文件不存在时抛出
+    """
+
+
+class P115DownloadFileNotFoundError(P115FileNotFoundError):
+    """当下载文件不存在时抛出
     """
 
 
@@ -177,17 +188,18 @@ def throw(*args, **kwds) -> Never:
 
 #: errno 到的异常类的映射
 errno2error: dict[errno, type[P115Error]] = {
+    errno.EACCES: P115AccessError, 
+    errno.EBADF: P115BadFile, 
+    errno.EFBIG: P115FileTooBig, 
     errno.EAUTH: P115AuthenticationError, 
     errno.EBUSY: P115BusyOSError, 
     errno.ENODATA: P115DataError, 
-    errno.EACCES: P115AccessError, 
-    errno.EFBIG: P115FileTooBig, 
-    errno.ERANGE: P115ExceededError, 
+    errno.ENOENT: P115FileNotFoundError, 
     errno.EINVAL: P115InvalidArgumentError, 
     errno.ENOSPC: P115NoSpaceError, 
     errno.ENOTSUP: P115NotSupportedError, 
     errno.ENOSYS: P115NotSupportedError, 
-    errno.EBADF: P115BadFile, 
+    errno.ERANGE: P115ExceededError, 
 }
 
 _modns = globals()
