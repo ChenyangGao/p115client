@@ -10532,6 +10532,7 @@ class P115Client(P115OpenClient):
             此接口还能删除 `aid=12` 下的文件，且不会经过回收站（`aid=7`），而是彻底删除（`aid=120`）
 
             .. code:: python
+
                 from pathlib import Path
                 from itertools import batched
                 from p115client import P115Client
@@ -26542,11 +26543,11 @@ class P115Client(P115OpenClient):
             通过扩展名来识别，仅支持以下格式图片(jpg,jpeg,png,gif,svg,webp,heic,bmp,dng)
 
         .. note::
-            `target` 随便设置，例如 "U_4_-1"、"U_5_-2"、"U_3_-10" 等
+            ``target`` 随便设置，例如 ``"U_4_-1"``、``"U_5_-2"``、``"U_3_-10"`` 等
 
         :payload:
             - filename: str = <default> 💡 文件名，默认为一个新的 uuid4 对象的字符串表示
-            - target: str = "U_4_-1" 💡 上传目标，格式为 f"U_{aid}_{pid}"
+            - target: str = ``"U_4_-1"`` 💡 上传目标，格式为 ``f"U_{aid}_{pid}"``
             - filesize: int | str = <default> 💡 图片大小
             - height: int = <default> 💡 图片高度
             - width: int = <default>  💡 图片宽度
@@ -26651,13 +26652,13 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """网页端的上传图片接口的初始化，不会秒传，此接口是对 `upload_image_init` 的封装
+        """网页端的上传图片接口的初始化，不会秒传，此接口是对 ``upload_image_init`` 的封装
 
         .. caution::
             通过扩展名来识别，仅支持以下格式图片(jpg,jpeg,png,gif,svg,webp,heic,bmp,dng)
 
         .. note::
-            `target` 随便设置，例如 "U_4_-1"、"U_5_-2"、"U_3_-10" 等
+            ``target`` 随便设置，例如 ``"U_4_-1"``、``"U_5_-2"``、``"U_3_-10"`` 等
 
         :param filename: 文件名，默认为一个新的 uuid4 对象的字符串表示
         :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 f"U_{aid}_{pid}" 或 f"S_{share_id}_{pid}"）
@@ -26885,10 +26886,10 @@ class P115Client(P115OpenClient):
             不支持秒传，但也不必传文件大小和 sha1，最大支持上传 50 MB 的文件
 
         .. note::
-            `target` 随便设置，例如 "U_4_-1"、"U_5_-2"、"U_3_-10" 等
+            ``target`` 随便设置，例如 ``"U_4_-1"``、``"U_5_-2"``、``"U_3_-10"`` 等
 
         :param file: 待上传的文件
-        :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 f"U_{aid}_{pid}" 或 f"S_{share_id}_{pid}"）
+        :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 ``f"U_{aid}_{pid}"`` 或 ``f"S_{share_id}_{pid}"``）
         :param filename: 文件名，如果为空，则会自动确定
         :param async_: 是否异步
         :param request_kwargs: 其余请求参数
@@ -27026,7 +27027,7 @@ class P115Client(P115OpenClient):
             如果上传到共享目录，占用的是创建者的网盘空间
 
         .. note::
-            只要上传后的 `aid` 或 `area_id` 不为 1，则不占用空间，这是 `upload_file` 所不能的（因为即使指定了 "U_{aid}_{pid}"，也会忽略其中的 `aid`，强行视为 1）
+            只要上传后的 ``aid`` 或 ``area_id`` 不为 1，则不占用空间，这是 ``upload_file`` 所不能的（因为即使指定了 ``"U_{aid}_{pid}"``，也会忽略其中的 ``aid``，强行视为 1）
 
         .. note::
             如果我们把文件名分成两部分，名字 + 扩展名（含前缀点号 .），那么就有以下限制：
@@ -27046,7 +27047,7 @@ class P115Client(P115OpenClient):
                     6. ... (其它未被发现的规则，例如我还未测试仅含中文的场景)
 
         .. note::
-            通过 ``pid``，支持随意指定上传目标。特别是当格式为 f"U_{aid}_{pid}"，允许其中的 ``aid != 1`` 和 ``pid < 0``（可能有特殊指代）。
+            通过 ``pid``，支持随意指定上传目标。特别是当格式为 ``f"U_{aid}_{pid}"``，允许其中的 ``aid != 1`` 和 ``pid < 0`` （可能有特殊指代）。
             这里有一些特殊的位置：
 
             - ``U_0_{n}``: 等同于 ``pid="U_1_0"``，无论 ``n`` 是什么值
@@ -27062,7 +27063,7 @@ class P115Client(P115OpenClient):
             尽量不要使 ``aid=15``，因为这会导致白白占掉空间，不能删除，也不能正常下载。
 
         :param file: 待上传的文件
-        :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 f"U_{aid}_{pid}" 或 f"S_{share_id}_{pid}"）
+        :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 ``f"U_{aid}_{pid}"`` 或 ``f"S_{share_id}_{pid}"``）
         :param filename: 文件名，如果为空，则会自动确定
         :param filesize: 文件大小，⚠️ 此参数可以省略
         :param dirname: 保存目录，是在 `pid` 对应目录下的相对路径，默认为 `pid` 所对应目录本身

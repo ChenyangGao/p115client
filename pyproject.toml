@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "p115client"
-version = "0.0.9.4.5"
+version = "0.0.9.4.5.1"
 description = "Python 115 webdisk client."
 authors = ["ChenyangGao <wosiwujm@gmail.com>"]
 license = "MIT"
@@ -44,7 +44,7 @@ p115oss = ">=0.1.0.4"
 p115pickcode = ">=0.0.5.4"
 posixpatht = ">=0.0.4"
 python-argtools = ">=0.0.4"
-python-asynctools = ">=0.2.1"
+python-asynctools = ">=0.2.1.1"
 python-concurrenttools = ">=0.1.5"
 python-cookietools = ">=0.1.5"
 python-dictattr = ">=0.0.4"
