@@ -8,7 +8,7 @@ __all__ = [
     "get_ancestors", "get_path", "get_id", "get_id_to_path", 
     "get_id_to_sha1", "get_id_to_name", "share_get_id", 
     "share_get_id_to_path", "share_get_id_to_name", "get_file_count", 
-    "get_dir_count", "get_url", "dir_getid", 
+    "get_dir_count", "get_url", "dir_getid", "get_pickcode_stable_point", 
 ]
 __doc__ = "这个模块提供了一些和文件或目录信息有关的函数"
 
@@ -29,7 +29,7 @@ from dicttools import get_first
 from errno2 import errno
 from integer_tool import try_parse_int
 from iterutils import run_gen_step, run_gen_step_iter, with_iter_next, Yield
-from p115pickcode import to_id
+from p115pickcode import to_id, get_stable_point
 from posixpatht import path_is_dir_form, splitext, splits
 
 from ..client import check_response, P115Client, P115OpenClient
@@ -105,9 +105,9 @@ def normalize_attr_web[D: dict[str, Any]](
     if "fc" in info:
         is_dir = int(info["fc"]) == 0
     elif "sha" in info:
-        is_dir = bool(info["sha"])
+        is_dir = not info["sha"]
     elif "sha1" in info:
-        is_dir = bool(info["sha1"])
+        is_dir = not info["sha1"]
     elif "cid" in info:
         is_dir = "fid" not in info
     else:
@@ -266,9 +266,9 @@ def normalize_attr_app[D: dict[str, Any]](
     if "fc" in info:
         is_dir = int(info["fc"]) == 0
     elif "sha" in info:
-        is_dir = bool(info["sha"])
+        is_dir = not info["sha"]
     elif "sha1" in info:
-        is_dir = bool(info["sha1"])
+        is_dir = not info["sha1"]
     else:
         is_dir = not ("s" in info or "fs" in info)
     attr["is_dir"] = is_dir
@@ -405,27 +405,17 @@ def normalize_attr_app2[D: dict[str, Any]](
     if "file_category" in info:
         is_dir = int(info["file_category"]) == 0
     elif "sha1" in info:
-        is_dir = bool(info["sha1"])
+        is_dir = not info["sha1"]
     elif "file_sha1" in info:
-        is_dir = bool(info["file_sha1"])
+        is_dir = not info["file_sha1"]
     elif "category_id" in info:
         is_dir = "file_id" not in info
     else:
         is_dir = not ("file_size" in info or "size" in info)
     attr["is_dir"] = is_dir
-    if "file_id" in info and "parent_id" in info:
-        attr["id"] = int(info["file_id"])
-        attr["parent_id"] = int(info["parent_id"])
-        attr["name"] = info["file_name"]
-    else:
-        if is_dir:
-            attr["id"] = int(info["category_id"])
-            attr["parent_id"] = int(info["parent_id"])
-            attr["name"] = info["category_name"]
-        else:
-            attr["id"] = int(info["file_id"])
-            attr["parent_id"] = int(info["category_id"])
-            attr["name"] = info["file_name"]
+    attr["id"] = int(get_first(info, "file_id", "category_id"))
+    attr["parent_id"] = int(get_first(info, "parent_id", "category_id"))
+    attr["name"] = get_first(info, "file_name", "category_name")
     attr["sha1"] = info.get("sha1") or info.get("file_sha1") or ""
     attr["size"] = int(info.get("file_size") or 0)
     if "pick_code" in info:
@@ -631,10 +621,6 @@ def normalize_attr_simple[D: dict[str, Any]](
     )
 
 
-from .fs_files import iter_fs_files_serialized
-from .iterdir import overview_attr, iterdir, share_iterdir, update_resp_ancestors
-
-
 def type_of_attr(attr: str | Mapping, /) -> int:
     """推断文件信息所属类型（试验版，未必准确）
 
@@ -836,6 +822,7 @@ def get_info(
         if isinstance(client, P115Client) and app != "open":
             raise
     def gen_step():
+        from .iterdir import update_resp_ancestors
         if not isinstance(client, P115Client) or app == "open":
             resp = yield client.fs_info_open(
                 id, 
@@ -928,7 +915,9 @@ def iter_list(
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
     cid = to_id(cid)
     def gen_step():
-        with with_iter_next(iter_fs_files_serialized(
+        from .fs_files import fs_files_iter
+        from .iterdir import overview_attr, update_resp_ancestors
+        with with_iter_next(fs_files_iter(
             client, 
             dict(payload or (), cid=cid, offset=start), 
             page_size=page_size, 
@@ -1481,6 +1470,7 @@ def get_id_to_path(
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
     error = FileNotFoundError(errno.ENOENT, f"no such path: {path!r}")
     def gen_step():
+        from .iterdir import iterdir
         nonlocal ensure_file, cid, path
         if isinstance(path, str):
             if path.startswith("/"):
@@ -2032,6 +2022,7 @@ def share_get_id_to_path(
     if isinstance(client, (str, PathLike)):
         client = P115Client(client)
     def gen_step():
+        from .iterdir import share_iterdir
         nonlocal ensure_file, cid, id_to_dirnode
         payload = cast(dict, share_extract_payload(share_code))
         if receive_code:
@@ -2611,5 +2602,61 @@ def dir_getid(
         if fid:
             return int(fid)
         throw(errno.ENOENT, "/" + path)
+    return run_gen_step(gen_step, async_)
+
+
+@overload
+def get_pickcode_stable_point(
+    client: str | PathLike | P115Client, 
+    user_id: int, 
+    app: str = "android", 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> int:
+    ...
+@overload
+def get_pickcode_stable_point(
+    client: str | PathLike | P115Client, 
+    user_id: int, 
+    app: str = "android", 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> Coroutine[Any, Any, int]:
+    ...
+def get_pickcode_stable_point(
+    client: str | PathLike | P115Client, 
+    user_id: int = 0, 
+    app: str = "android", 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+) -> int | Coroutine[Any, Any, int]:
+    """获取提取码 pickcode 的特征值，以此可以用 id 来获得 pickcode
+
+    :param client: 115 客户端或 cookies
+    :param user_id: 用户 id，如果 <= 0，则默认是 ``client`` 所对应的用户 id
+    :param app: 使用指定 app（设备）的接口
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+
+    :return: 目录的 id
+    """
+    if isinstance(client, (str, PathLike)):
+        client = P115Client(client)
+    def gen_step():
+        if user_id <= 0:
+            return client.pickcode_stable_point
+        resp = yield client.fs_folder_app(
+            {"user_id": user_id, "limit": 1}, 
+            app=app, 
+            async_=async_, 
+            **request_kwargs, 
+        )
+        check_response(resp)
+        if not resp["count"]:
+            raise RuntimeError("can't get pickcode_stable_point")
+        return get_stable_point(resp["data"][0]["pick_code"])
     return run_gen_step(gen_step, async_)
 

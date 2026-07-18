@@ -115,13 +115,16 @@ def upload_host_image(
                 "size": int(resp["data"]["file_size"]), 
             }
             if base_url:
-                resp = yield client.life_get_pic_url(
-                    resp["data"]["sha1"], 
-                    async_=async_, # type: ignore
-                    **request_kwargs, 
+                from .download import get_pic_url
+                return P115URL(
+                    (yield get_pic_url(
+                        client, 
+                        resp["data"]["sha1"], 
+                        async_=async_, 
+                        **request_kwargs, 
+                    )), 
+                    data, 
                 )
-                check_response(resp)
-                return P115URL(resp["data"][0]["json"].replace("&i=0", "&i=1"), data)
             url = resp["data"]["thumb_url"]
             return P115URL(url[:url.index("?")], data)
         resp = yield client.upload_file_sample(

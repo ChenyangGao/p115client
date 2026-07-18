@@ -8601,6 +8601,7 @@ class P115Client(P115OpenClient):
                 payload = {"pickcode": payload}
             elif "pickcode" not in payload:
                 payload["pickcode"] = payload["pick_code"]
+            # NOTE: 提取码不可是 "f" 开头，但允许由任何特征值构造（由 0-9 和 a-z 这 36 个字符，构成的 4 位字符串，例如 "0000"），但限定必须是自己网盘的文件（不能获取别人的文件）
             payload["pickcode"] = ",".join(map(normalize_pickcode, payload["pickcode"].split(",")))
             request_kwargs.setdefault("ecdh_encrypt", True)
         else:
@@ -11481,7 +11482,7 @@ class P115Client(P115OpenClient):
         GET https://webapi.115.com/files
 
         .. attention::
-            webapi.115.com 下任意接口被风控，可能此域名下的所有接口都被风控，但重新登录往往能恢复，而 proapi.115.com 之下同样被风控，重新登录却未必恢复得了
+            此接口被风控，此域名下的大量接口都会被风控，但重新登录可能恢复（多次登录必定不能恢复，即使更换设备）
 
         .. hint::
             指定如下条件中任一，且 cur = 0 （默认），即可遍历搜索所在目录树
@@ -12827,19 +12828,17 @@ class P115Client(P115OpenClient):
 
         GET https://proapi.115.com/{app}/folder/update
 
-        .. caution::
-            似乎只能获取根目录的目录列表
-
         :payload:
+            - p_id: int
             - offset: int = 0
             - limit: int = 1150
-            - user_id: int | str = <default> 💡 用户 id
+            - user_id: int | str = <default> 💡 用户 id，不必是自己 🤪
             - ...
         """
         api = complete_url("/folder/update", base_url=base_url, app=app)
         if not isinstance(payload, dict):
-            payload = {"cid": payload}
-        payload = {"offset": 0, "limit": 1150, "user_id": self.user_id, **payload}
+            payload = {"p_id": payload}
+        payload = {"limit": 1150, "offset": 0, "p_id": 0, "user_id": self.user_id, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -12880,19 +12879,17 @@ class P115Client(P115OpenClient):
 
         GET https://proapi.115.com/{app}/folder
 
-        .. caution::
-            似乎只能获取根目录的目录列表
-
         :payload:
+            - p_id: int
             - offset: int = 0
             - limit: int = 1150
-            - user_id: int | str = <default> 💡 用户 id
+            - user_id: int | str = <default> 💡 用户 id，不必是自己 🤪
             - ...
         """
         api = complete_url("/folder", base_url=base_url, app=app)
         if not isinstance(payload, dict):
-            payload = {"cid": payload}
-        payload = {"offset": 0, "limit": 1150, "user_id": self.user_id, **payload}
+            payload = {"p_id": payload}
+        payload = {"limit": 1150, "offset": 0, "p_id": 0, "user_id": self.user_id, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -26448,6 +26445,65 @@ class P115Client(P115OpenClient):
         )
 
     @overload
+    def upload_chat_image_init(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def upload_chat_image_init(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def upload_chat_image_init(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """聊天窗口中上传图片接口的初始化
+
+        POST https://115.com/api/chat/image/upload
+
+        .. caution::
+            此接口不支持秒传，最大支持上传 50 MB 的文件，上传成功后不占用空间
+
+        .. caution::
+            通过扩展名来识别，仅支持以下格式图片(jpg,jpeg,png,gif,svg,webp,heic,bmp,dng)
+
+        .. note::
+            ``target`` 随便设置，例如 ``"U_3_-1"``、``"U_4_-1"``、``"U_5_-2"``、``"U_3_-10"`` 等
+
+        :payload:
+            - filename: str = <default> 💡 文件名，默认为一个新的 uuid4 对象的字符串表示
+            - target: str = ``"U_3_-1"`` 💡 上传目标，格式为 ``f"U_{aid}_{pid}"``
+            - filesize: int | str = <default> 💡 图片大小
+            - height: int = <default> 💡 图片高度
+            - width: int = <default>  💡 图片宽度
+        """
+        api = complete_url("/api/chat/image/upload", base_url=base_url)
+        if isinstance(payload, str):
+            payload = {"filename": payload}
+        elif "filename" not in payload:
+            payload["filename"] = str(uuid4()) + ".jpg"
+        payload = {"filesize": 1, "width": 1, "height": 1, "target": "U_3_-1", "userid": 11500, **payload}
+        return self.request(url=api, method="POST", json=payload, async_=async_, **request_kwargs)
+
+    @overload
     def upload_image(
         self, 
         /, 
@@ -26543,7 +26599,7 @@ class P115Client(P115OpenClient):
             通过扩展名来识别，仅支持以下格式图片(jpg,jpeg,png,gif,svg,webp,heic,bmp,dng)
 
         .. note::
-            ``target`` 随便设置，例如 ``"U_4_-1"``、``"U_5_-2"``、``"U_3_-10"`` 等
+            ``target`` 随便设置，例如 ``"U_3_-1"``、``"U_4_-1"``、``"U_5_-2"``、``"U_3_-10"`` 等
 
         :payload:
             - filename: str = <default> 💡 文件名，默认为一个新的 uuid4 对象的字符串表示
@@ -26658,7 +26714,7 @@ class P115Client(P115OpenClient):
             通过扩展名来识别，仅支持以下格式图片(jpg,jpeg,png,gif,svg,webp,heic,bmp,dng)
 
         .. note::
-            ``target`` 随便设置，例如 ``"U_4_-1"``、``"U_5_-2"``、``"U_3_-10"`` 等
+            ``target`` 随便设置，例如 ``"U_3_-1"``、``"U_4_-1"``、``"U_5_-2"``、``"U_3_-10"`` 等
 
         :param filename: 文件名，默认为一个新的 uuid4 对象的字符串表示
         :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 f"U_{aid}_{pid}" 或 f"S_{share_id}_{pid}"）
@@ -26844,13 +26900,153 @@ class P115Client(P115OpenClient):
         return run_gen_step(gen_step, async_)
 
     @overload
+    def upload_chat_image(
+        self, 
+        /, 
+        file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
+                SupportsRead | Iterable[Buffer] ), 
+        pid: int | str = "U_3_-1", 
+        share_id: int = 0, 
+        filename: str = "1.jpg", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def upload_chat_image(
+        self, 
+        /, 
+        file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
+                SupportsRead | Iterable[Buffer] | AsyncIterable[Buffer] ), 
+        pid: int | str = "U_3_-1", 
+        share_id: int = 0, 
+        filename: str = "1.jpg", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def upload_chat_image(
+        self, 
+        /, 
+        file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
+                SupportsRead | Iterable[Buffer] | AsyncIterable[Buffer] ), 
+        pid: int | str = "U_3_-1", 
+        share_id: int = 0, 
+        filename: str = "1.jpg", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """聊天窗口中上传一张图片
+
+        .. caution::
+            不支持秒传，但也不必传文件大小和 sha1，最大支持上传 50 MB 的文件
+
+        .. note::
+            ``target`` 随便设置，例如 ``"U_3_-1"``、``"U_4_-1"``、``"U_5_-2"``、``"U_3_-10"`` 等
+
+        :param file: 待上传的文件
+        :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 ``f"U_{aid}_{pid}"`` 或 ``f"S_{share_id}_{pid}"``）
+        :param share_id: 共享 id
+        :param filename: 文件名，如果为空，则会自动确定
+        :param async_: 是否异步
+        :param request_kwargs: 其余请求参数
+
+        :return: 接口响应
+        """
+        if isinstance(pid, str) and pid.startswith(("U_", "S_")):
+            target = pid
+        elif share_id:
+            target = f"S_{share_id}_{to_id(pid)}"
+        else:
+            target = f"U_1_{to_id(pid)}"
+        def gen_step():
+            nonlocal file, filename
+            if not isinstance(file, (Buffer, SupportsRead)):
+                path = file
+                is_url: None | bool = None
+                if isinstance(path, str):
+                    is_url = path.startswith(("http://", "https://"))
+                elif isinstance(path, (URL, SupportsGeturl)):
+                    is_url = True
+                    if isinstance(path, URL):
+                        path = str(path)
+                    else:
+                        path = path.geturl()
+                elif isinstance(path, PathLike):
+                    is_url = False
+                    path = fsdecode(path)
+                if is_url is not None:
+                    path = cast(str, path)
+                    if is_url:
+                        if async_:
+                            async def process():
+                                return await AsyncHTTPFileReader.new(
+                                    cast(str, path), 
+                                    headers={"user-agent": "", "accept-encoding": "identity"}, 
+                                )
+                            file = yield process()
+                        else:
+                            from httpfile import HTTPFileReader
+                            file = HTTPFileReader(
+                                path, headers={"user-agent": "", "accept-encoding": "identity"})
+                        file = cast(HTTPFileReader, file)
+                        if not filename:
+                            filename = file.name
+                    else:
+                        file = open(path, "rb")
+                    if not filename:
+                        if is_url:
+                            from posixpath import basename
+                            from urllib.parse import unquote
+                            filename = basename(unquote(urlsplit(path).path))
+                        else:
+                            from os.path import basename
+                            filename = basename(path)
+                elif isinstance(file, SupportsRead):
+                    if not filename:
+                        from os.path import basename
+                        filename = getattr(file, "name", "")
+                        filename = basename(filename)
+            resp = yield self.upload_chat_image_init(
+                {"filename": filename, "target": target}, 
+                async_=async_, 
+                **request_kwargs, 
+            )
+            check_response(resp)
+            def parse(_, content: bytes):
+                data = json_maybe_decrypt_loads(content)
+                data["oss_info"] = resp
+                return data
+            request_kwargs.setdefault("parse", parse)
+            return self.request(
+                url=resp["host"], 
+                method="POST", 
+                data={
+                    "host": resp["host"], 
+                    "key": resp["object"], 
+                    "policy": resp["policy"], 
+                    "OSSAccessKeyId": resp["accessid"], 
+                    "signature": resp["signature"], 
+                    "callback": resp["callback"], 
+                }, 
+                files={"file": file}, 
+                async_=async_, 
+                **request_kwargs, 
+            )
+        return run_gen_step(gen_step, async_)
+
+    @overload
     def upload_file_image(
         self, 
         /, 
         file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
                 SupportsRead | Iterable[Buffer] ), 
         pid: int | str = "U_4_-1", 
-        filename: str = "", 
+        share_id: int = 0, 
+        filename: str = "1.jpg", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -26863,7 +27059,8 @@ class P115Client(P115OpenClient):
         file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
                 SupportsRead | Iterable[Buffer] | AsyncIterable[Buffer] ), 
         pid: int | str = "U_4_-1", 
-        filename: str = "", 
+        share_id: int = 0, 
+        filename: str = "1.jpg", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -26875,7 +27072,8 @@ class P115Client(P115OpenClient):
         file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
                 SupportsRead | Iterable[Buffer] | AsyncIterable[Buffer] ), 
         pid: int | str = "U_4_-1", 
-        filename: str = "", 
+        share_id: int = 0, 
+        filename: str = "1.jpg", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
@@ -26886,10 +27084,11 @@ class P115Client(P115OpenClient):
             不支持秒传，但也不必传文件大小和 sha1，最大支持上传 50 MB 的文件
 
         .. note::
-            ``target`` 随便设置，例如 ``"U_4_-1"``、``"U_5_-2"``、``"U_3_-10"`` 等
+            ``target`` 随便设置，例如 ``"U_3_-1"``、``"U_4_-1"``、``"U_5_-2"``、``"U_3_-10"`` 等
 
         :param file: 待上传的文件
         :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 ``f"U_{aid}_{pid}"`` 或 ``f"S_{share_id}_{pid}"``）
+        :param share_id: 共享 id
         :param filename: 文件名，如果为空，则会自动确定
         :param async_: 是否异步
         :param request_kwargs: 其余请求参数
@@ -26949,6 +27148,7 @@ class P115Client(P115OpenClient):
             resp = yield self.upload_file_image_init(
                 filename, 
                 pid=pid, 
+                share_id=share_id, 
                 async_=async_, 
                 **request_kwargs, 
             )
@@ -26982,8 +27182,8 @@ class P115Client(P115OpenClient):
         file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
                 SupportsRead | Iterable[Buffer] ), 
         pid: int | str = 0, 
+        share_id: int = 0, 
         filename: str = "", 
-        filesize: int = -1, 
         dirname: str = "", 
         *, 
         async_: Literal[False] = False, 
@@ -26997,8 +27197,8 @@ class P115Client(P115OpenClient):
         file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
                 SupportsRead | Iterable[Buffer] | AsyncIterable[Buffer] ), 
         pid: int | str = 0, 
+        share_id: int = 0, 
         filename: str = "", 
-        filesize: int = -1, 
         dirname: str = "", 
         *, 
         async_: Literal[True], 
@@ -27011,8 +27211,8 @@ class P115Client(P115OpenClient):
         file: ( Buffer | str | PathLike | URL | SupportsGeturl | 
                 SupportsRead | Iterable[Buffer] | AsyncIterable[Buffer] ), 
         pid: int | str = 0, 
+        share_id: int = 0, 
         filename: str = "", 
-        filesize: int = -1, 
         dirname: str = "", 
         *, 
         async_: Literal[False, True] = False, 
@@ -27064,8 +27264,8 @@ class P115Client(P115OpenClient):
 
         :param file: 待上传的文件
         :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 ``f"U_{aid}_{pid}"`` 或 ``f"S_{share_id}_{pid}"``）
+        :param share_id: 共享 id
         :param filename: 文件名，如果为空，则会自动确定
-        :param filesize: 文件大小，⚠️ 此参数可以省略
         :param dirname: 保存目录，是在 `pid` 对应目录下的相对路径，默认为 `pid` 所对应目录本身
         :param async_: 是否异步
         :param request_kwargs: 其余请求参数
@@ -27126,7 +27326,7 @@ class P115Client(P115OpenClient):
                 filename, 
                 dirname=dirname, 
                 pid=pid, 
-                filesize=filesize, 
+                share_id=share_id, 
                 async_=async_, 
                 **request_kwargs, 
             )
@@ -27489,6 +27689,7 @@ class P115Client(P115OpenClient):
                 - "get_jobs_list": 工作列表
                 - "get_privacy_settings": 隐私资料
                 - "get_public": 公开资料
+                - "check_secret_token": 隐私令牌
                 - ...
         """
         api = complete_url("/proapi/3.0/index.php", base_url=base_url, query={"method": "user_info"})

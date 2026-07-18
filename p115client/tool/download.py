@@ -22,7 +22,7 @@ from collections.abc import (
 from concurrent.futures import CancelledError, ThreadPoolExecutor
 from functools import partial
 from inspect import isawaitable
-from itertools import batched, chain, count, repeat
+from itertools import batched, chain, count, cycle, repeat
 from os import cpu_count, makedirs, PathLike
 from os.path import dirname, getsize
 from queue import Queue
@@ -31,7 +31,7 @@ from string import hexdigits, ascii_uppercase
 from sys import exc_info
 from threading import Lock
 from types import EllipsisType
-from typing import cast, overload, Any, Literal
+from typing import cast, overload, Any, Final, Literal
 from urllib.request import urlopen, Request
 from uuid import uuid4
 from warnings import warn
@@ -61,6 +61,9 @@ from .attr import normalize_attr, normalize_attr_simple, get_attr, get_info
 from .iterdir import iterdir, iter_files, unescape_115_charref
 
 
+_get_pic_url_next_select: Final = cycle(("life_v1", "life_v2", "note_v1", "note_v2")).__next__
+
+
 def _get_id(id: int | str | Mapping, /) -> int:
     if isinstance(id, Mapping):
         id = cast(int | str, get_first(id, "id", "pickcode"))
@@ -73,11 +76,11 @@ def _get_pickcode(client: P115OpenClient, pickcode: int | str | Mapping, /) -> s
     return client.to_pickcode(pickcode)
 
 
-# TODO: 目前至少有 4 个接口可用于获取图片链接，以后允许选择用哪一种
 @overload
 def get_pic_url(
     client: str | PathLike | P115Client, 
     sha1: str, 
+    select: None | Literal["life_v1", "life_v2", "note_v1", "note_v2"] = None, 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -87,6 +90,7 @@ def get_pic_url(
 def get_pic_url(
     client: str | PathLike | P115Client, 
     sha1: Iterable[str], 
+    select: None | Literal["life_v1", "life_v2", "note_v1", "note_v2"] = None, 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -96,6 +100,7 @@ def get_pic_url(
 def get_pic_url(
     client: str | PathLike | P115Client, 
     sha1: str, 
+    select: None | Literal["life_v1", "life_v2", "note_v1", "note_v2"] = None, 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -105,6 +110,7 @@ def get_pic_url(
 def get_pic_url(
     client: str | PathLike | P115Client, 
     sha1: Iterable[str], 
+    select: None | Literal["life_v1", "life_v2", "note_v1", "note_v2"] = "life_v1", 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -113,6 +119,7 @@ def get_pic_url(
 def get_pic_url(
     client: str | PathLike | P115Client, 
     sha1: str | Iterable[str], 
+    select: None | Literal["life_v1", "life_v2", "note_v1", "note_v2"] = "life_v1", 
     *, 
     _match_fhn_prefix=re_compile("^fhn[a-z]+_").match, 
     async_: Literal[False, True] = False, 
@@ -125,11 +132,21 @@ def get_pic_url(
 
     :param client: 115 客户端或 cookies
     :param sha1: 图片的 sha1 或 f"{bucket}_{object}"（`bucket` 是所在存储桶， `object`是对象 id）
+    :param select: 选择使用某个接口
+
+        - "life_v1": 调用 ``P115Client.life_get_pic_url``
+        - "life_v2": 调用 ``P115Client.life_get_pic_url2``
+        - "note_v1": 调用 ``P115Client.note_get_pic_url``
+        - "note_v2": 调用 ``P115Client.note_get_pic_url2``
+        - None: 轮流使用以上接口，以分散压力，缓解风控
+
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
 
     :return: 图片链接的单个或列表
     """
+    if select is None:
+        select = cast(Literal["life_v1", "life_v2", "note_v1", "note_v2"], _get_pic_url_next_select())
     def formalize_sha1(sha1):
         if len(sha1) and not sha1.upper().lstrip(ascii_uppercase):
             return b32decode(sha1).hex().upper()
@@ -141,22 +158,38 @@ def get_pic_url(
     if isinstance(client, (str, PathLike)):
         client = P115Client(client)
     def gen_step():
+        match select:
+            case "life_v1":
+                call: Callable = client.life_get_pic_url
+                def get_urls(resp: dict, /) -> list[str]:
+                    return [u["json"].replace("&i=0", "&i=1") for u in resp["data"]]
+            case "life_v2":
+                call = client.life_get_pic_url2
+                def get_urls(resp: dict, /) -> list[str]:
+                    return [u + "&i=1" for u in resp["data"]["json"]]
+            case "note_v1" | "note_v2":
+                if select == "note_v1":
+                    call = client.note_get_pic_url
+                else:
+                    call = client.note_get_pic_url2
+                def get_urls(resp: dict, /) -> list[str]:
+                    return ["https://q.115.com/imgload?" + u[u.find("&")+1:] + "&i=1" for u in resp["data"]]
         if isinstance(sha1, str):
-            resp = yield client.life_get_pic_url(
+            resp = yield call(
                 formalize_sha1(sha1), 
                 async_=async_, 
                 **request_kwargs, 
             )
             check_response(resp)
-            return resp["data"][0]["json"].replace("&i=0", "&i=1")
+            return get_urls(resp)[0]
         else:
-            resp = yield client.life_get_pic_url(
+            resp = yield call(
                 tuple(map(formalize_sha1, sha1)), 
                 async_=async_, 
                 **request_kwargs, 
             )
             check_response(resp)
-            return [u["json"].replace("&i=0", "&i=1") for u in resp["data"]]
+            return get_urls(resp)
     return run_gen_step(gen_step, async_)
 
 
@@ -735,7 +768,7 @@ def iter_subtitles_with_url(
         fs_copy = partial(client.fs_copy_app, app=app)
         fs_delete = partial(client.fs_delete_app, app=app)
         fs_video_subtitle = partial(client.fs_video_subtitle_app, app=app)
-    from .iterdir import _iter_fs_files
+    from .iterdir import iter_items
     cid = to_id(cid)
     def gen_step():
         nonlocal suffixes
@@ -786,7 +819,7 @@ def iter_subtitles_with_url(
                         **request_kwargs, 
                     )
                     check_response(resp)
-                    attr = yield do_next(_iter_fs_files(
+                    attr = yield do_next(iter_items(
                         client, 
                         scid, 
                         page_size=1, 
@@ -900,7 +933,7 @@ def iter_subtitle_batches(
         fs_copy = partial(client.fs_copy_app, app=app)
         fs_delete = partial(client.fs_delete_app, app=app)
         fs_video_subtitle = partial(client.fs_video_subtitle_app, app=app)
-    from .iterdir import _iter_fs_files
+    from .iterdir import iter_items
     def gen_step():
         do_next: Callable = anext if async_ else next
         for ids in batched(map(to_id, file_ids), batch_size):
@@ -919,7 +952,7 @@ def iter_subtitle_batches(
                     **request_kwargs, 
                 )
                 check_response(resp)
-                attr = yield do_next(_iter_fs_files(
+                attr = yield do_next(iter_items(
                     client, 
                     scid, 
                     page_size=1, 

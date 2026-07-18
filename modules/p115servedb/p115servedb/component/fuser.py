@@ -185,7 +185,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sha1_size ON data(sha1, size);""")
         attr_ = attr["_attr"]
         pickcode = attr_["pickcode"]
         size = attr_["size"]
-        use_web_api = attr_["is_collect"] and attr_["size"] < 1024 * 1024 * 115
+        use_web_api = attr_["is_collect"] and attr_["size"] <= 1024 * 1024 * 200
         if size <= 1024 * 64:
             sha1 = attr_["sha1"]
             with self.file_lock_cache.setdefault((sha1, size), Lock()):

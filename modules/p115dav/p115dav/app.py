@@ -461,7 +461,7 @@ def make_application(
             url += "&file=false"
         else:
             url += "&file=true"
-            if attr["is_collect"] and attr["size"] < 1024 * 1024 * 115:
+            if attr["is_collect"] and attr["size"] <= 1024 * 1024 * 200:
                 url += "&web=true"
         attr["url"] = url
         if is_dir:

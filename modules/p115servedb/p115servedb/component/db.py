@@ -26,7 +26,7 @@ def normattr(m: Mapping | Iterable[tuple[str, Any]], /) -> AttrDict:
         attr["ico"] = "folder"
     else:
         attr["url"] = f"/{name}?file=true&pickcode={attr['pickcode']}"
-        if attr.get("is_collect", False) and attr["size"] < 1024 * 1024 * 115:
+        if attr.get("is_collect", False) and attr["size"] <= 1024 * 1024 * 200:
             attr["url"] += "&web=true"
         attr["ico"] = attr["name"].rpartition(".")[-1].lower()
     if "ctime" not in attr:

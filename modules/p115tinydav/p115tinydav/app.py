@@ -309,7 +309,6 @@ def make_application(
                 return url
         url = await client.download_url(
             client.to_pickcode(id), 
-            app="android", 
             headers={"user-agent": user_agent}, 
             async_=True, 
         )
