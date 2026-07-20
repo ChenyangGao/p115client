@@ -226,7 +226,7 @@ def updatedb_dir(
         if not P115QueryDB(con).is_alive(cid):
             return 0
         upsert = wrap_async(upsert_items, async_, threaded=True)
-        ids: set[int] = {t for t, in query(con, "SELECT id FROM data WHERE parent_id=? AND is_alive")}
+        ids: set[int] = {t for t, in query(con, "SELECT id FROM data WHERE parent_id=? AND is_alive", cid)}
         try:
             id_to_dirnode: dict[int, tuple[str, int]] = {}
             with with_iter_next(chunked(iterdir(

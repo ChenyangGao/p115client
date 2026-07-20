@@ -153,6 +153,7 @@ def upload_init(
         - fileid: str           💡 文件的 sha1
         - filename: str         💡 文件名
         - filesize: int         💡 文件大小
+        - path: int             💡 保存目录的路径（而不是 id）
         - target: str = "U_1_0" 💡 保存目标，格式为 f"U_{aid}_{pid}"
         - sign_key: str = ""    💡 2 次验证的 key
         - sign_val: str = ""    💡 2 次验证的值
@@ -222,6 +223,7 @@ def upload_init_open(
         - fileid: str              💡 文件的 sha1
         - file_name: str           💡 文件名
         - file_size: int           💡 文件大小
+        - path: int                💡 保存目录的路径（而不是 id）
         - target: str = "U_1_0"    💡 保存目标，格式为 f"U_{aid}_{pid}"
         - sign_key: str = ""       💡 2 次验证的 key
         - sign_val: str = ""       💡 2 次验证的值

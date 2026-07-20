@@ -833,9 +833,12 @@ def upload_init(
     client: str | PathLike | P115Client | P115OpenClient, 
     file: Buffer | str | PathLike | URL | SupportsGeturl | SupportsRead, 
     pid: int | str = 0, 
-    filename: str = "", 
+    share_id: int = 0, 
     filesha1: str = "", 
     filesize: int = -1, 
+    filename: str = "", 
+    dirname: str = "", 
+    payload: None | Mapping = None, 
     endpoint: str = "https://oss-cn-shenzhen.aliyuncs.com", 
     *, 
     async_: Literal[False] = False, 
@@ -847,9 +850,12 @@ def upload_init(
     client: str | PathLike | P115Client | P115OpenClient, 
     file: Buffer | str | PathLike | URL | SupportsGeturl | SupportsRead, 
     pid: int | str = 0, 
-    filename: str = "", 
+    share_id: int = 0, 
     filesha1: str = "", 
     filesize: int = -1, 
+    filename: str = "", 
+    dirname: str = "", 
+    payload: None | Mapping = None, 
     endpoint: str = "https://oss-cn-shenzhen.aliyuncs.com", 
     *, 
     async_: Literal[True], 
@@ -860,9 +866,12 @@ def upload_init(
     client: str | PathLike | P115Client | P115OpenClient, 
     file: Buffer | str | PathLike | URL | SupportsGeturl | SupportsRead, 
     pid: int | str = 0, 
-    filename: str = "", 
+    share_id: int = 0, 
     filesha1: str = "", 
     filesize: int = -1, 
+    filename: str = "", 
+    dirname: str = "", 
+    payload: None | Mapping = None, 
     endpoint: str = "https://oss-cn-shenzhen.aliyuncs.com", 
     *, 
     async_: Literal[False, True] = False, 
@@ -873,9 +882,12 @@ def upload_init(
     :param client: 115 客户端或 cookies
     :param file: 待上传的文件或其路径
     :param pid: 上传文件到目录的 id 或 pickcode
-    :param filename: 文件名，若为空则自动确定
+    :param share_id: 共享 id
     :param filesha1: 文件的 sha1 哈希值，若为空则自动计算
     :param filesize: 文件大小，若为负数则自动计算
+    :param filename: 文件名，若为空则自动确定
+    :param dirname: 保存目录，是在 `pid` 对应目录下的相对路径，默认为 `pid` 所对应目录本身
+    :param payload: 其它的查询参数
     :param endpoint: 上传目的网址
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
@@ -888,9 +900,12 @@ def upload_init(
         return upload_file_init(
             file=file, 
             pid=to_id(pid), 
-            filename=filename, 
+            share_id=share_id, 
             filesha1=filesha1, 
             filesize=filesize, 
+            filename=filename, 
+            dirname=dirname, 
+            payload=payload, 
             user_id=client.user_id, 
             user_key=client.user_key, 
             endpoint=endpoint, 
@@ -905,9 +920,11 @@ def upload_init(
         return upload_file_init(
             file=file, 
             pid=to_id(pid), 
-            filename=filename, 
+            share_id=share_id, 
             filesha1=filesha1, 
             filesize=filesize, 
+            filename=filename, 
+            dirname=dirname, 
             endpoint=endpoint, 
             async_=async_, 
             **request_kwargs, 

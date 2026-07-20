@@ -264,7 +264,7 @@ ID_TO_DIRNODE_CACHE: Final[dict[int | str, MutableMapping[int, tuple[str, int]]]
 #: 一些 webapi.115.com 的接口允许的前缀（而 proapi.115.com 却可以是任何前缀）
 WEPAPI_PREFIXES: Final = (
     "/behavior", "/category", "/files", "/history", "/label", "/movies", 
-    "/offine", "/photo", "/rb", "/share", "/user", "/usershare", 
+    "multimedia", "/offine", "/photo", "/rb", "/share", "/user", "/usershare", 
 )
 
 #: web 相关接口的 url 源

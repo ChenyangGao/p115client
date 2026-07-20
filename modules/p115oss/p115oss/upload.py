@@ -4,7 +4,7 @@
 __all__ = ["upload_file_init", "upload_file", "MultipartUploadAbort"]
 
 from asyncio import to_thread
-from collections.abc import Buffer, Callable, Coroutine
+from collections.abc import Buffer, Callable, Coroutine, Mapping
 from hashlib import sha1
 from inspect import isawaitable
 from os import fsdecode, fstat, stat, PathLike
@@ -18,7 +18,7 @@ from hashtools import file_digest, file_digest_async
 from http_request import SupportsGeturl
 from http_response import get_total_length, get_filename
 from iterutils import foreach, run_gen_step
-from p115pickcode import pickcode_to_id
+from p115pickcode import pickcode_to_id, to_id
 from yarl import URL
 
 from .api import upload_init, upload_init_open, upload_resume
@@ -78,11 +78,14 @@ def determine_partsize(
 def upload_file_init(
     file: Buffer | str | PathLike | URL | SupportsGeturl | SupportsRead, 
     pid: int | str = 0, 
+    share_id: int = 0, 
     filename: str = "", 
     filesha1: str = "", 
     filesize: int = -1, 
+    dirname: str = "", 
     user_id: int | str = "", 
     user_key: str = "", 
+    payload: None | Mapping = None, 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -92,11 +95,14 @@ def upload_file_init(
 def upload_file_init(
     file: Buffer | str | PathLike | URL | SupportsGeturl | SupportsRead, 
     pid: int | str = 0, 
+    share_id: int = 0, 
     filename: str = "", 
     filesha1: str = "", 
     filesize: int = -1, 
+    dirname: str = "", 
     user_id: int | str = "", 
     user_key: str = "", 
+    payload: None | Mapping = None, 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -105,11 +111,14 @@ def upload_file_init(
 def upload_file_init(
     file: Buffer | str | PathLike | URL | SupportsGeturl | SupportsRead, 
     pid: int | str = 0, 
+    share_id: int = 0, 
     filename: str = "", 
     filesha1: str = "", 
     filesize: int = -1, 
+    dirname: str = "", 
     user_id: int | str = "", 
     user_key: str = "", 
+    payload: None | Mapping = None, 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -121,18 +130,22 @@ def upload_file_init(
 
     :param file: 待上传的文件或其路径
     :param pid: 上传文件到目录的 id
+    :param share_id: 共享 id
     :param filename: 文件名，若为空则自动确定
     :param filesha1: 文件的 sha1 摘要，若为空则自动计算
     :param filesize: 文件大小，若为负数则自动计算
+    :param dirname: 保存目录，是在 `pid` 对应目录下的相对路径，默认为 `pid` 所对应目录本身
     :param user_id: 用户 id
     :param user_key: 用户的 key
+    :param payload: 其它的查询参数
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
 
     :return: 如果秒传成功，则返回响应信息（有 "status" 字段），否则返回上传配置信息（可用于断点续传）
     """
+    default_payload = payload
     def gen_step():
-        nonlocal file, filename, filesha1, filesize
+        nonlocal file, filename, filesha1, filesize, pid
         upload_data: dict = {}
         use_open = not (user_id and user_key)
         if not use_open:
@@ -279,10 +292,14 @@ def upload_file_init(
         if not filename:
             filename = str(uuid4())
         filesha1 = filesha1.upper()
-        if isinstance(pid, str) and pid.startswith("U_"):
+        if isinstance(pid, str) and pid.startswith(("U_", "S_")):
             target = pid
         else:
-            target = f"U_1_{pid or 0}"
+            pid = to_id(pid)
+            if share_id:
+                target = f"S_{share_id}_{pid}"
+            else:
+                target = f"U_1_{pid}"
         upload_data.update(
             filename=filename, 
             filesha1=filesha1, 
@@ -295,6 +312,7 @@ def upload_file_init(
                 "file_name": filename, 
                 "file_size": filesize, 
                 "target": target, 
+                "path": dirname, 
             }
             do_upload_init = upload_init_open
         else:
@@ -303,10 +321,13 @@ def upload_file_init(
                 "filename": filename, 
                 "filesize": filesize, 
                 "target": target, 
+                "path": dirname, 
                 "userid": user_id, 
                 "userkey": user_key, 
             }
             do_upload_init = upload_init
+        if default_payload:
+            payload.update(default_payload)
         resp = data = yield do_upload_init(payload, async_=async_, **request_kwargs)
         if use_open:
             if not resp["state"]:
@@ -362,11 +383,14 @@ def upload_file_init(
 def upload_file(
     file: Buffer | str | PathLike | URL | SupportsGeturl | SupportsRead, 
     pid: int | str = 0, 
+    share_id: int = 0, 
     filename: str = "", 
     filesha1: str = "", 
     filesize: int = -1, 
+    dirname: str = "", 
     user_id: int | str = "", 
     user_key: str = "", 
+    payload: None | Mapping = None, 
     partsize: int = 0, 
     callback: None | str | dict = None, 
     upload_id: str = "", 
@@ -383,11 +407,14 @@ def upload_file(
 def upload_file(
     file: Buffer | str | PathLike | URL | SupportsGeturl | SupportsRead, 
     pid: int | str = 0, 
+    share_id: int = 0, 
     filename: str = "", 
     filesha1: str = "", 
     filesize: int = -1, 
+    dirname: str = "", 
     user_id: int | str = "", 
     user_key: str = "", 
+    payload: None | Mapping = None, 
     partsize: int = 0, 
     callback: None | str | dict = None, 
     upload_id: str = "", 
@@ -403,11 +430,14 @@ def upload_file(
 def upload_file(
     file: Buffer | str | PathLike | URL | SupportsGeturl | SupportsRead, 
     pid: int | str = 0, 
+    share_id: int = 0, 
     filename: str = "", 
     filesha1: str = "", 
     filesize: int = -1, 
+    dirname: str = "", 
     user_id: int | str = "", 
     user_key: str = "", 
+    payload: None | Mapping = None, 
     partsize: int = 0, 
     callback: None | str | dict = None, 
     upload_id: str = "", 
@@ -426,11 +456,14 @@ def upload_file(
 
     :param file: 待上传的文件或其路径
     :param pid: 上传文件到目录的 id
+    :param share_id: 共享 id
     :param filename: 文件名，若为空则自动确定
     :param filesha1: 文件的 sha1 摘要，若为空则自动计算
     :param filesize: 文件大小，若为负数则自动计算
+    :param dirname: 保存目录，是在 `pid` 对应目录下的相对路径，默认为 `pid` 所对应目录本身
     :param user_id: 用户 id
     :param user_key: 用户的 key
+    :param payload: 其它的查询参数
     :param partsize: 分块大小（如果为 0，则不是分块上传；如果 <0，则自动确定）
     :param callback: 回调数据或者上传的 pickcode
     :param upload_id: 上传任务 id
@@ -494,12 +527,15 @@ def upload_file(
                 resp = yield upload_file_init(
                     file=file, 
                     pid=pid, 
+                    share_id=share_id, 
                     filename=filename, 
                     filesha1=filesha1, 
                     filesize=filesize, 
+                    dirname=dirname, 
                     user_id=user_id, 
                     user_key=user_key, 
-                    async_=async_, 
+                    payload=payload, 
+                    async_=async_, # type: ignore
                     **request_kwargs, 
                 )
                 if not resp["state"] or resp["reuse"]:
