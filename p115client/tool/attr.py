@@ -16,6 +16,7 @@ from base64 import b32decode
 from collections.abc import (
     Callable, Coroutine, Iterable, Mapping, MutableMapping, Sequence, 
 )
+from contextlib import suppress
 from functools import partial
 from itertools import cycle, dropwhile
 from os import PathLike
@@ -954,10 +955,24 @@ def get_ancestors(
         client = P115Client(client)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
+    def get_ancestors_for_cid(cid: int, /) -> None | list[dict]:
+        ancestors: list[dict] = [{"id": 0, "parent_id": 0, "name": ""}]
+        if not cid:
+            return ancestors
+        elif not refresh and id_to_dirnode is not ... and cid in id_to_dirnode:
+            parts: list[dict] = []
+            add_part = parts.append
+            with suppress(KeyError):
+                while cid:
+                    name, pid = id_to_dirnode[cid]
+                    add_part({"id": cid, "name": name, "parent_id": pid})
+                    cid = pid
+                ancestors.extend(reversed(parts))
+                return ancestors
+        return None
     from .iterdir import update_resp_ancestors
     if app not in ("open", "aps") and isinstance(client, P115Client):
-        @as_gen_step(async_=async_)
-        def get_resp_by_info(id: int, /):
+        def get_ancestors_by_info(id: int, /):
             if app in ("", "web", "desktop", "chrome"):
                 resp = yield client.fs_supervision(
                     client.to_pickcode(id), 
@@ -976,17 +991,18 @@ def get_ancestors(
                     throw(errno.ENOENT, id)
             check_response(resp)
             info = resp["data"]
-            resp2 = yield get_resp_by_folder(int(info["parent_id"]))
-            update_resp_ancestors(resp2)
-            ancestors = resp["ancestors"] = resp2["ancestors"]
+            pid = int(info["parent_id"])
+            ancestors = yield from get_ancestors_by_folder(pid)
             ancestors.append({
-                "id": int(info["file_id"]), 
-                "parent_id": int(info["parent_id"]), 
+                "id": id, 
+                "parent_id": pid, 
                 "name": info["file_name"], 
             })
-            return resp
-        @as_gen_step(async_=async_)
-        def get_resp_by_folder(cid: int, /):
+            return ancestors
+        def get_ancestors_by_folder(cid: int, /):
+            ancestors = get_ancestors_for_cid(cid)
+            if ancestors is not None:
+                return ancestors
             if app in ("", "web", "desktop", "chrome"):
                 resp = yield client.fs_files_media(
                     {"cid": cid, "limit": 1, "type": 6, "nf": 1}, 
@@ -1000,14 +1016,14 @@ def get_ancestors(
                     **request_kwargs, 
                 )
             check_response(resp)
-            update_resp_ancestors(resp)
+            update_resp_ancestors(resp, id_to_dirnode)
             if cid and cid != resp["ancestors"][-1]["id"]:
                 throw(errno.ENOENT, cid)
-            return resp
+            return resp["ancestors"]
     else:
         from .fs_files import fs_files
-        def get_resp_by_info(id: int, /):
-            return get_info(
+        def get_ancestors_by_info(id: int, /):
+            resp = yield get_info(
                 client, 
                 id, 
                 id_to_dirnode=id_to_dirnode, 
@@ -1015,8 +1031,11 @@ def get_ancestors(
                 async_=async_, 
                 **request_kwargs, 
             )
-        @as_gen_step(async_=async_)
-        def get_resp_by_folder(cid: int, /):
+            return resp["ancestors"]
+        def get_ancestors_by_folder(cid: int, /):
+            ancestors = get_ancestors_for_cid(cid)
+            if ancestors is not None:
+                return ancestors
             resp = yield fs_files(
                 client, 
                 {"cur": 1, "nf": 1, "hide_data": 1, "show_dir": 0, "cid": cid}, 
@@ -1027,36 +1046,29 @@ def get_ancestors(
                 async_=async_, 
                 **request_kwargs, 
             )
-            update_resp_ancestors(resp)
-            return resp
-    def get_resp(id: int, /, ensure_file: None | bool = None):
+            update_resp_ancestors(resp, id_to_dirnode)
+            return resp["ancestors"]
+    def get_ancestors(id: int, /, ensure_file: None | bool = None):
         if ensure_file is None:
-            if app not in ("open", "aps") and isinstance(client, P115Client):
-                return get_resp_by_info(id)
-            else:
-                try:
-                    return get_resp_by_folder(id)
-                except (FileNotFoundError, NotADirectoryError):
-                    return get_resp_by_info(id)
+            try:
+                return (yield from get_ancestors_by_folder(id))
+            except (FileNotFoundError, NotADirectoryError):
+                return (yield from get_ancestors_by_info(id))
         elif ensure_file:
-            return get_resp_by_info(id)
+            return (yield from get_ancestors_by_info(id))
         else:
-            return get_resp_by_folder(id)
+            return (yield from get_ancestors_by_folder(id))
     def gen_step():
         nonlocal attr, ensure_file
-        ancestors: list[dict] = [{"id": 0, "parent_id": 0, "name": ""}]
         if not attr:
-            return ancestors
+            return [{"id": 0, "parent_id": 0, "name": ""}]
         if isinstance(attr, dict):
             if not (fid := int(attr["id"])):
-                return ancestors
+                return [{"id": 0, "parent_id": 0, "name": ""}]
             is_dir: None | bool = attr.get("is_dir")
             if is_dir is None:
                 if "parent_id" in attr:
                     pid = int(attr["parent_id"])
-                    resp = yield get_resp(pid, ensure_file=True)
-                    ancestors = resp["ancestors"]
-                    name = ""
                     if "name" in attr:
                         name = attr["name"]
                     elif isinstance(client, P115Client):
@@ -1068,28 +1080,17 @@ def get_ancestors(
                             **request_kwargs, 
                         )
                         name = cast(dict, attr)["name"]
+                    else:
+                        name = ""
                     if name:
+                        ancestors = yield from get_ancestors(pid, ensure_file=False)
                         ancestors.append({"id": fid, "parent_id": pid, "name": name})
                         return ancestors
             else:
                 ensure_file = not is_dir
         elif not (fid := to_id(attr)):
-            return ancestors
-        if not refresh and id_to_dirnode is not ... and fid in id_to_dirnode:
-            parts: list[dict] = []
-            add_part = parts.append
-            try:
-                cid = fid
-                while cid:
-                    id = cid
-                    name, cid = id_to_dirnode[cid]
-                    add_part({"id": id, "name": name, "parent_id": cid})
-                ancestors.extend(reversed(parts))
-                return ancestors
-            except KeyError:
-                pass
-        resp = yield get_resp(fid, ensure_file)
-        return resp["ancestors"]
+            return [{"id": 0, "parent_id": 0, "name": ""}]
+        return (yield from get_ancestors(fid, ensure_file))
     return run_gen_step(gen_step, async_)
 
 

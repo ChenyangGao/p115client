@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "p115client"
-version = "0.0.9.6.2"
+version = "0.0.9.6.4"
 description = "Python 115 webdisk client."
 authors = ["ChenyangGao <wosiwujm@gmail.com>"]
 license = "MIT"
