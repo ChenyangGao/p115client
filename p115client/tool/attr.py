@@ -4,22 +4,20 @@
 __all__ = [
     "normalize_attr", "normalize_attr_simple", "normalize_attr_web", 
     "normalize_attr_app", "normalize_attr_app2", 
-    "type_of_attr", "get_attr", "get_info", "iter_list", 
-    "get_ancestors", "get_path", "get_id", "get_id_to_path", 
-    "get_id_to_sha1", "get_id_to_name", "share_get_id", 
-    "share_get_id_to_path", "share_get_id_to_name", "get_file_count", 
-    "get_dir_count", "get_url", "dir_getid", "get_pickcode_stable_point", 
+    "type_of_attr", "get_attr", "get_info", "get_ancestors", "get_path", 
+    "get_id", "get_id_to_path", "get_id_to_sha1", "get_id_to_name", 
+    "share_get_id", "share_get_id_to_path", "share_get_id_to_name", 
+    "get_file_count", "get_dir_count", "get_url", "dir_getid", 
+    "get_pickcode_stable_point", 
 ]
 __doc__ = "这个模块提供了一些和文件或目录信息有关的函数"
 
 from base64 import b32decode
 from collections.abc import (
-    AsyncIterator, Callable, Coroutine, Iterable, Iterator, 
-    Mapping, MutableMapping, Sequence, 
+    Callable, Coroutine, Iterable, Mapping, MutableMapping, Sequence, 
 )
 from functools import partial
 from itertools import cycle, dropwhile
-from operator import attrgetter
 from os import PathLike
 from types import EllipsisType
 from typing import cast, overload, Any, Final, Literal
@@ -28,7 +26,7 @@ from dictattr import AttrDict
 from dicttools import get_first
 from errno2 import errno
 from integer_tool import try_parse_int
-from iterutils import run_gen_step, run_gen_step_iter, with_iter_next, Yield
+from iterutils import as_gen_step, run_gen_step, with_iter_next
 from p115pickcode import to_id, get_stable_point
 from posixpatht import path_is_dir_form, splitext, splits
 
@@ -157,6 +155,8 @@ def normalize_attr_web[D: dict[str, Any]](
             ("c", "is_collect"), 
             ("cc", "cover"), 
             ("cc", "category_cover"), 
+            # ("check_code", "check_code"), 
+            # ("check_msg", "check_msg"), 
             ("class", "class"), 
             ("current_time", "current_time"), 
             ("d", "has_desc"), 
@@ -180,8 +180,11 @@ def normalize_attr_web[D: dict[str, Any]](
             ("score", "score"), 
             ("sh", "is_share"), 
             ("sta", "status"), 
+            ("star_time", "star_time"), 
             ("style", "style"), 
             ("u", "thumb"), 
+            ("uid", "user_id"), 
+            ("fuuid", "user_id"), 
         ):
             if key in info:
                 attr[name] = try_parse_int(info[key])
@@ -314,9 +317,10 @@ def normalize_attr_app[D: dict[str, Any]](
             ("fco", "folder_cover"),      # 目录封面
             ("fdesc", "desc"),            # 文件备注
             ("fl", "labels"),             # 文件标签，得到 1 个字典列表
-            ("flabel", "fflabel"),        # 文件标签（一般为空）
+            ("fflabel", "fflabel"),        # 文件标签（一般为空）
             ("fta", "status"),            # 文件状态：0/2:未上传完成，1:已上传完成
             ("ftype", "file_type"),       # 文件类型代码
+            ("fuuid", "user_id"),         # 用户 id
             ("ic", "is_collect"),         # 是否违规
             ("is_skip_login", "is_skip_login"), # 是否开启免登录下载
             ("is_top", "is_top"),         # 是否置顶
@@ -456,6 +460,8 @@ def normalize_attr_app2[D: dict[str, Any]](
             attr["utime"] = int(info["user_utime"])
         elif "utime" in info:
             attr["utime"] = int(info["utime"])
+        if "real_user_ptime" in info:
+            attr["time"] = try_parse_int(info["real_user_ptime"])
         attr["ico"] = info.get("ico", "folder" if attr["is_dir"] else "")
         if "fl" in info:
             attr["labels"] = info["fl"]
@@ -472,6 +478,7 @@ def normalize_attr_app2[D: dict[str, Any]](
             "file_answer", 
             "file_category", 
             "file_eda", 
+            "file_name_sort", 
             "file_question", 
             "file_sort", 
             "file_status", 
@@ -491,13 +498,16 @@ def normalize_attr_app2[D: dict[str, Any]](
             "play_url", 
             "played_end", 
             "show_play_long", 
+            "user_id", 
             "video_img_url", 
         ):
             if name in info:
                 attr[name] = try_parse_int(info[name])
         if "is_mark" in attr:
             attr["star"] = attr["is_mark"]
-    if is_dir:
+    if "type" in info:
+        attr["type"] = info["type"]
+    elif is_dir:
         attr["type"] = 0
     elif "thumb_url" in info:
         attr["type"] = 2
@@ -665,34 +675,38 @@ def get_attr(
     client: str | PathLike | P115Client, 
     id: int | str = 0, 
     skim: bool = False, 
+    ensure_parent_id: bool = False, 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
-) -> dict:
+) -> AttrDict:
     ...
 @overload
 def get_attr(
     client: str | PathLike | P115Client, 
     id: int | str = 0, 
     skim: bool = False, 
+    ensure_parent_id: bool = False, 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
-) -> Coroutine[Any, Any, dict]:
+) -> Coroutine[Any, Any, AttrDict]:
     ...
 def get_attr(
     client: str | PathLike | P115Client, 
     id: int | str = 0, 
     skim: bool = False, 
+    ensure_parent_id: bool = False, 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
-) -> dict | Coroutine[Any, Any, dict]:
+) -> AttrDict | Coroutine[Any, Any, AttrDict]:
     """获取文件或目录的信息
 
     :param client: 115 客户端或 cookies
     :param id: 文件或目录的 id 或 pickcode
     :param skim: 是否获取简要信息（可避免风控）
+    :param ensure_parent_id: 确保一定有 ``parent_id`` 字段
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
 
@@ -702,31 +716,57 @@ def get_attr(
         client = P115Client(client)
     id = to_id(id)
     def gen_step():
-        from dictattr import AttrDict
         if skim:
             if not id:
-                return {
+                return AttrDict({
                     "id": 0, 
+                    "parent_id": 0, 
                     "name": "", 
                     "pickcode": "", 
                     "sha1": "", 
                     "size": 0, 
                     "is_dir": True, 
-                }
-            resp = yield client.fs_file_skim(id, async_=async_, **request_kwargs)
-            check_response(resp)
-            info = resp["data"][0]
-            return AttrDict(
-                id=int(info["file_id"]), 
-                name=unescape_115_charref(info["file_name"]), 
-                pickcode=info["pick_code"], 
-                sha1=info["sha1"], 
-                size=int(info["file_size"]), 
-                is_dir=not info["sha1"], 
-            )
+                })
+            if ensure_parent_id:
+                resp = yield client.fs_supervision(
+                    client.to_pickcode(id), 
+                    async_=async_, 
+                    **request_kwargs, 
+                )
+                check_response(resp)
+                info = resp["data"]
+                if not info["file_name"]:
+                    throw(errno.ENOENT, id)
+                return AttrDict({
+                    "id": int(info["file_id"]), 
+                    "parent_id": int(info["parent_id"]), 
+                    "name": unescape_115_charref(info["file_name"]), 
+                    "pickcode": info["pick_code"], 
+                    "sha1": info["file_sha1"], 
+                    "size": int(info["file_size"]), 
+                    "is_dir": not info["file_sha1"], 
+                    "file_type": try_parse_int(info["file_type"]), 
+                    "is_collect": try_parse_int(info["is_collect"]), 
+                })
+            else:
+                resp = yield client.fs_file_skim(
+                    id, 
+                    async_=async_, 
+                    **request_kwargs, 
+                )
+                check_response(resp)
+                info = resp["data"][0]
+                return AttrDict({
+                    "id": int(info["file_id"]), 
+                    "name": unescape_115_charref(info["file_name"]), 
+                    "pickcode": info["pick_code"], 
+                    "sha1": info["sha1"], 
+                    "size": int(info["file_size"]), 
+                    "is_dir": not info["sha1"], 
+                })
         else:
             if not id:
-                return {
+                return AttrDict({
                     "is_dir": True,
                     "id": 0, 
                     "parent_id": 0, 
@@ -760,7 +800,7 @@ def get_attr(
                     "is_share": 0, 
                     "thumb": "", 
                     "type": 0, 
-                }
+                })
             resp = yield client.fs_file(id, async_=async_, **request_kwargs)
             check_response(resp)
             return normalize_attr_web(resp["data"][0], dict_cls=AttrDict)
@@ -848,104 +888,13 @@ def get_info(
 
 
 @overload
-def iter_list(
-    client: str | PathLike | P115Client | P115OpenClient, 
-    cid: int | str = 0, 
-    start: int = 0, 
-    page_size: int = 7_000, 
-    first_page_size: int = 0, 
-    payload: None | dict = None, 
-    normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
-    app: str = "web", 
-    *, 
-    async_: Literal[False] = False, 
-    **request_kwargs, 
-) -> Iterator[dict]:
-    ...
-@overload
-def iter_list(
-    client: str | PathLike | P115Client | P115OpenClient, 
-    cid: int | str = 0, 
-    start: int = 0, 
-    page_size: int = 7_000, 
-    first_page_size: int = 0, 
-    payload: None | dict = None, 
-    normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
-    app: str = "web", 
-    *, 
-    async_: Literal[True], 
-    **request_kwargs, 
-) -> AsyncIterator[dict]:
-    ...
-def iter_list(
-    client: str | PathLike | P115Client | P115OpenClient, 
-    cid: int | str = 0, 
-    start: int = 0, 
-    page_size: int = 7_000, 
-    first_page_size: int = 0, 
-    payload: None | dict = None, 
-    normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
-    app: str = "web", 
-    *, 
-    async_: Literal[False, True] = False, 
-    **request_kwargs, 
-) -> Iterator[dict] | AsyncIterator[dict]:
-    """在某个目录下面，迭代获取直属的文件或目录列表（逐页拉取）
-
-    :param client: 115 客户端或 cookies
-    :param cid: 目录的 id 或 pickcode
-    :param start: 开始索引（从 0 开始）
-    :param page_size: 分页大小，如果 <= 0，则自动确定
-    :param first_page_size: 首次拉取的分页大小，如果 <= 0，则自动确定
-    :param payload: 其它的查询参数
-    :param normalize_attr: 把数据进行转换处理，使之便于阅读
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
-    :param app: 使用指定 app（设备）的接口
-    :param async_: 是否异步
-    :param request_kwargs: 其它请求参数
-
-    :return: 迭代器，每迭代一次执行一次分页拉取请求（就像瀑布流）
-    """
-    if isinstance(client, (str, PathLike)):
-        client = P115Client(client)
-    if id_to_dirnode is None:
-        id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
-    cid = to_id(cid)
-    def gen_step():
-        from .fs_files import fs_files_iter
-        from .iterdir import overview_attr, update_resp_ancestors
-        with with_iter_next(fs_files_iter(
-            client, 
-            dict(payload or (), cid=cid, offset=start), 
-            page_size=page_size, 
-            first_page_size=first_page_size, 
-            app=app, 
-            async_=async_, 
-            **request_kwargs, 
-        )) as get_next:
-            while True:
-                resp = yield get_next()
-                update_resp_ancestors(resp, id_to_dirnode, error=FileNotFoundError(errno.ENOENT, f"not found: {cid!r}"))
-                if id_to_dirnode is not ...:
-                    for attr in filter(attrgetter("is_dir"), map(overview_attr, resp["data"])):
-                        id_to_dirnode[attr.id] = (attr.name, attr.parent_id)
-                if normalize_attr:
-                    resp["data"] = list(map(normalize_attr, resp["data"]))
-                yield Yield(resp)
-    return run_gen_step_iter(gen_step, async_)
-
-
-@overload
 def get_ancestors(
     client: str | PathLike | P115Client | P115OpenClient, 
     attr: int | str | dict = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     ensure_file: None | bool = None, 
     refresh: bool = False, 
-    app: str = "web", 
+    app: str = "android", 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -958,7 +907,7 @@ def get_ancestors(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     ensure_file: None | bool = None, 
     refresh: bool = False, 
-    app: str = "web", 
+    app: str = "android", 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -970,7 +919,7 @@ def get_ancestors(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     ensure_file: None | bool = None, 
     refresh: bool = False, 
-    app: str = "web", 
+    app: str = "android", 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -1005,38 +954,94 @@ def get_ancestors(
         client = P115Client(client)
     if id_to_dirnode is None:
         id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
-    def get_resp_by_info(id: int, /):
-        return get_info(
-            client, 
-            id, 
-            id_to_dirnode=id_to_dirnode, 
-            app=app, 
-            async_=async_, 
-            **request_kwargs, 
-        )
-    do_next: Callable = anext if async_ else next
-    def get_resp_by_list(cid: int, /):
-        return do_next(iter_list(
-            client, 
-            cid, 
-            page_size=1, 
-            payload={"cur": 1, "nf": 1, "star": 1, "hide_data": 1}, 
-            id_to_dirnode=id_to_dirnode, 
-            normalize_attr=None, 
-            app=app, 
-            async_=async_, 
-            **request_kwargs, 
-        ))
+    from .iterdir import update_resp_ancestors
+    if app not in ("open", "aps") and isinstance(client, P115Client):
+        @as_gen_step(async_=async_)
+        def get_resp_by_info(id: int, /):
+            if app in ("", "web", "desktop", "chrome"):
+                resp = yield client.fs_supervision(
+                    client.to_pickcode(id), 
+                    async_=async_, 
+                    **request_kwargs, 
+                )
+                if resp["state"] and not resp["data"]["file_name"]:
+                    throw(errno.ENOENT, id)
+            else:
+                resp = yield client.fs_supervision_app(
+                    client.to_pickcode(id), 
+                    async_=async_, 
+                    **request_kwargs, 
+                )
+                if not resp["state"] and resp.get("msg") == "必传参数少了":
+                    throw(errno.ENOENT, id)
+            check_response(resp)
+            info = resp["data"]
+            resp2 = yield get_resp_by_folder(int(info["parent_id"]))
+            update_resp_ancestors(resp2)
+            ancestors = resp["ancestors"] = resp2["ancestors"]
+            ancestors.append({
+                "id": int(info["file_id"]), 
+                "parent_id": int(info["parent_id"]), 
+                "name": info["file_name"], 
+            })
+            return resp
+        @as_gen_step(async_=async_)
+        def get_resp_by_folder(cid: int, /):
+            if app in ("", "web", "desktop", "chrome"):
+                resp = yield client.fs_files_media(
+                    {"cid": cid, "limit": 1, "type": 6, "nf": 1}, 
+                    async_=async_, 
+                    **request_kwargs, 
+                )
+            else:
+                resp = yield client.fs_folder_app(
+                    {"p_id": cid, "limit": 1}, 
+                    async_=async_, 
+                    **request_kwargs, 
+                )
+            check_response(resp)
+            update_resp_ancestors(resp)
+            if cid and cid != resp["ancestors"][-1]["id"]:
+                throw(errno.ENOENT, cid)
+            return resp
+    else:
+        from .fs_files import fs_files
+        def get_resp_by_info(id: int, /):
+            return get_info(
+                client, 
+                id, 
+                id_to_dirnode=id_to_dirnode, 
+                app=app, 
+                async_=async_, 
+                **request_kwargs, 
+            )
+        @as_gen_step(async_=async_)
+        def get_resp_by_folder(cid: int, /):
+            resp = yield fs_files(
+                client, 
+                {"cur": 1, "nf": 1, "hide_data": 1, "show_dir": 0, "cid": cid}, 
+                page_size=1, 
+                id_to_dirnode=id_to_dirnode, 
+                normalize_attr=None, 
+                app=app, 
+                async_=async_, 
+                **request_kwargs, 
+            )
+            update_resp_ancestors(resp)
+            return resp
     def get_resp(id: int, /, ensure_file: None | bool = None):
         if ensure_file is None:
-            try:
-                return get_resp_by_list(id)
-            except (FileNotFoundError, NotADirectoryError):
+            if app not in ("open", "aps") and isinstance(client, P115Client):
                 return get_resp_by_info(id)
+            else:
+                try:
+                    return get_resp_by_folder(id)
+                except (FileNotFoundError, NotADirectoryError):
+                    return get_resp_by_info(id)
         elif ensure_file:
             return get_resp_by_info(id)
         else:
-            return get_resp_by_list(id)
+            return get_resp_by_folder(id)
     def gen_step():
         nonlocal attr, ensure_file
         ancestors: list[dict] = [{"id": 0, "parent_id": 0, "name": ""}]
@@ -1049,16 +1054,8 @@ def get_ancestors(
             if is_dir is None:
                 if "parent_id" in attr:
                     pid = int(attr["parent_id"])
-                    ancestors = yield get_ancestors(
-                        client, 
-                        pid, 
-                        id_to_dirnode=id_to_dirnode, 
-                        ensure_file=False, 
-                        refresh=refresh, 
-                        app=app, 
-                        async_=async_, 
-                        **request_kwargs, 
-                    )
+                    resp = yield get_resp(pid, ensure_file=True)
+                    ancestors = resp["ancestors"]
                     name = ""
                     if "name" in attr:
                         name = attr["name"]
@@ -1105,7 +1102,7 @@ def get_path(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     ensure_file: None | bool = None, 
     refresh: bool = False, 
-    app: str = "web", 
+    app: str = "android", 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -1120,7 +1117,7 @@ def get_path(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     ensure_file: None | bool = None, 
     refresh: bool = False, 
-    app: str = "web", 
+    app: str = "android", 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -1134,7 +1131,7 @@ def get_path(
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     ensure_file: None | bool = None, 
     refresh: bool = False, 
-    app: str = "web", 
+    app: str = "android", 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -2276,17 +2273,15 @@ def get_file_count(
                 resp = yield client.fs_files_app(None, async_=async_, **request_kwargs)
                 check_response(resp)
             else:
-                with with_iter_next(iter_list(
+                from .fs_files import fs_files
+                resp = yield fs_files(
                     client, 
-                    cid, 
+                    {"cur": 1, "nf": 1, "hide_data": 1, "show_dir": 0, "cid": cid}, 
                     page_size=1, 
-                    payload={"hide_data": 1, "show_dir": 0, "cur": 0}, 
-                    normalize_attr=None, 
                     app=app, 
                     async_=async_, 
                     **request_kwargs, 
-                )) as get_next:
-                    resp = yield get_next()
+                )
             return int(resp["count"])
         elif not cid:
             resp = yield client.fs_space_summury(async_=async_, **request_kwargs)

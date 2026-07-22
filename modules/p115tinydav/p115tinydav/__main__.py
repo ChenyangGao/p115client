@@ -67,7 +67,7 @@ def main(argv: None | list[str] | Namespace = None, /):
     uvicorn_run_config_path = args.uvicorn_run_config_path
     if uvicorn_run_config_path:
         file = open(uvicorn_run_config_path, "rb")
-        match suffix := Path(uvicorn_run_config_path).suffix.lower():
+        match Path(uvicorn_run_config_path).suffix.lower():
             case ".yml" | ".yaml":
                 from yaml import load as yaml_load, Loader
                 run_config = yaml_load(file, Loader=Loader)

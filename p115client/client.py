@@ -260,6 +260,7 @@ def check_response(resp: dict | Awaitable[dict], /) -> dict | Coroutine[Any, Any
                 # {"state": false, "errno": 20009, "error": "父目录不存在。"}
                 case 20009:
                     throw(errno.ENOENT, resp)
+                # {"state": false, "errno": 20013, "error": "文件夹不存在或已删除。"}
                 # {"state": false, "errno": 20018, "error": "文件不存在或已删除。"}
                 # {"state": false, "errno": 31003, "error": "文件不存在或已删除。"}
                 # {"state": false, "errno": 50015, "error": "文件不存在或已删除。"}
@@ -267,7 +268,7 @@ def check_response(resp: dict | Awaitable[dict], /) -> dict | Coroutine[Any, Any
                 # {"state": false, "errno": 70008, "error": "文件不存在或已删除"}
                 # {"state": false, "errno": 90008, "error": "文件（夹）不存在或已经删除。"}
                 # {"state": false, "errno": 430004, "error": "文件（夹）不存在或已删除。"}
-                case 20018 | 31003 | 50015 | 70005 | 70008 | 90008 | 430004:
+                case 20013 | 20018 | 31003 | 50015 | 70005 | 70008 | 90008 | 430004:
                     if resp.get("is_download"):
                         raise P115DownloadFileNotFoundError(errno.ENOENT, resp)
                     throw(errno.ENOENT, resp)
@@ -567,11 +568,13 @@ class ClientRequestMixin:
 
     def update_cookies(
         self, 
-        cookies: None | str | CookieJar | BaseCookie | Mapping[str, Any] | Iterable[Any] = None, 
+        cookies: None | str | CookieJar | BaseCookie | Mapping[str, Any] | Iterable[Any] | ClientRequestMixin = None, 
         /, 
     ):
         """更新 cookies（如果为 None 则是清空）
         """
+        if isinstance(cookies, ClientRequestMixin):
+            cookies = cookies.cookies
         if cookies is None:
             self.cookies.clear()
         else:
@@ -3009,7 +3012,7 @@ class P115OpenClient(ClientRequestMixin):
             - max_size: int = 0 💡 最大的文件大小（含），<= 0 表示不限，因此并不能借此仅筛选出空文件
             - natsort: 0 | 1 = <default> 💡 是否执行自然排序(natural sorting)
             - nf: 0 | 1 = <default> 💡 不要显示文件（即仅显示目录），但如果 show_dir=0，则此参数无效
-            - o: str = <default> 💡 用某字段排序（未定义的值会被视为 "user_utime"）
+            - o: str = <default> 💡 用某字段排序
 
                 - "file_name": 文件名
                 - "file_size": 文件大小
@@ -3996,7 +3999,7 @@ class P115OpenClient(ClientRequestMixin):
             - file_name: str 💡 文件名
             - fileid: str 💡 文件的 sha1 值
             - file_size: int 💡 文件大小，单位是字节
-            - target: str 💡 上传目标，格式为 f"U_{aid}_{pid}"
+            - target: str 💡 上传目标，格式为 f"U_{aid}_{pid}" 或 f"S_{share_id}_{pid}"
             - topupload: int = 0 💡 上传调度文件类型调度标记
 
                 -  0: 单文件上传任务标识 1 条单独的文件上传记录
@@ -4051,7 +4054,7 @@ class P115OpenClient(ClientRequestMixin):
 
         :payload:
             - pick_code: str 💡 上传任务 key
-            - target: str    💡 上传目标，默认为 "U_1_0"，格式为 f"U_{aid}_{pid}"
+            - target: str    💡 上传目标，默认为 "U_1_0"，格式为 f"U_{aid}_{pid}" 或 f"S_{share_id}_{pid}"
             - fileid: str    💡 文件的 sha1 值（⚠️ 可以是任意值）
             - file_size: int 💡 文件大小，单位是字节（⚠️ 可以是任意值）
         """
@@ -4134,7 +4137,7 @@ class P115OpenClient(ClientRequestMixin):
         :param read_range_bytes_or_hash: 调用以获取 2 次验证的数据或计算 sha1，接受一个数据范围，格式符合:
             `HTTP Range Requests <https://developer.mozilla.org/en-US/docs/Web/HTTP/Range_requests>`_，
             返回值如果是 str，则视为计算好的 sha1，如果为 Buffer，则视为数据（之后会被计算 sha1）
-        :param pid: 上传文件到此目录的 id，或者指定的 target（格式为 f"U_{aid}_{pid}"，但若 `aid != 1`，则会报参数错误）
+        :param pid: 上传文件到此目录的 id，或者指定的 target（格式为 f"U_{aid}_{pid}" 或 f"S_{share_id}_{pid}"，但若 `aid != 1`，则会报参数错误）
         :param async_: 是否异步
         :param request_kwargs: 其余请求参数
 
@@ -4256,7 +4259,7 @@ class P115OpenClient(ClientRequestMixin):
             ``partsize > 0`` 时，不要把 ``partsize`` 设置得太小，起码得 10 MB (10485760) 以上
 
         :param file: 待上传的文件
-        :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 f"U_{aid}_{pid}"，但若 `aid != 1`，则会报参数错误）
+        :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 f"U_{aid}_{pid}" 或 f"S_{share_id}_{pid}"，但若 `aid != 1`，则会报参数错误）
         :param share_id: 共享 id
         :param filename: 文件名，如果为空，则会自动确定
         :param filesha1: 文件的 sha1，如果为空，则会自动确定
@@ -11636,18 +11639,15 @@ class P115Client(P115OpenClient):
                 - 5: 压缩包
                 - 6: 软件/应用
                 - 7: 书籍
-                - 8: 其它
-                - 9: 相当于 8
-                - 10: 相当于 8
-                - 11: 相当于 8
-                - 12: ？？？
-                - 13: 相当于 3
-                - 14: ？？？
-                - 15: 图片和视频，相当于 2 和 4
-                - 16: ？？？
-                - 17~98: 相当于 8
+                - 8-11: 大概相当于 1
+                - 12: 文档+图片+视频，相当于 1、2、4
+                - 13: ？？？，音频
+                - 14: ？？？，文档
+                - 15: 图片+视频，相当于 2、4
+                - 16: 字幕
+                - 17~98: 大概相当于 1
                 - 99: 所有文件
-                - >=100: 相当于 8
+                - >=100: 大概相当于 1
         """
         api = complete_url("/files", base_url=base_url)
         if payload is None:
@@ -11659,7 +11659,7 @@ class P115Client(P115OpenClient):
             "record_open_time": 1, "show_dir": 1, "cid": 0, **payload, 
         }
         if payload.keys() & frozenset(("asc", "fc_mix", "o")):
-            payload["custom_order"] = 1
+            payload["custom_order"] = 2
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -11771,7 +11771,7 @@ class P115Client(P115OpenClient):
             - max_size: int = 0 💡 最大的文件大小（含），<= 0 表示不限，因此并不能借此仅筛选出空文件
             - natsort: 0 | 1 = <default> 💡 是否执行自然排序(natural sorting)
             - nf: 0 | 1 = <default> 💡 不要显示文件（即仅显示目录），但如果 show_dir=0，则此参数无效
-            - o: str = <default> 💡 用某字段排序（未定义的值会被视为 "user_utime"）
+            - o: str = <default> 💡 用某字段排序
 
                 - "file_name": 文件名
                 - "file_size": 文件大小
@@ -11801,14 +11801,11 @@ class P115Client(P115OpenClient):
                 - 5: 压缩包
                 - 6: 软件/应用
                 - 7: 书籍
-                - 8: 其它
-                - 9: 相当于 8
-                - 10: 相当于 8
-                - 11: 相当于 8
-                - 12: ？？？
-                - 13: ？？？
-                - 14: ？？？
-                - 15: 图片和视频，相当于 2 和 4
+                - 8-11: 大概相当于 1
+                - 12: 文档+图片+视频，相当于 1、2、4
+                - 13: ？？？，音频
+                - 14: 大概相当于 1
+                - 15: 图片+视频，相当于 2、4
                 - >= 16: 相当于 8
         """
         api = complete_url("/ufile/files", base_url=base_url, app=app, version=version)
@@ -11909,7 +11906,7 @@ class P115Client(P115OpenClient):
             - max_size: int = 0 💡 （⚠️ 似乎不可用）最大的文件大小（含），<= 0 表示不限，因此并不能借此仅筛选出空文件
             - natsort: 0 | 1 = <default> 💡 是否执行自然排序(natural sorting)
             - nf: 0 | 1 = <default> 💡 不要显示文件（即仅显示目录），但如果 show_dir=0，则此参数无效
-            - o: str = <default> 💡 用某字段排序（未定义的值会被视为 "user_utime"）
+            - o: str = <default> 💡 用某字段排序
 
                 - "file_name": 文件名
                 - "file_size": 文件大小
@@ -11939,14 +11936,11 @@ class P115Client(P115OpenClient):
                 - 5: 压缩包
                 - 6: 软件/应用
                 - 7: 书籍
-                - 8: 其它
-                - 9: 相当于 8
-                - 10: 相当于 8
-                - 11: 相当于 8
-                - 12: ？？？
-                - 13: ？？？
-                - 14: ？？？
-                - 15: 图片和视频，相当于 2 和 4
+                - 8-11: 大概相当于 1
+                - 12: 文档+图片+视频，相当于 1、2、4
+                - 13: ？？？，音频
+                - 14: 大概相当于 1
+                - 15: 图片+视频，相当于 2、4
                 - >= 16: 相当于 8
         """
         api = complete_url("/files", base_url=base_url, app=app, force_app=("wechatmini", "alipaymini"))
@@ -12069,18 +12063,13 @@ class P115Client(P115OpenClient):
                 - 5: 压缩包
                 - 6: 软件/应用
                 - 7: 书籍
-                - 8: 其它
-                - 9: 相当于 8
-                - 10: 相当于 8
-                - 11: 相当于 8
-                - 12: ？？？
-                - 13: 相当于 3
-                - 14: ？？？
-                - 15: 图片和视频，相当于 2 和 4
-                - 16: ？？？
-                - 17~98: 相当于 8
+                - 8-12: 大概相当于 1
+                - 13: ？？？，音频
+                - 14-15: 大概相当于 1
+                - 16: 字幕
+                - 17~98: 大概相当于 1
                 - 99: 所有文件
-                - >=100: 相当于 8
+                - >=100: 大概相当于 1
         """
         api = complete_url("/natsort/files.php", base_url=base_url)
         if payload is None:
@@ -12092,7 +12081,7 @@ class P115Client(P115OpenClient):
             "record_open_time": 1, "show_dir": 1, "cid": 0, **payload, 
         }
         if payload.keys() & frozenset(("asc", "fc_mix")):
-            payload["custom_order"] = 1
+            payload["custom_order"] = 2
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -12452,12 +12441,20 @@ class P115Client(P115OpenClient):
                 - 5: 压缩包
                 - 6: 软件/应用
                 - 7: 书籍
-                - >7: 相当于 1
+                - 8-11: 大概相当于 1
+                - 12: 文档+图片+视频，相当于 1、2、4
+                - 13: ？？？，音频
+                - 14: ？？？，文档
+                - 15: 图片+视频，相当于 2、4
+                - 16: 字幕
+                - 17~98: 大概相当于 1
+                - 99: 所有文件
+                - >=100: 大概相当于 1
         """
         api = complete_url("/files/medialist", base_url=base_url)
         if payload is None:
             return self.request(url=api, async_=async_, **request_kwargs)
-        if isinstance(payload, (int, str)):
+        if not isinstance(payload, dict):
             payload = {"cid": payload}
         payload = {"limit": 32, "offset": 0, "aid": 1, "cid": 0, "cur": 1, "type": -1, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
@@ -12534,7 +12531,7 @@ class P115Client(P115OpenClient):
             - type: int =  💡 文件类型（不传则视为 4）
 
                 - <0: 全部文件（不含目录），响应中的 "type" 为 0
-                - 0: 视为 2，响应中的 "type" 为 2
+                - 0: 视为 2，因为响应中的 "type" 为 2
                 - 1: 文档
                 - 2: 图片
                 - 3: 音频
@@ -12542,7 +12539,12 @@ class P115Client(P115OpenClient):
                 - 5: 压缩包
                 - 6: 软件/应用
                 - 7: 书籍
-                - >7: 相当于 1
+                - 8-11: 大概相当于 1
+                - 12: 文档+图片+视频，相当于 1、2、4
+                - 13: ？？？，音频
+                - 14: 大概相当于 1
+                - 15: 图片+视频，相当于 2、4
+                - >= 16: 相当于 8
         """
         api = complete_url("/files/medialist", base_url=base_url, app=app)
         if payload is None:
@@ -12853,7 +12855,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """获取目录列表
+        """获取目录列表（不含文件）
 
         GET https://proapi.115.com/{app}/folder/update
 
@@ -12904,7 +12906,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """获取目录列表
+        """获取目录列表（不含文件）
 
         GET https://proapi.115.com/{app}/folder
 
@@ -12913,12 +12915,65 @@ class P115Client(P115OpenClient):
             - offset: int = 0
             - limit: int = 1150
             - user_id: int | str = <default> 💡 用户 id，不必是自己 🤪
+            - aid: int = 1
             - ...
         """
         api = complete_url("/folder", base_url=base_url, app=app)
         if not isinstance(payload, dict):
             payload = {"p_id": payload}
-        payload = {"limit": 1150, "offset": 0, "p_id": 0, "user_id": self.user_id, **payload}
+        payload = {"aid": 1, "limit": 1150, "offset": 0, "p_id": 0, "user_id": self.user_id, **payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def fs_folder_file(
+        self, 
+        payload: int | str | dict = 0, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def fs_folder_file(
+        self, 
+        payload: int | str | dict = 0, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def fs_folder_file(
+        self, 
+        payload: int | str | dict = 0, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取目录中的文件列表（不含目录）
+
+        GET https://webapi.115.com/folder/file
+
+        .. todo::
+            ``limit`` 参数无效，即不能设定分页大小，此接口还需继续挖掘 ⛏️
+
+        :payload:
+            - cid: int | str
+            - offset: int = 0
+            - limit: int = 1150 💡 ⚠️ 无效，只能是默认获取 15 条
+            - user_id: int | str = <default> 💡 用户 id，不必是自己 🤪
+            - aid: int = 1
+            - ...
+        """
+        api = complete_url("/folder/file", base_url=base_url)
+        if not isinstance(payload, dict):
+            payload = {"cid": payload}
+        payload = {"aid": 1, "limit": 1150, "offset": 0, "cid": 0, "user_id": self.user_id, **payload}
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -13831,7 +13886,7 @@ class P115Client(P115OpenClient):
             - max_size: int = 0 💡 最大的文件大小（含），<= 0 表示不限，因此并不能借此仅筛选出空文件
             - natsort: 0 | 1 = <default> 💡 是否执行自然排序(natural sorting)
             - nf: 0 | 1 = <default> 💡 不要显示文件（即仅显示目录），但如果 show_dir=0，则此参数无效
-            - o: str = <default> 💡 用某字段排序（未定义的值会被视为 "user_utime"）
+            - o: str = <default> 💡 用某字段排序
 
                 - "file_name": 文件名
                 - "file_size": 文件大小
@@ -14642,7 +14697,7 @@ class P115Client(P115OpenClient):
             - max_size: int = 0 💡 最大的文件大小（含），<= 0 表示不限，因此并不能借此仅筛选出空文件
             - natsort: 0 | 1 = <default> 💡 是否执行自然排序(natural sorting)
             - nf: 0 | 1 = <default> 💡 不要显示文件（即仅显示目录），但如果 show_dir=0，则此参数无效
-            - o: str = <default> 💡 用某字段排序（未定义的值会被视为 "user_utime"）
+            - o: str = <default> 💡 用某字段排序
 
                 - "file_name": 文件名
                 - "file_size": 文件大小
@@ -14672,15 +14727,15 @@ class P115Client(P115OpenClient):
                 - 5: 压缩包
                 - 6: 软件/应用
                 - 7: 书籍
-                - 8: 其它
-                - 9: 相当于 8
-                - 10: 相当于 8
-                - 11: 相当于 8
-                - 12: ？？？
-                - 13: ？？？
-                - 14: ？？？
-                - 15: 图片和视频，相当于 2 和 4
-                - >= 16: 相当于 8
+                - 8-11: 大概相当于 1
+                - 12: 文档+图片+视频，相当于 1、2、4
+                - 13: ？？？，音频
+                - 14: ？？？，文档
+                - 15: 图片+视频，相当于 2、4
+                - 16: 字幕
+                - 17~98: 大概相当于 1
+                - 99: 所有文件
+                - >=100: 大概相当于 1
         """
         api = complete_url("/label/files", base_url=base_url)
         if not isinstance(payload, dict):
@@ -14734,6 +14789,7 @@ class P115Client(P115OpenClient):
                 - 修改时间: "update_time"
 
             - order: "asc" | "desc" = <default> 💡 排序顺序："asc"(升序), "desc"(降序)
+            - count_file: 0 | 1 = <default>
         """
         api = complete_url("/label/list", base_url=base_url)
         if isinstance(payload, str):
@@ -16943,8 +16999,8 @@ class P115Client(P115OpenClient):
         POST https://webapi.115.com/files/score
 
         :payload:
-            - file_id: int | str 💡 文件或目录 id，多个用逗号 "," 隔开
-            - score: int = 0     💡 0 为删除评分
+            - file_id: int | str   💡 文件或目录 id，多个用逗号 "," 隔开
+            - score: int | str = 0 💡 任意整数，<= 0 时网页上不会显示星星，如果是字符串，会尝试解析为整数，失败的话得到 0
         """
         api = complete_url("/files/score", base_url=base_url)
         if not isinstance(file_id, (int, str)):
@@ -17976,6 +18032,51 @@ class P115Client(P115OpenClient):
         )
 
     @overload
+    def fs_video_add_caption_map(
+        self, 
+        payload: dict | int | str, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def fs_video_add_caption_map(
+        self, 
+        payload: dict | int | str, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def fs_video_add_caption_map(
+        self, 
+        payload: dict | int | str, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """关联字幕
+
+        POST https://webapi.115.com/movies/add_caption_map
+
+        :payload:
+            - file_ids: int | str 💡 多个用逗号 "," 隔开
+            - type: int = 2
+        """
+        api = complete_url("/movies/add_caption_map", base_url=base_url)
+        if not isinstance(payload, dict):
+            payload = {"file_ids": payload}
+        payload.setdefault("type", 2)
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
     def fs_video_def_set(
         self, 
         payload: int | str | dict, 
@@ -18167,7 +18268,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: dict | str, 
         /, 
-        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        base_url: str | Callable[[], str] = "https://115.com", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -18178,7 +18279,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: dict | str, 
         /, 
-        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        base_url: str | Callable[[], str] = "https://115.com", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -18188,7 +18289,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: dict | str, 
         /, 
-        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        base_url: str | Callable[[], str] = "https://115.com", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
@@ -18216,7 +18317,7 @@ class P115Client(P115OpenClient):
         self, 
         payload: dict | int | str, 
         /, 
-        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        base_url: str | Callable[[], str] = "https://115.com", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -18227,13 +18328,57 @@ class P115Client(P115OpenClient):
         self, 
         payload: dict | int | str, 
         /, 
-        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        base_url: str | Callable[[], str] = "https://115.com", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
     ) -> Coroutine[Any, Any, dict]:
         ...
     def fs_video_push_batch(
+        self, 
+        payload: dict | int | str, 
+        /, 
+        base_url: str | Callable[[], str] = "https://115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """提交视频转码
+
+        POST https://115.com/?ctl=play&ac=batch_push
+
+        :payload:
+            - file_ids: int | str 💡 多个用逗号 "," 隔开
+            - folder_ids: int | str 💡 多个用逗号 "," 隔开
+        """
+        api = complete_url(base_url=base_url, query={"ctl": "play", "ac": "batch_push"})
+        if not isinstance(payload, dict):
+            payload = {"file_ids": payload}
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def fs_video_push_batch2(
+        self, 
+        payload: dict | int | str, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def fs_video_push_batch2(
+        self, 
+        payload: dict | int | str, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def fs_video_push_batch2(
         self, 
         payload: dict | int | str, 
         /, 
@@ -18244,12 +18389,13 @@ class P115Client(P115OpenClient):
     ) -> dict | Coroutine[Any, Any, dict]:
         """提交视频转码
 
-        POST https://115.com/?ctl=play&ac=batch_push
+        POST https://webapi.115.com/movies/batch_push
 
         :payload:
-            - file_ids: int | str 💡 文件或目录 id，多个用逗号 "," 隔开
+            - file_ids: int | str 💡 多个用逗号 "," 隔开
+            - folder_ids: int | str 💡 多个用逗号 "," 隔开
         """
-        api = complete_url(base_url=base_url, query={"ctl": "play", "ac": "batch_push"})
+        api = complete_url("/movies/batch_push", base_url=base_url)
         if not isinstance(payload, dict):
             payload = {"file_ids": payload}
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
@@ -26677,7 +26823,7 @@ class P115Client(P115OpenClient):
             - fileid: str           💡 文件的 sha1
             - filename: str         💡 文件名
             - filesize: int         💡 文件大小
-            - target: str = "U_1_0" 💡 保存目标，格式为 f"U_{aid}_{pid}"
+            - target: str = "U_1_0" 💡 保存目标，格式为 f"U_{aid}_{pid}" 或 f"S_{share_id}_{pid}"
             - sign_key: str = ""    💡 2 次验证的 key
             - sign_val: str = ""    💡 2 次验证的值
             - topupload: int | str = "true" 💡 上传调度文件类型调度标记
@@ -26794,7 +26940,7 @@ class P115Client(P115OpenClient):
         :payload:
             - fileid: str   💡 文件的 sha1 值
             - filesize: int 💡 文件大小，单位是字节
-            - target: str   💡 上传目标，默认为 "U_1_0"，格式为 f"U_{aid}_{pid}"
+            - target: str   💡 上传目标，默认为 "U_1_0"，格式为 f"U_{aid}_{pid}" 或 f"S_{share_id}_{pid}"
             - pickcode: str 💡 提取码
             - userid: int = <default> 💡 用户 id
         """
@@ -27181,6 +27327,8 @@ class P115Client(P115OpenClient):
         dirname: str = "", 
         read_range_bytes_or_hash: None | Callable[[str], str | Buffer] = None, 
         pid: int | str = 0, 
+        share_id: int = 0, 
+        payload: None | Mapping = None, 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -27196,6 +27344,8 @@ class P115Client(P115OpenClient):
         dirname: str = "", 
         read_range_bytes_or_hash: None | Callable[[str], str | Buffer] = None, 
         pid: int | str = 0, 
+        share_id: int = 0, 
+        payload: None | Mapping = None, 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -27210,6 +27360,8 @@ class P115Client(P115OpenClient):
         dirname: str = "", 
         read_range_bytes_or_hash: None | Callable[[str], str | Buffer] = None, 
         pid: int | str = 0, 
+        share_id: int = 0, 
+        payload: None | Mapping = None, 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
@@ -27227,17 +27379,24 @@ class P115Client(P115OpenClient):
         :param read_range_bytes_or_hash: 调用以获取 2 次验证的数据或计算 sha1，接受一个数据范围，格式符合:
             `HTTP Range Requests <https://developer.mozilla.org/en-US/docs/Web/HTTP/Range_requests>`_，
             返回值如果是 str，则视为计算好的 sha1，如果为 Buffer，则视为数据（之后会被计算 sha1）
-        :param pid: 上传文件到此目录的 id，或者指定的 target（格式为 f"U_{aid}_{pid}"，但这里的 `aid` 无论如何取值，都视为 1）
+        :param pid: 上传文件到此目录的 id，或者指定的 target（格式为 f"U_{aid}_{pid}" 或 f"S_{share_id}_{pid}"，但这里的 `aid` 无论如何取值，都视为 1）
+        :param share_id: 共享 id
+        :param payload: 其它的查询参数
         :param async_: 是否异步
         :param request_kwargs: 其余请求参数
 
         :return: 接口响应
         """
-        def gen_step():
-            if isinstance(pid, str) and pid.startswith(("U_", "S_")):
-                target = pid
+        if isinstance(pid, str) and pid.startswith(("U_", "S_")):
+            target = pid
+        else:
+            pid = to_id(pid)
+            if share_id:
+                target = f"S_{share_id}_{pid}"
             else:
                 target = f"U_1_{pid}"
+        default_payload = payload
+        def gen_step():
             payload = {
                 "filename": filename, 
                 "fileid": filesha1.upper(), 
@@ -27245,6 +27404,8 @@ class P115Client(P115OpenClient):
                 "target": target, 
                 "path": dirname, 
             }
+            if default_payload:
+                payload.update(default_payload)
             resp = yield self.upload_init(
                 payload, 
                 async_=async_, 
@@ -27781,7 +27942,7 @@ class P115Client(P115OpenClient):
             - ``U_3_-9``: 此时 ``aid=12``，可以通过 ``fs_delete_app`` 删除上传后的文件 id 来释放空间
 
         :param file: 待上传的文件
-        :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 f"U_{aid}_{pid}"，但这里的 `aid` 无论如何取值，都视为 1）
+        :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 f"U_{aid}_{pid}" 或 f"S_{share_id}_{pid}"，但这里的 `aid` 无论如何取值，都视为 1）
         :param share_id: 共享 id
         :param filename: 文件名，如果为空，则会自动确定
         :param filesha1: 文件的 sha1，如果为空，则会自动确定
@@ -30041,18 +30202,15 @@ class P115Client(P115OpenClient):
                 - 5: 压缩包
                 - 6: 软件/应用
                 - 7: 书籍
-                - 8: 其它
-                - 9: 相当于 8
-                - 10: 相当于 8
-                - 11: 相当于 8
-                - 12: ？？？
-                - 13: 相当于 3
-                - 14: ？？？
-                - 15: 图片和视频，相当于 2 和 4
-                - 16: ？？？
-                - 17~98: 相当于 8
+                - 8-11: 大概相当于 1
+                - 12: 文档+图片+视频，相当于 1、2、4
+                - 13: ？？？，音频
+                - 14: ？？？，文档
+                - 15: 图片+视频，相当于 2、4
+                - 16: 字幕
+                - 17~98: 大概相当于 1
                 - 99: 所有文件
-                - >=100: 相当于 8
+                - >=100: 大概相当于 1
         """
         api = complete_url("/usershare/filelist", base_url=base_url)
         payload = {"limit": 32, "offset": 0, "show_dir": 1, **payload}
@@ -30136,18 +30294,12 @@ class P115Client(P115OpenClient):
                 - 5: 压缩包
                 - 6: 软件/应用
                 - 7: 书籍
-                - 8: 其它
-                - 9: 相当于 8
-                - 10: 相当于 8
-                - 11: 相当于 8
-                - 12: ？？？
-                - 13: 相当于 3
-                - 14: ？？？
-                - 15: 图片和视频，相当于 2 和 4
-                - 16: ？？？
-                - 17~98: 相当于 8
-                - 99: 所有文件
-                - >=100: 相当于 8
+                - 8-11: 大概相当于 1
+                - 12: 文档+图片+视频，相当于 1、2、4
+                - 13: ？？？，音频
+                - 14: 大概相当于 1
+                - 15: 图片+视频，相当于 2、4
+                - >= 16: 相当于 8
         """
         api = complete_url("/2.0/usershare/filelist", base_url=base_url, app=app)
         payload = {"limit": 32, "offset": 0, "show_dir": 1, **payload}

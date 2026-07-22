@@ -5,8 +5,10 @@ __author__ = "ChenyangGao <https://chenyanggao.github.io>"
 __all__ = ["make_application"]
 
 from asyncio import create_task, sleep, to_thread, Lock, Task, Queue
+from collections.abc import MutableMapping
 from contextlib import suppress
 from email.utils import formatdate
+from gc import collect
 from html import escape
 from io import BytesIO
 from mimetypes import guess_type
@@ -24,6 +26,8 @@ from blacksheep.server.remotes.forwarding import ForwardedHeadersMiddleware
 from blacksheep.server.responses import json
 from blacksheep_rich_log import middleware_access_log
 from cachedict import TTLDict
+from orjson import dumps
+from psutil import virtual_memory
 from p115client import check_response, P115Client
 from p115client.tool import (
     dir_getid, get_file_count, get_pic_url, tinydb_initdb, tinydb_update, 
@@ -31,6 +35,7 @@ from p115client.tool import (
 )
 from p115client.util import load_final_image
 from sqlitetools import execute, upsert_items
+from undefined import undefined
 from yarl import URL
 
 __import__("mimetype_more").load()
@@ -63,15 +68,70 @@ def ensure_str_id(attr, /):
             ensure_str_id(subattr)
 
 
+class CachedXML(MutableMapping[int, tuple[int, bytes]]):
+
+    def __init__(self, maxsize: int = 0, /):
+        self._maxsize = maxsize
+        self.total = 0
+        self.data: dict[int, tuple[int, bytes]] = {}
+
+    def __delitem__(self, key, /):
+        self.pop(key)
+
+    def __getitem__(self, key, /):
+        return self.data.get(key)
+
+    def __setitem__(self, key, value, /):
+        self.pop(key, None)
+        self.clean(value)
+        self.data[key] = value
+        self.total += len(value[1])
+
+    def __iter__(self, /):
+        return iter(self.data)
+
+    def __len__(self, /):
+        return len(self.data)
+
+    @property
+    def maxsize(self, /) -> int:
+        m = self._maxsize
+        if m <= 0:
+            return virtual_memory().available
+        return m
+
+    def pop(self, key, /, default=undefined):
+        value = self.data.pop(key, default)
+        if value is undefined:
+            raise KeyError(key)
+        elif value is not None:
+            self.total -= len(value[1])
+        return value
+
+    def clean(self, value, /):
+        _, data = value
+        upbound = self.maxsize - len(data)
+        if self and self.total > upbound:
+            pop = self.pop
+            while self and self.total > upbound:
+                pop(next(iter(self)))
+            collect()
+
+
 def make_application(
     client: str | PathLike | P115Client = Path("~/115-cookies.txt").expanduser(), 
     dbfile: str | PathLike = "", 
     debug: bool = False, 
     cache_url: bool = True, 
+    cached_xml_max_size: int = 1024 ** 3, # 1 GB
     use_gzip: bool = True, 
 ) -> Application:
     CACHE_IMAGE_URL: TTLDict[str, str] = TTLDict(3600-60, maxsize=4096)
     CACHE_URL: TTLDict[tuple[int, str], str] = TTLDict(3600, maxsize=1024)
+    if cached_xml_max_size == 0:
+        CACHE_XML: None | CachedXML = None
+    else:
+        CACHE_XML = CachedXML(cached_xml_max_size)
     RENAME_DICT: dict[int, str] = {}
     MOVE_DICT: dict[int, int] = {}
     if not isinstance(client, P115Client):
@@ -124,7 +184,8 @@ def make_application(
         hour_task = create_task(hour_life_update())
         get_task = task_queue.get
         last_life_ts: float = 0
-        last_update_tree: dict[int, float] = {}
+        last_update_tree: dict[int, None] = TTLDict(1)
+        last_update_dir: dict[int, None] = TTLDict(1)
         try:
             i = 0
             ignore = lambda e: (
@@ -153,32 +214,37 @@ def make_application(
                                 continue
                         case "top":
                             await tinydb_update(client, con, lock=write_lock, async_=True)
-                        case ("tree", id, True):
-                            if perf_counter() - last_update_tree.get(id, 0) > 1:
-                                try:
-                                    count_file = await get_file_count(client, id, async_=True)
-                                except FileNotFoundError:
-                                    async with write_lock:
-                                        execute(con, "UPDATE data SET mtime=?, is_alive=FALSE WHERE id=?", (int(time()), id), commit=True)
-                                else:
-                                    try:
-                                        resp = P115QueryDB(con).get_count_tree(id)
-                                        count_file0 = resp["file_count"]
-                                    except FileNotFoundError:
-                                        count_file0 = 0
-                                    if count_file == count_file0:
-                                        logger.debug(f"task[\x1b[1;36m{i}\x1b[0m]=\x1b[1m{task!r}\x1b[0m \x1b[1;33mskipped\x1b[0m")
-                                        continue
-                                    else:
-                                        await tinydb_update(client, con, id, lock=write_lock, async_=True)
-                                last_update_tree[id] = perf_counter()
-                            else:
+                        case ("tree", id):
+                            if id in last_update_tree:
                                 logger.debug(f"task[\x1b[1;36m{i}\x1b[0m]=\x1b[1m{task!r}\x1b[0m \x1b[1;33mskipped\x1b[0m")
                                 continue
-                        case ("tree", id) | ("tree", id, _):
-                            await tinydb_update(client, con, id, lock=write_lock, async_=True)
+                            else:
+                                try:
+                                    resp = P115QueryDB(con).get_count_tree(id)
+                                    count_file0 = resp["file_count"]
+                                except FileNotFoundError:
+                                    count_file0 = -1
+                                else:
+                                    try:
+                                        count_file = await get_file_count(client, id, async_=True)
+                                    except FileNotFoundError:
+                                        async with write_lock:
+                                            execute(con, "UPDATE data SET mtime=?, is_alive=FALSE WHERE id=?", (int(time()), id), commit=True)
+                                            execute(con, "UPDATE data SET mtime=? WHERE id IN (SELECT parent_id FROM data WHERE id=?)", (int(time()), id), commit=True)
+                                        continue
+                                if count_file == count_file0:
+                                    logger.debug(f"task[\x1b[1;36m{i}\x1b[0m]=\x1b[1m{task!r}\x1b[0m \x1b[1;33mskipped\x1b[0m")
+                                    continue
+                                else:
+                                    await tinydb_update(client, con, id, lock=write_lock, async_=True)
+                                last_update_tree[id] = None
                         case ("dir", id):
-                            await tinydb_update(client, con, id, recursive=False, lock=write_lock, async_=True)
+                            if id in last_update_dir:
+                                logger.debug(f"task[\x1b[1;36m{i}\x1b[0m]=\x1b[1m{task!r}\x1b[0m \x1b[1;33mskipped\x1b[0m")
+                                continue
+                            else:
+                                await tinydb_update(client, con, id, recursive=False, lock=write_lock, async_=True)
+                                last_update_dir[id] = None
                         # TODO: delete 和 move 是比较耗时的，或许应该专门再搞一个任务队列，避免阻塞 evnet 的执行
                         case ("delete", id):
                             await client.fs_delete_app(id, async_=True)
@@ -266,12 +332,19 @@ def make_application(
                 id = querydb.get_id(path=path)
                 top_path = "/" + path.strip("/")
         attr = querydb.get_attr(id)
-        if not attr["parent_id"] and attr["name"] in ("云下载", "最近接收"):
-            put_task(("tree", attr["id"], True))
+        if not id:
+            put_task(("dir", attr["id"]))
+        elif not attr["parent_id"] and attr["name"] in ("云下载", "最近接收"):
+            put_task(("tree", attr["id"]))
+        depth = request.headers.get_first(b"depth")
+        if id and depth == b"1":
+            if CACHE_XML and (data := CACHE_XML.get(id)):
+                mtime, xml = data
+                if mtime == attr["mtime"]:
+                    return Response(207, content=Content(b"application/xml", xml))
         if not top_path:
             top_path = querydb.get_path(id)
         attr["path"] = top_path
-        depth = request.headers.get_first(b"depth")
         def make_content():
             file = BytesIO()
             write = file.write
@@ -289,7 +362,10 @@ def make_application(
                     write_attr_content(write, sub_attr)
             write(b"</d:multistatus>")
             return file.getvalue()
-        return Response(207, content=Content(b"application/xml", await to_thread(make_content)))
+        xml = await to_thread(make_content)
+        if id and depth == b"1" and CACHE_XML is not None:
+            CACHE_XML[id] = (attr["mtime"], xml)
+        return Response(207, content=Content(b"application/xml", xml))
 
     async def get_image_url(sha1: str, /) -> str:
         if cache_url and (url := CACHE_IMAGE_URL.get(sha1)):
@@ -350,6 +426,7 @@ def make_application(
         path: str = "/", 
         format: str = "", 
         image: bool = True, 
+        tree: bool = False, 
     ):
         put_task("life")
         querydb = P115QueryDB(Connection(dbfile, flags=SQLITE_OPEN_READONLY))
@@ -361,16 +438,37 @@ def make_application(
         attr = querydb.get_attr(id)
         attr["path"] = querydb.get_path(id)
         if attr["is_dir"]:
-            if not attr["parent_id"] and attr["name"] in ("云下载", "最近接收"):
-                put_task(("tree", attr["id"], True))
-            if format == "json":
-                attr["ancestors"] = list(querydb.get_ancestors(id))
-                attr["children"] = {str(a["id"]): a for a in querydb.iter_children(id)}
-                ensure_str_id(attr)
-                for subattr in attr["children"].values():
-                    subattr["path"] = joinpath(attr["path"], subattr["name"])
-                return json(attr)
-            return Response(200, content=Content(b"text/html", theme))
+            if not id:
+                put_task(("dir", attr["id"]))
+            elif not attr["parent_id"] and attr["name"] in ("云下载", "最近接收"):
+                put_task(("tree", attr["id"]))
+            match format:
+                case "json":
+                    attr["ancestors"] = list(querydb.get_ancestors(id))
+                    if tree:
+                        attr["children"] = {
+                            str(a["id"]): a for a in querydb.iter_descendants(
+                                id, fields=("id", "parent_id", "name", "sha1", "size", "mtime", "is_dir", "path"))}
+                    else:
+                        attr["children"] = {str(a["id"]): a for a in querydb.iter_children(id)}
+                        for subattr in attr["children"].values():
+                            subattr["path"] = joinpath(attr["path"], subattr["name"])
+                    ensure_str_id(attr)
+                    return json(attr)
+                case "iter":
+                    async def iter_records():
+                        if tree:
+                            it = querydb.iter_descendants(
+                                id, fields=("id", "parent_id", "name", "sha1", "size", "mtime", "is_dir", "path"))
+                        else:
+                            it = querydb.iter_children()
+                        for record in map(dumps, it):
+                            if await request.is_disconnected():
+                                break
+                            yield record + b"\n"
+                    return Response(200, content=StreamedContent(b"text/plain", iter_records))
+                case _:
+                    return Response(200, content=Content(b"text/html", theme))
         if image and attr["size"] <= 1024 * 1024 * 50:
             url = await get_image_url(attr["sha1"])
         else:
@@ -389,20 +487,28 @@ def make_application(
     @app.router.route("/<path:path>", methods=["POST"])
     async def post_task(
         request: Request, 
+        con: Connection, 
         id: int = -1, 
         pickcode: str = "", 
         path: str = "/", 
         tree: bool = False, 
-        check_count: bool = True, 
     ):
         if id <= 0:
             if pickcode:
                 id = client.to_id(pickcode)
-            elif path := path.strip("/"):
-                id = await dir_getid(client, path, app="web2", async_=True)
             else:
-                id = 0
-        put_task((("dir", "tree")[tree], id, check_count))
+                try:
+                    id = P115QueryDB(con).get_id(path=path)
+                except FileNotFoundError:
+                    try:
+                        id = await dir_getid(client, path, app="web2", async_=True)
+                    except FileNotFoundError:
+                        async with write_lock:
+                            execute(con, "UPDATE data SET mtime=?, is_alive=FALSE WHERE id=? AND is_alive", (int(time()), id), commit=True)
+                            execute(con, "UPDATE data SET mtime=? WHERE id IN (SELECT parent_id FROM data WHERE id=?)", (int(time()), id), commit=True)
+                        raise
+        put_task((("dir", "tree")[tree], id))
+        return Response(204)
 
     # TODO: 实际上是创建 link，可以被 move、rename、delete 和 copy
     @app.router.route("/<path:path>", methods=["COPY"])
@@ -421,6 +527,7 @@ def make_application(
         id = P115QueryDB(con).get_id(path=path)
         async with write_lock:
             execute(con, "UPDATE data SET mtime=?, is_alive=FALSE WHERE id=? AND is_alive", (int(time()), id), commit=True)
+            execute(con, "UPDATE data SET mtime=? WHERE id IN (SELECT parent_id FROM data WHERE id=?)", (int(time()), id), commit=True)
         put_task(("delete", id))
         return Response(204)
 
@@ -468,20 +575,22 @@ def make_application(
                 return Response(412)
             async with write_lock:
                 execute(con, "UPDATE data SET mtime=?, is_alive=FALSE WHERE id=? AND is_alive", (int(time()), to_id), commit=True)
+                execute(con, "UPDATE data SET mtime=? WHERE id IN (SELECT parent_id FROM data WHERE id=?)", (int(time()), to_id), commit=True)
             put_task(("delete", to_id))
             status = 204
         except FileNotFoundError:
             status = 201
         name = basename(dest)
         async with write_lock:
+            execute(con, "UPDATE data SET mtime=? WHERE id IN (SELECT parent_id FROM data WHERE id=?)", (int(time()), id), commit=True)
             execute(con, "UPDATE data SET name=?, parent_id=?, mtime=?, is_alive=TRUE WHERE id=?", (name, to_cid, int(time()), id), commit=True)
         if basename(path) != name:
-            if ">" in name:
+            if name.endswith('""'):
                 if querydb.get_attr(id)["is_dir"]:
-                    put_task(("dir", id, True))
-            elif "<" in name:
+                    put_task(("tree", id))
+            elif name.endswith('"'):
                 if querydb.get_attr(id)["is_dir"]:
-                    put_task(("tree", id, True))
+                    put_task(("dir", id))
             else:
                 RENAME_DICT[id] = name
                 put_task("rename")
@@ -523,9 +632,3 @@ if __name__ == "__main__":
 
 # TODO: 如果有一堆 move、rename、delete 等任务，原则上可以合并（使用队列即可，执行时提取当前所有已经提交的）
 # TODO: 搜索支持使用正则表达式，需要以 / 开头
-# TODO: 用户罗列某个不存在于数据库的目录，则会用 client.fs_dir_getid2 查看是否存在，存在则会触发一次 update_tree
-# TODO: 用户罗列某个在数据库中的目录，但是没有子元素项，也就是看起来是空目录，或许应该触发一次 update_tree
-# TODO: 偶尔也会用 fs_info 来检查一下目录里面的文件和目录总数，如果和数据库中的不匹配，则会触发一次 update_tree（主要是云下载和最近接收）
-# TODO: propfind 某个路径，发现不在数据库，但是用 client 查看发现是存在的，应该如何处理？（路径level < 3，update_dir，>= 3 update_tree）
-# TODO: get 某个文件，发现已经删除，数据库里面也要相应删除
-# TODO: 用户可以对目录进行改名，以触发更新，如果名字里面带 >，则 update_dir，<，则是 update_tree，由于根目录不能被改名，所以根目录总是要被刷新

@@ -134,7 +134,7 @@ def fs_files_iter(
     use_media_api: bool = False, 
     raise_for_changed_count: bool = False, 
     cooldown: None | float = None, 
-    max_workers: None | int = None, 
+    max_workers: None | int = 0, 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -151,7 +151,7 @@ def fs_files_iter(
     use_media_api: bool = False, 
     raise_for_changed_count: bool = False, 
     cooldown: None | float = None, 
-    max_workers: None | int = None, 
+    max_workers: None | int = 0, 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -167,7 +167,7 @@ def fs_files_iter(
     use_media_api: bool = False, 
     raise_for_changed_count: bool = False, 
     cooldown: None | float = None, 
-    max_workers: None | int = None, 
+    max_workers: None | int = 0, 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -229,10 +229,10 @@ def fs_files_iter(
         "show_dir": 1, **payload, 
     }
     cid = int(payload["cid"])
-    if async_ and (max_workers is None or max_workers <= 0):
+    if async_ and (max_workers is None or max_workers < 0):
         max_workers = 64
     count = -1
-    @as_gen_step
+    @as_gen_step(async_=async_)
     def call(payload: dict, /):
         nonlocal count
         resp = yield fs_files(payload, async_=async_, **request_kwargs)

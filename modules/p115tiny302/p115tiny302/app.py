@@ -285,7 +285,7 @@ def make_application(
         url = await client.download_url(
             pickcode, 
             headers={"user-agent": user_agent}, 
-            app=app or "android", 
+            app=app or "os_windows", 
             async_=True, 
         )
         expire_ts = int(next(v for k, v in parse_qsl(urlsplit(url).query) if k == "t")) - 60 * 5
@@ -308,7 +308,11 @@ def make_application(
             return r[1]
         payload = {"share_code": share_code, "receive_code": receive_code, "file_id": id}
         try:
-            url = await client.share_download_url(payload, app=app, async_=True)
+            url = await client.share_download_url(
+                payload, 
+                app=app or "os_windows", 
+                async_=True, 
+            )
         except P115OSError as e:
             if not (e.args[1].get("errno") == 4100008 and CODE_SHARE_TO_RECEIVE.pop(share_code, None)):
                 raise
@@ -553,4 +557,3 @@ if __name__ == "__main__":
 # TODO: 增加参数 user_id、parent_id 和 refresh
 # TODO: 支持更换 cookies 以及更新 cookies
 # TODO: 支持获取图片（或者任意 <= 50 MB 的文件）的 cdn 链接
-

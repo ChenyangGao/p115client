@@ -2,7 +2,7 @@
 # encoding: utf-8
 
 __all__ = [
-    "ensure_attr_path", "ensure_attr_path_using_star_event", "iter_items", "iterdir", 
+    "ensure_attr_path", "ensure_attr_path_using_star_event", "iter_file_list", "iterdir", 
     "iterdir_skim", "iterdir_traverse", "iterdir_walk", "iter_stared", "iter_dirs", 
     "iter_dirs_with_path", "iter_files", "iter_files_with_path", "iter_files_with_path_skim", 
     "iter_files_shortcut", "iter_files_frament", "traverse_tree", "traverse_tree_with_path", 
@@ -256,7 +256,7 @@ def update_resp_ancestors(
             add_ancestor({"id": 0, "parent_id": 0, "name": ""})
         for info in resp["path"][start_idx:]:
             id, name, pid = int(info["cid"]), info["name"], int(info["pid"])
-            add_ancestor({"id": id, "parent_id": pid, "name": name})
+            add_ancestor({"id": id, "parent_id": pid, "name": unescape_115_charref(name)})
             if need_update_id_to_dirnode:
                 cast(MutableMapping, id_to_dirnode)[id] = (name, pid)
     elif "offset" in resp:
@@ -277,13 +277,13 @@ def update_resp_ancestors(
         info = resp["paths"][0]
         pid = int(info["file_id"])
         if pid:
-            ancestors.append({"id": pid, "name": info["file_name"]})
+            ancestors.append({"id": pid, "name": unescape_115_charref(info["file_name"])})
             warn(f"found a dangling node: {resp!r}", category=P115Warning)
         else:
             ancestors.append({"id": 0, "parent_id": 0, "name": ""})
         for info in resp["paths"][1:]:
             id = int(info["file_id"])
-            name = info["file_name"]
+            name = unescape_115_charref(info["file_name"])
             add_ancestor({"id": id, "parent_id": pid, "name": name})
             if need_update_id_to_dirnode:
                 cast(MutableMapping, id_to_dirnode)[id] = (name, pid)
@@ -609,7 +609,7 @@ def ensure_attr_path_using_star_event[D: dict](
 
 
 @overload
-def iter_items(
+def iter_file_list(
     client: str | PathLike | P115Client | P115OpenClient, 
     payload: int | str | dict = 0, 
     page_size: int = 0, 
@@ -630,7 +630,7 @@ def iter_items(
 ) -> Iterator[dict]:
     ...
 @overload
-def iter_items(
+def iter_file_list(
     client: str | PathLike | P115Client | P115OpenClient, 
     payload: int | str | dict = 0, 
     page_size: int = 0, 
@@ -650,7 +650,7 @@ def iter_items(
     **request_kwargs, 
 ) -> AsyncIterator[dict]:
     ...
-def iter_items(
+def iter_file_list(
     client: str | PathLike | P115Client | P115OpenClient, 
     payload: int | str | dict = 0, 
     page_size: int = 0, 
@@ -677,12 +677,12 @@ def iter_items(
         .. code:: python
 
             from p115client import P115Client
-            from p115client.tool import iter_items
+            from p115client.tool import iter_file_list
 
             client = P115Client.from_path()
 
             # NOTE: 你还可以指定 suffix 或 type，做进一步筛选
-            files = list(iter_items(
+            files = list(iter_file_list(
                 client, 
                 {"aid": 120, "show_dir": 0, "max_size": 1024*1024*200}, 
                 max_workers=None， 
@@ -693,11 +693,11 @@ def iter_items(
         .. code:: python
 
             from p115client import P115Client
-            from p115client.tool.iterdir import iter_items
+            from p115client.tool.iterdir import iter_file_list
             client = P115Client.from_path()
 
-            folders = list(iter_items(client, {"aid": 120, "nf": 1}, max_workers=None))
-            files = list(iter_items(client, {"aid": 120, "show_dir": 0}, max_workers=None, cooldown=0.1))
+            folders = list(iter_file_list(client, {"aid": 120, "nf": 1}, max_workers=None))
+            files = list(iter_file_list(client, {"aid": 120, "show_dir": 0}, max_workers=None, cooldown=0.1))
 
     :param client: 115 客户端或 cookies
     :param payload: 请求参数（字典）或 id 或 pickcode
@@ -971,7 +971,7 @@ def iterdir(
             raise ValueError("media api does not support filtering by size")
     if isinstance(cid, Mapping):
         cid = cast(int | str, get_first(cid, "id", "pickcode"))
-    return iter_items(
+    return iter_file_list(
         client, 
         payload={
             "asc": asc, "cid": to_id(cid), "cur": 1, "count_folders": 1, 
@@ -1403,7 +1403,7 @@ def iter_stared(
 
     :return: 迭代器，被打上星标的目录信息
     """
-    return iter_items(
+    return iter_file_list(
         client, 
         payload={
             "asc": asc, "cid": cid, "count_folders": 1, "cur": 0, "fc_mix": fc_mix, 
@@ -1726,7 +1726,7 @@ def iter_files(
         payload["suffix"] = suffix
     elif type != 99:
         payload["type"] = type
-    return iter_items(
+    return iter_file_list(
         client, 
         payload=payload, 
         page_size=page_size, 

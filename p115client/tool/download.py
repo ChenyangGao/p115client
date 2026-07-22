@@ -763,7 +763,7 @@ def iter_subtitles_with_url(
         fs_copy = partial(client.fs_copy_app, app=app)
         fs_delete = partial(client.fs_delete_app, app=app)
         fs_video_subtitle = partial(client.fs_video_subtitle_app, app=app)
-    from .iterdir import iter_items
+    from .iterdir import iter_file_list
     cid = to_id(cid)
     def gen_step():
         nonlocal suffixes
@@ -814,7 +814,7 @@ def iter_subtitles_with_url(
                         **request_kwargs, 
                     )
                     check_response(resp)
-                    attr = yield do_next(iter_items(
+                    attr = yield do_next(iter_file_list(
                         client, 
                         scid, 
                         page_size=1, 
@@ -928,7 +928,7 @@ def iter_subtitle_batches(
         fs_copy = partial(client.fs_copy_app, app=app)
         fs_delete = partial(client.fs_delete_app, app=app)
         fs_video_subtitle = partial(client.fs_video_subtitle_app, app=app)
-    from .iterdir import iter_items
+    from .iterdir import iter_file_list
     def gen_step():
         do_next: Callable = anext if async_ else next
         for ids in batched(map(to_id, file_ids), batch_size):
@@ -947,7 +947,7 @@ def iter_subtitle_batches(
                     **request_kwargs, 
                 )
                 check_response(resp)
-                attr = yield do_next(iter_items(
+                attr = yield do_next(iter_file_list(
                     client, 
                     scid, 
                     page_size=1, 
@@ -982,6 +982,7 @@ def iter_download_nodes(
     get_raw: bool = False, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = ..., 
     cooldown: float = 0, 
+    max_page: int = 0, 
     max_workers: None | int = 0, 
     app: str = "chrome", 
     *, 
@@ -999,6 +1000,7 @@ def iter_download_nodes(
     get_raw: bool = False, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = ..., 
     cooldown: float = 0, 
+    max_page: int = 0, 
     max_workers: None | int = 0, 
     app: str = "chrome", 
     *, 
@@ -1015,6 +1017,7 @@ def iter_download_nodes(
     get_raw: bool = False, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = ..., 
     cooldown: float = 0, 
+    max_page: int = 0, 
     max_workers: None | int = 0, 
     app: str = "chrome", 
     *, 
@@ -1031,6 +1034,7 @@ def iter_download_nodes(
     :param get_raw: 返回原始数据
     :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
     :param cooldown: 接口调用冷却时间，单位：秒
+    :param max_page: 最大页数，如果 <= 0，则不作限定。如果可调用，不接受参数时，直接调用它以获取最大页数，否则，接受 call 的返回数据来获取最大页数
     :param max_workers: 最大并发数，如果为 None 或 < 0 则自动确定，如果为 0 则单工作者惰性执行
     :param app: 使用指定 app（设备）的接口
     :param async_: 是否异步
@@ -1166,6 +1170,7 @@ def iter_download_nodes(
                 check_for_stop=lambda _, _2, resp: not resp["has_next_page"], 
                 retry_for_exception=lambda e, /: is_timeouterror(e) or isinstance(e, Exception) and get_status_code(e) < 400, 
                 page_size=page_size, 
+                max_page=max_page, 
                 key_page_size="per_page", 
                 cooldown=cooldown, 
                 max_workers=max_workers, 
@@ -1367,8 +1372,8 @@ def iter_download_files(
             cid, 
             files=True, 
             ensure_name=ensure_name, 
-            max_workers=max_workers, 
             max_page=max_files > 0 and -(-max_files // 5000), 
+            max_workers=max_workers, 
             app=app, 
             async_=async_, 
             **request_kwargs, 
@@ -1399,8 +1404,8 @@ def iter_download_files(
                     cid, 
                     files=False, 
                     id_to_dirnode=id_to_dirnode, 
-                    max_workers=max_workers, 
                     max_page=max_dirs > 0 and -(-max_dirs // 5000), 
+                    max_workers=max_workers, 
                     app="os_windows", 
                     async_=async_, 
                     **request_kwargs, 
@@ -1443,8 +1448,8 @@ def iter_download_files(
                 cid, 
                 files=True, 
                 ensure_name=ensure_name, 
-                max_workers=max_workers, 
                 max_page=max_files > 0 and -(-max_files // 5000), 
+                max_workers=max_workers, 
                 app=app, 
                 async_=async_, 
                 **request_kwargs, 

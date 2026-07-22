@@ -126,6 +126,7 @@ SUFFIX_TO_TYPE: Final[dict[str, int]] = {
     ".mdb": 1, 
     ".mdf": 1, 
     ".numbers": 1, 
+    ".odp": 1, 
     ".ods": 1, 
     ".odt": 1, 
     ".pages": 1, 
@@ -263,7 +264,7 @@ ID_TO_DIRNODE_CACHE: Final[dict[int | str, MutableMapping[int, tuple[str, int]]]
 
 #: 一些 webapi.115.com 的接口允许的前缀（而 proapi.115.com 却可以是任何前缀）
 WEPAPI_PREFIXES: Final = (
-    "/behavior", "/category", "/files", "/history", "/label", "/movies", 
+    "/behavior", "/category", "/files", "/folder", "/history", "/label", "/movies", 
     "multimedia", "/offine", "/photo", "/rb", "/share", "/user", "/usershare", 
 )
 

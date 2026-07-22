@@ -978,7 +978,7 @@ def iter_batch_makedir(
             makedir = client.fs_makedirs_app
         else:
             makedir = client.fs_mkdir_app
-    @as_gen_step
+    @as_gen_step(async_=async_)
     def call[T: (str, tuple[int | str, str])](pair: T, /):
         if isinstance(pair, tuple):
             cid, name = pair
@@ -1961,7 +1961,7 @@ def copyfile(
                 return {"state": True}
             return check_response(fs_copy(attr["id"], pid=pid, async_=async_, **request_kwargs))
         else:
-            @as_gen_step
+            @as_gen_step(async_=async_)
             def read_range_bytes_or_hash(sign_check: str, /):
                 nonlocal url
                 if url is None:
@@ -2095,7 +2095,7 @@ def renamefile(
                     return resp
             return check_response(fs_rename((attr["id"], name), async_=async_, **request_kwargs))
         else:
-            @as_gen_step
+            @as_gen_step(async_=async_)
             def read_range_bytes_or_hash(sign_check: str, /):
                 nonlocal url
                 if url is None:
@@ -2209,7 +2209,7 @@ def transferfile(
         pid = client_to.to_id(pid)
         if not name:
             name = attr["name"]
-        @as_gen_step
+        @as_gen_step(async_=async_)
         def read_range_bytes_or_hash(sign_check: str, /):
             nonlocal url
             if url is None:

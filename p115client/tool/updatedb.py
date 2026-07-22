@@ -262,6 +262,14 @@ def updatedb_dir(
                     ancestors, 
                     commit=True, 
                 )
+                yield from locked_gen_step(
+                    lock, 
+                    wrap_async(execute, async_, threaded=True), 
+                    con, 
+                    "UPDATE data SET mtime=:mtime WHERE id=:cid", 
+                    {"cid": cid, "mtime": int(time())}, 
+                    commit=True, 
+                )
             if ids:
                 yield from locked_gen_step(
                     lock, 
@@ -391,7 +399,16 @@ UPDATE data SET is_alive=FALSE WHERE id IN (
                 {"cid": cid, "mtime": mtime}, 
                 commit=True, 
             )
-            if not cid:
+            if cid:
+                yield from locked_gen_step(
+                    lock, 
+                    wrap_async(execute, async_, threaded=True), 
+                    con, 
+                    "UPDATE data SET mtime=:mtime WHERE id=:cid", 
+                    {"cid": cid, "mtime": mtime}, 
+                    commit=True, 
+                )
+            else:
                 return mtime
         except FileNotFoundError:
             yield from locked_gen_step(

@@ -202,9 +202,9 @@ def iter_115_to_115(
     """
     from_cid = to_id(from_cid)
     to_pid = to_id(to_pid)
-    @as_gen_step
+    @as_gen_step(async_=async_)
     def upload(attr: dict, /):
-        @as_gen_step
+        @as_gen_step(async_=async_)
         def read_range_bytes_or_hash(sign_check: str, /):
             if attr["is_collect"]:
                 url = yield from_client.download_url(
@@ -378,9 +378,9 @@ def iter_115_to_115_resume(
     """
     from_cid = to_id(from_cid)
     to_pid = to_id(to_pid)
-    @as_gen_step
+    @as_gen_step(async_=async_)
     def upload(attr: dict, /):
-        @as_gen_step
+        @as_gen_step(async_=async_)
         def read_range_bytes_or_hash(sign_check: str, /):
             if attr["is_collect"]:
                 url = yield from_client.download_url(
