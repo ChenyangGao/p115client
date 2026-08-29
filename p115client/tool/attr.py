@@ -6,9 +6,9 @@ __all__ = [
     "normalize_attr_app", "normalize_attr_app2", 
     "type_of_attr", "get_attr", "get_info", "get_ancestors", "get_path", 
     "get_id", "get_id_to_path", "get_id_to_sha1", "get_id_to_name", 
-    "share_get_id", "share_get_id_to_path", "share_get_id_to_name", 
-    "get_file_count", "get_dir_count", "get_url", "dir_getid", 
-    "get_pickcode_stable_point", 
+    "get_parent_id", "share_get_id", "share_get_id_to_path", 
+    "share_get_id_to_name", "get_file_count", "get_dir_count", "get_url", 
+    "dir_getid", "get_pickcode_stable_point", 
 ]
 __doc__ = "这个模块提供了一些和文件或目录信息有关的函数"
 
@@ -17,23 +17,26 @@ from collections.abc import (
     Callable, Coroutine, Iterable, Mapping, MutableMapping, Sequence, 
 )
 from contextlib import suppress
+from dataclasses import dataclass
 from functools import partial
 from itertools import cycle, dropwhile
 from os import PathLike
+from time import mktime, strptime
 from types import EllipsisType
 from typing import cast, overload, Any, Final, Literal
+from warnings import warn
 
 from dictattr import AttrDict
 from dicttools import get_first
 from errno2 import errno
 from integer_tool import try_parse_int
-from iterutils import as_gen_step, run_gen_step, with_iter_next
-from p115pickcode import to_id, get_stable_point
+from iterutils import run_gen_step, with_iter_next
+from p115pickcode import to_id, to_pickcode, get_stable_point
 from posixpatht import path_is_dir_form, splitext, splits
 
 from ..client import check_response, P115Client, P115OpenClient
 from ..const import CLASS_TO_TYPE, SUFFIX_TO_TYPE, ID_TO_DIRNODE_CACHE
-from ..exception import throw
+from ..exception import throw, P115Warning
 from ..type import P115ID, P115URL
 from ..util import (
     posix_escape_name, share_extract_payload, unescape_115_charref, 
@@ -53,6 +56,145 @@ _get_webapi_origin_fs_dir_getid2: Final = cycle((
     "https://webapi.115.com", "https://115cdn.com/webapi", "https://115vod.com/webapi", 
     "https://f.115.com/api/proxy/115", "https://n.115.com/api/proxy/115", 
 )).__next__
+
+
+def _get_id(id: int | str | Mapping, /) -> int:
+    if isinstance(id, Mapping):
+        id = cast(int | str, get_first(id, "id", "pickcode"))
+    return to_id(id)
+
+
+def _get_pickcode(
+    stable_point: str | P115OpenClient, 
+    pickcode: int | str | Mapping, 
+    /, 
+) -> str:
+    if isinstance(pickcode, Mapping):
+        pickcode = cast(str | int, get_first(pickcode, "pickcode", "id"))
+    if not isinstance(stable_point, str):
+        stable_point = stable_point.pickcode_stable_point
+    return to_pickcode(pickcode, stable_point=stable_point)
+
+
+@dataclass(frozen=True, unsafe_hash=True)
+class OverviewAttr:
+    is_dir: bool
+    id: int
+    parent_id: int
+    name: str
+    ctime: int
+    mtime: int
+
+    def __getitem__(self, key, /):
+        try:
+            return getattr(self, key)
+        except AttributeError as e:
+            raise LookupError(key) from e
+
+
+def overview_attr(info: Mapping, /) -> OverviewAttr:
+    if "n" in info:
+        is_dir = "fid" not in info
+        name = info["n"]
+        if is_dir:
+            id = int(info["cid"])
+            pid = int(info["pid"])
+        else:
+            id = int(info["fid"])
+            pid = int(info["cid"])
+        tp = info.get("tp")
+        if not tp:
+            tp = info.get("t", "0") 
+            if "-" in tp:
+                tp = mktime(strptime(tp, "%Y-%m-%d %H:%M"))
+        ctime = int(tp)
+        mtime = int(info.get("te", ctime))
+    elif "fn" in info:
+        is_dir = info["fc"] == "0"
+        name = info["fn"]
+        id = int(info["fid"])
+        pid = int(info["pid"])
+        ctime = int(info.get("uppt", 0))
+        mtime = int(info.get("upt", ctime))
+    elif "file_name" in info:
+        if "file_category" in info:
+            is_dir = int(info["file_category"]) == 0
+        elif "sha1" in info:
+            is_dir = not info["sha1"]
+        elif "file_sha1" in info:
+            is_dir = not info["file_sha1"]
+        elif "category_id" in info:
+            is_dir = "file_id" not in info
+        else:
+            is_dir = not ("file_size" in info or "size" in info)
+        name = get_first(info, "category_name", "file_name")
+        id = int(get_first(info, "file_id", "category_id"))
+        pid = int(get_first(info, "parent_id", "category_id"))
+        ctime = int(get_first(info, "user_pptime", "pptime", default=0))
+        mtime = int(get_first(info, "user_ptime", "ptime", default=ctime))
+    else:
+        raise ValueError(f"can't overview attr data: {info!r}")
+    return OverviewAttr(is_dir, id, pid, name, ctime, mtime)
+
+
+def update_resp_ancestors(
+    resp: dict, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
+    /, 
+    error: None | OSError = FileNotFoundError(errno.ENOENT, "not found"), 
+) -> dict:
+    ancestors: list[dict] = []
+    add_ancestor = ancestors.append
+    need_update_id_to_dirnode = id_to_dirnode not in (..., None)
+    if "path" in resp:
+        resp["ancestors"] = ancestors
+        start_idx = 1 - (int(resp["path"][0]["cid"]) > 0)
+        if start_idx:
+            add_ancestor({"id": 0, "parent_id": 0, "name": ""})
+        for info in resp["path"][start_idx:]:
+            id, name, pid = int(info["cid"]), info["name"], int(info["pid"])
+            name = unescape_115_charref(name)
+            add_ancestor({"id": id, "parent_id": pid, "name": name})
+            if need_update_id_to_dirnode:
+                cast(MutableMapping, id_to_dirnode)[id] = (name, pid)
+    elif "offset" in resp:
+        return resp
+    else:
+        if resp and "paths" not in resp:
+            check_response(resp)
+            resp = resp["data"]
+        if not resp:
+            if error is None:
+                return resp
+            raise error
+        if "file_id" in resp:
+            resp["file_id"] = int(resp["file_id"])
+        else:
+            resp["file_id"] = _get_id(resp["pick_code"])
+        resp["ancestors"] = ancestors
+        info = resp["paths"][0]
+        pid = int(info["file_id"])
+        if pid:
+            name = unescape_115_charref(info["file_name"])
+            ancestors.append({"id": pid, "name": name})
+            warn(f"found a dangling node: {resp!r}", category=P115Warning)
+        else:
+            ancestors.append({"id": 0, "parent_id": 0, "name": ""})
+        for info in resp["paths"][1:]:
+            id = int(info["file_id"])
+            name = unescape_115_charref(info["file_name"])
+            add_ancestor({"id": id, "parent_id": pid, "name": name})
+            if need_update_id_to_dirnode:
+                cast(MutableMapping, id_to_dirnode)[id] = (name, pid)
+            pid = id
+        resp["parent_id"] = pid
+        id = resp["id"] = resp["file_id"]
+        name = resp["name"] = unescape_115_charref(resp["file_name"])
+        is_dir = resp["is_dir"] = not resp["sha1"]
+        add_ancestor({"id": id, "parent_id": pid, "name": name})
+        if need_update_id_to_dirnode and is_dir:
+            cast(MutableMapping, id_to_dirnode)[id] = (name, pid)
+    return resp
 
 
 @overload
@@ -130,6 +272,8 @@ def normalize_attr_web[D: dict[str, Any]](
             attr["ctime"] = int(info["tp"])
         if "te" in info:
             attr["mtime"] = int(info["te"])
+        if "star_time" in info:
+            attr["star_time"] = try_parse_int(info["star_time"] or 0)
     else:
         if "pickcode" in attr:
             attr["pick_code"] = attr["pickcode"]
@@ -144,6 +288,8 @@ def normalize_attr_web[D: dict[str, Any]](
             attr["utime"] = int(info["tu"])
         if t := info.get("t"):
             attr["time"] = try_parse_int(t)
+        if "star_time" in info:
+            attr["star_time"] = try_parse_int(info["star_time"] or 0)
         if "fdes" in info:
             val = info["fdes"]
             if isinstance(val, str):
@@ -181,7 +327,6 @@ def normalize_attr_web[D: dict[str, Any]](
             ("score", "score"), 
             ("sh", "is_share"), 
             ("sta", "status"), 
-            ("star_time", "star_time"), 
             ("style", "style"), 
             ("u", "thumb"), 
             ("uid", "user_id"), 
@@ -430,8 +575,12 @@ def normalize_attr_app2[D: dict[str, Any]](
             attr["is_collect"] = int(info["is_collect"])
         if "user_pptime" in info:
             attr["ctime"] = int(info["user_pptime"])
+        elif "pptime" in info:
+            attr["ctime"] = int(info["pptime"])
         if "user_ptime" in info:
             attr["mtime"] = int(info["user_ptime"])
+        elif "ptime" in info:
+            attr["mtime"] = int(info["ptime"])
     else:
         if "pickcode" in attr:
             attr["pick_code"] = attr["pickcode"]
@@ -863,7 +1012,6 @@ def get_info(
         if isinstance(client, P115Client) and app != "open":
             raise
     def gen_step():
-        from .iterdir import update_resp_ancestors
         if not isinstance(client, P115Client) or app == "open":
             resp = yield client.fs_info_open(
                 id, 
@@ -884,14 +1032,18 @@ def get_info(
                 async_=async_, 
                 **request_kwargs, 
             )
-        return update_resp_ancestors(resp, id_to_dirnode, error=FileNotFoundError(errno.ENOENT, f"not found: {id!r}"))
+        return update_resp_ancestors(
+            resp, 
+            id_to_dirnode, 
+            error=FileNotFoundError(errno.ENOENT, f"not found: {id!r}"), 
+        )
     return run_gen_step(gen_step, async_)
 
 
 @overload
 def get_ancestors(
     client: str | PathLike | P115Client | P115OpenClient, 
-    attr: int | str | dict = 0, 
+    id: int | str | dict = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     ensure_file: None | bool = None, 
     refresh: bool = False, 
@@ -904,7 +1056,7 @@ def get_ancestors(
 @overload
 def get_ancestors(
     client: str | PathLike | P115Client | P115OpenClient, 
-    attr: int | str | dict = 0, 
+    id: int | str | dict = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     ensure_file: None | bool = None, 
     refresh: bool = False, 
@@ -916,7 +1068,7 @@ def get_ancestors(
     ...
 def get_ancestors(
     client: str | PathLike | P115Client | P115OpenClient, 
-    attr: int | str | dict = 0, 
+    id: int | str | dict = 0, 
     id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     ensure_file: None | bool = None, 
     refresh: bool = False, 
@@ -928,7 +1080,7 @@ def get_ancestors(
     """获取某个节点对应的祖先节点列表（只有 "id"、"parent_id" 和 "name" 的信息）
 
     :param client: 115 客户端或 cookies
-    :param attr: 待查询节点 id 或 pickcode 或信息字典（必须有 "id"，可选有 "parent_id" 或 "is_dir"）
+    :param id: 待查询节点 id 或 pickcode 或信息字典（必须有 "id"，可选有 "parent_id" 或 "is_dir"）
     :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
     :param ensure_file: 是否确保为文件
 
@@ -970,7 +1122,6 @@ def get_ancestors(
                 ancestors.extend(reversed(parts))
                 return ancestors
         return None
-    from .iterdir import update_resp_ancestors
     if app not in ("open", "aps") and isinstance(client, P115Client):
         def get_ancestors_by_info(id: int, /):
             if app in ("", "web", "desktop", "chrome"):
@@ -984,6 +1135,7 @@ def get_ancestors(
             else:
                 resp = yield client.fs_supervision_app(
                     client.to_pickcode(id), 
+                    app=app, 
                     async_=async_, 
                     **request_kwargs, 
                 )
@@ -1012,6 +1164,7 @@ def get_ancestors(
             else:
                 resp = yield client.fs_folder_app(
                     {"p_id": cid, "limit": 1}, 
+                    app=app, 
                     async_=async_, 
                     **request_kwargs, 
                 )
@@ -1050,20 +1203,24 @@ def get_ancestors(
             return resp["ancestors"]
     def get_ancestors(id: int, /, ensure_file: None | bool = None):
         if ensure_file is None:
-            try:
-                return (yield from get_ancestors_by_folder(id))
-            except (FileNotFoundError, NotADirectoryError):
-                return (yield from get_ancestors_by_info(id))
-        elif ensure_file:
+            if isinstance(id_to_dirnode, Mapping) and id_to_dirnode:
+                ensure_file = id not in id_to_dirnode
+            else:
+                try:
+                    return (yield from get_ancestors_by_folder(id))
+                except (FileNotFoundError, NotADirectoryError):
+                    return (yield from get_ancestors_by_info(id))
+        if ensure_file:
             return (yield from get_ancestors_by_info(id))
         else:
             return (yield from get_ancestors_by_folder(id))
     def gen_step():
-        nonlocal attr, ensure_file
-        if not attr:
+        nonlocal id, ensure_file
+        if not id:
             return [{"id": 0, "parent_id": 0, "name": ""}]
-        if isinstance(attr, dict):
-            if not (fid := int(attr["id"])):
+        if isinstance(id, dict):
+            attr = id
+            if not (id := int(attr["id"])):
                 return [{"id": 0, "parent_id": 0, "name": ""}]
             is_dir: None | bool = attr.get("is_dir")
             if is_dir is None:
@@ -1074,7 +1231,7 @@ def get_ancestors(
                     elif isinstance(client, P115Client):
                         attr = yield get_attr(
                             client, 
-                            fid, 
+                            id, 
                             skim=True, 
                             async_=async_, 
                             **request_kwargs, 
@@ -1084,13 +1241,13 @@ def get_ancestors(
                         name = ""
                     if name:
                         ancestors = yield from get_ancestors(pid, ensure_file=False)
-                        ancestors.append({"id": fid, "parent_id": pid, "name": name})
+                        ancestors.append({"id": id, "parent_id": pid, "name": name})
                         return ancestors
             else:
                 ensure_file = not is_dir
-        elif not (fid := to_id(attr)):
+        elif not (id := to_id(id)):
             return [{"id": 0, "parent_id": 0, "name": ""}]
-        return (yield from get_ancestors(fid, ensure_file))
+        return (yield from get_ancestors(id, ensure_file))
     return run_gen_step(gen_step, async_)
 
 
@@ -1786,6 +1943,74 @@ def get_id_to_name(
             errno.ENOENT, 
             {"state": False, "user_id": client.user_id, "name": name, "size": size, "cid": cid, "error": "not found"}, 
         )
+    return run_gen_step(gen_step, async_)
+
+
+@overload
+def get_parent_id(
+    client: str | PathLike | P115Client, 
+    id: int | str | Mapping = 0, 
+    app: str = "web", 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> int:
+    ...
+@overload
+def get_parent_id(
+    client: str | PathLike | P115Client, 
+    id: int | str | Mapping = 0, 
+    app: str = "web", 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> Coroutine[Any, Any, int]:
+    ...
+def get_parent_id(
+    client: str | PathLike | P115Client, 
+    id: int | str | Mapping = 0, 
+    app: str = "web", 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+) -> int | Coroutine[Any, Any, int]:
+    """获取父目录 id
+
+    :param client: 115 客户端或 cookies
+    :param id: 文件或目录的 id 或 pickcode
+    :param app: 使用指定 app（设备）的接口
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+
+    :return: 父目录 id
+    """
+    if isinstance(client, (str, PathLike)):
+        client = P115Client(client)
+    def gen_step():
+        if isinstance(id, Mapping) and "parent_id" in id:
+            return id["parent_id"]
+        pickcode = client.to_pickcode(id)
+        if not pickcode:
+            return 0
+        if app in ("", "web", "desktop", "chrome", "aps"):
+            resp = yield client.fs_supervision(
+                pickcode, 
+                async_=async_, 
+                **request_kwargs, 
+            )
+            if resp["state"] and not resp["data"]["file_name"]:
+                throw(errno.ENOENT, id)
+        else:
+            resp = yield client.fs_supervision_app(
+                pickcode, 
+                app=app, 
+                async_=async_, 
+                **request_kwargs, 
+            )
+            if not resp["state"] and resp.get("msg") == "必传参数少了":
+                throw(errno.ENOENT, id)
+        check_response(resp)
+        return int(resp["data"]["parent_id"])
     return run_gen_step(gen_step, async_)
 
 

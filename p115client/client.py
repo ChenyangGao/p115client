@@ -489,6 +489,9 @@ def check_response(resp: dict | Awaitable[dict], /) -> dict | Coroutine[Any, Any
                 case 40140136:
                     throw(errno.EINVAL, resp)
         elif error := resp.get("error"):
+            if error == "更新的数据为空":
+                resp["state"] = True
+                return resp
             if "文件不存在" in error or "目录不存在" in error:
                 throw(errno.ENOENT, resp)
             elif "目录名称已存在" in error:
@@ -623,17 +626,17 @@ class ClientRequestMixin:
                 - 如果为 ...(Ellipsis)，则把响应对象关闭后将其返回
                 - 如果为 True，则根据响应头来确定把响应得到的字节数据解析成何种格式（反序列化），请求也会被自动关闭
                 - 如果为 False，则直接返回响应得到的字节数据，请求也会被自动关闭
-                - 如果为 Callable，则使用此调用来解析数据，接受 1-2 个位置参数，并把解析结果返回给 `request` 的调用者，请求也会被自动关闭
+                - 如果为 Callable，则使用此调用来解析数据，接受 1-2 个位置参数，并把解析结果返回给 ``request`` 的调用者，请求也会被自动关闭
                     - 如果只接受 1 个位置参数，则把响应对象传给它
                     - 如果能接受 2 个位置参数，则把响应对象和响应得到的字节数据（响应体）传给它
 
         :param async_: 是否异步
         :param request_kwargs: 其余请求参数
 
-        :return: 直接返回 `request` 执行请求后的返回值
+        :return: 直接返回 ``request`` 执行请求后的返回值
 
         .. note:: 
-            `request` 可以由不同的请求库来提供，下面是封装了一些模块
+            ``request`` 可以由不同的请求库来提供，下面是封装了一些模块
 
             1. `httpcore_request <https://pypi.org/project/httpcore_request/>`_，由 `httpcore <https://pypi.org/project/httpcore/>`_ 封装，支持同步和异步请求
 
@@ -1274,7 +1277,7 @@ class ClientRequestMixin:
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """扫描二维码，payload 数据取自 `login_qrcode_token` 接口响应
+        """扫描二维码，payload 数据取自 ``login_qrcode_token`` 接口响应
 
         GET https://qrcodeapi.115.com/api/2.0/prompt.php
 
@@ -1317,7 +1320,7 @@ class ClientRequestMixin:
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """取消扫描二维码，payload 数据取自 `login_qrcode_scan` 接口响应
+        """取消扫描二维码，payload 数据取自 ``login_qrcode_scan`` 接口响应
 
         GET https://qrcodeapi.115.com/api/2.0/cancel.php
 
@@ -1362,7 +1365,7 @@ class ClientRequestMixin:
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """确认扫描二维码，payload 数据取自 `login_qrcode_scan` 接口响应
+        """确认扫描二维码，payload 数据取自 ``login_qrcode_scan`` 接口响应
 
         GET https://qrcodeapi.115.com/api/2.0/slogin.php
 
@@ -1412,7 +1415,7 @@ class ClientRequestMixin:
         POST https://qrcodeapi.115.com/app/1.0/{app}/1.0/login/qrcode/
 
         .. note::
-            如果报错“IP登录异常”，那么要到次日零点才能解禁（用 VPN 可以绕过），其中尤其是 `app="web"` 最容易遇到此问题
+            如果报错“IP登录异常”，那么要到次日零点才能解禁（用 VPN 可以绕过），其中尤其是 ``app="web"`` 最容易遇到此问题
 
         :param uid: 扫码的 uid
         :param app: 绑定的 app
@@ -1474,7 +1477,7 @@ class ClientRequestMixin:
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """获取二维码的状态（未扫描、已扫描、已登录、已取消、已过期等），payload 数据取自 `login_qrcode_token` 接口响应
+        """获取二维码的状态（未扫描、已扫描、已登录、已取消、已过期等），payload 数据取自 ``login_qrcode_token`` 接口响应
 
         GET https://qrcodeapi.115.com/get/status/
 
@@ -1618,7 +1621,7 @@ class ClientRequestMixin:
                     code_verifier = token_bytes(64).hex()
                     code_challenge = b64encode(sha256(code_verifier.encode()).digest()).decode()
 
-            - code_challenge_method: str = <default> 💡 计算 `code_challenge` 的 hash 算法，支持 "md5", "sha1", "sha256"
+            - code_challenge_method: str = <default> 💡 计算 ``code_challenge`` 的 hash 算法，支持 "md5", "sha1", "sha256"
         """
         api = complete_url("/open/authDeviceCode", base_url=base_url)
         if isinstance(payload, (int, str)):
@@ -1722,15 +1725,15 @@ class ClientRequestMixin:
         """二维码扫码登录
 
         .. hint::
-            仅获取响应，如果需要更新此 `client` 的 `cookies`，请直接用 `login` 方法
+            仅获取响应，如果需要更新此 ``client`` 的 `cookies`，请直接用 ``login`` 方法
 
-        :param app: 扫二维码后绑定的 `app` （或者叫 `device`）
+        :param app: 扫二维码后绑定的 ``app`` （或者叫 `device`）
         :param console_qrcode: 在命令行输出二维码，否则在浏览器中打开
         :param base_url: 接口的基地址
         :param async_: 是否异步
         :param request_kwargs: 其余请求参数
 
-        :return: 响应信息，如果 `app` 为 None 或 ""，则返回二维码信息，否则返回绑定扫码后的信息（包含 cookies）
+        :return: 响应信息，如果 ``app`` 为 None 或 ""，则返回二维码信息，否则返回绑定扫码后的信息（包含 cookies）
 
         -----
 
@@ -2222,7 +2225,7 @@ class P115OpenClient(ClientRequestMixin):
                         **request_kwargs, 
                     )
             else:
-                raise RuntimeError("no `refresh_token` or `app_id` provided")
+                raise RuntimeError("no ``refresh_token`` or ``app_id`` provided")
             check_response(resp)
             data = resp["data"]
             self.refresh_token = data["refresh_token"]
@@ -2313,7 +2316,7 @@ class P115OpenClient(ClientRequestMixin):
         :payload:
             - info_hash: str 💡 种子文件的 info_hash
             - pick_code: str 💡 种子文件的提取码
-            - save_path: str 💡 保存到 `wp_path_id` 对应目录下的相对路径
+            - save_path: str 💡 保存到 ``wp_path_id`` 对应目录下的相对路径
             - torrent_sha1: str 💡 种子文件的 sha1
             - wanted: str 💡 选择文件进行下载（是数字索引，从 0 开始计数，用 "," 分隔）
             - wp_path_id: int | str = <default> 💡 保存目标目录 id
@@ -2602,7 +2605,7 @@ class P115OpenClient(ClientRequestMixin):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> P115URL | Coroutine[Any, Any, P115URL]:
-        """获取文件的下载链接，此接口是对 `download_url_info` 的封装
+        """获取文件的下载链接，此接口是对 ``download_url_info`` 的封装
 
         .. note::
             获取的直链中，部分查询参数的解释：
@@ -2696,7 +2699,7 @@ class P115OpenClient(ClientRequestMixin):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict[int, P115URL] | Coroutine[Any, Any, dict[int, P115URL]]:
-        """批量获取文件的下载链接，此接口是对 `download_url_info` 的封装
+        """批量获取文件的下载链接，此接口是对 ``download_url_info`` 的封装
 
         .. note::
             获取的直链中，部分查询参数的解释：
@@ -3062,7 +3065,7 @@ class P115OpenClient(ClientRequestMixin):
             "record_open_time": 1, "show_dir": 1, "cid": 0, **payload, 
         }
         if payload.keys() & frozenset(("asc", "fc_mix", "o")):
-            payload["custom_order"] = 2
+            payload.setdefault("custom_order", 2)
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -3104,7 +3107,7 @@ class P115OpenClient(ClientRequestMixin):
         GET https://proapi.115.com/open/folder/get_info
 
         .. note::
-            支持 GET 和 POST 方法。`file_id` 和 `path` 需必传一个
+            支持 GET 和 POST 方法。`file_id` 和 ``path`` 需必传一个
 
         .. hint::
             具有 ``P115Client.fs_category_get()`` 的能力，而且更强，因为支持用 path 查询
@@ -3279,7 +3282,7 @@ class P115OpenClient(ClientRequestMixin):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """重命名文件或目录，此接口是对 `fs_update_open` 的封装
+        """重命名文件或目录，此接口是对 ``fs_update_open`` 的封装
 
         .. caution::
             改名时，虽然不能修改扩展名，但是一定要带上扩展名（无论是啥），不然会把最后一个句点 . 及其之后文字截断
@@ -3295,7 +3298,7 @@ class P115OpenClient(ClientRequestMixin):
     @overload
     def fs_search(
         self, 
-        payload: str | dict = ".", 
+        payload: int | str | dict = ".", 
         /, 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
@@ -3306,7 +3309,7 @@ class P115OpenClient(ClientRequestMixin):
     @overload
     def fs_search(
         self, 
-        payload: str | dict = ".", 
+        payload: int | str | dict = ".", 
         /, 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
@@ -3316,7 +3319,7 @@ class P115OpenClient(ClientRequestMixin):
         ...
     def fs_search(
         self, 
-        payload: str | dict = ".", 
+        payload: int | str | dict = ".", 
         /, 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
         *, 
@@ -3330,9 +3333,9 @@ class P115OpenClient(ClientRequestMixin):
         .. attention::
             最多只能取回前 10,000 条数据，也就是 `limit + offset <= 10_000`，不过可以一次性取完
 
-            不过就算正确设置了 `limit` 和 `offset`，并且总数据量大于 `limit + offset`，可能也不足 `limit`，这应该是 bug，也就是说，就算数据总量足够你也取不到足量
+            不过就算正确设置了 ``limit`` 和 `offset`，并且总数据量大于 `limit + offset`，可能也不足 `limit`，这应该是 bug，也就是说，就算数据总量足够你也取不到足量
 
-            它返回数据中的 `count` 字段的值表示总数据量（即使你只能取前 10,000 条），往往并不准确，最多能当作一个可参考的估计值
+            它返回数据中的 ``count`` 字段的值表示总数据量（即使你只能取前 10,000 条），往往并不准确，最多能当作一个可参考的估计值
 
         .. note::
             这个方法似乎不支持仅搜索目录本身，搜索范围是从指定目录开始的整个目录树
@@ -3368,7 +3371,7 @@ class P115OpenClient(ClientRequestMixin):
             - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
             - file_label: int | str = <default> 💡 标签 id
             - gte_day: str 💡 搜索结果匹配的开始时间；格式：YYYY-MM-DD
-            - limit: int = 32 💡 一页大小，意思就是 page_size
+            - limit: int = 1150 💡 一页大小，意思就是 page_size
             - lte_day: str 💡 搜索结果匹配的结束时间；格式：YYYY-MM-DD
             - o: str = <default> 💡 用某字段排序
 
@@ -3401,9 +3404,11 @@ class P115OpenClient(ClientRequestMixin):
         api = complete_url("/open/ufile/search", base_url)
         if isinstance(payload, str):
             payload = {"search_value": payload}
+        elif isinstance(payload, int):
+            payload = {"file_label": payload}
         payload = {
-            "aid": 1, "cid": 0, "limit": 32, "offset": 0, 
-            "show_dir": 1, "search_value": ".", **payload, 
+            "aid": 1, "cid": 0, "limit": 1150, "offset": 0, 
+            "show_dir": 1, **payload, 
         }
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
@@ -3438,7 +3443,7 @@ class P115OpenClient(ClientRequestMixin):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """为文件或目录设置或取消星标，此接口是对 `fs_update_open` 的封装
+        """为文件或目录设置或取消星标，此接口是对 ``fs_update_open`` 的封装
 
         .. note::
             即使其中任何一个 id 目前已经被删除，也可以操作成功
@@ -3497,7 +3502,7 @@ class P115OpenClient(ClientRequestMixin):
             https://www.yuque.com/115yun/open/hqglxv3cedi3p9dz
 
         .. hint::
-            需切换音轨时，在请求返回的播放地址中增加请求参数 `&audio_track=${index}`，值就是接口响应中 `multitrack_list` 中某个成员的索引，从 0 开始计数
+            需切换音轨时，在请求返回的播放地址中增加请求参数 `&audio_track=${index}`，值就是接口响应中 ``multitrack_list`` 中某个成员的索引，从 0 开始计数
 
         :payload:
             - pick_code: str 💡 文件提取码
@@ -4124,7 +4129,7 @@ class P115OpenClient(ClientRequestMixin):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """初始化上传，可能秒传，此接口是对 `upload_init_open` 的封装
+        """初始化上传，可能秒传，此接口是对 ``upload_init_open`` 的封装
 
         .. note::
             - 文件大小 和 sha1 是必需的，只有 sha1 是没用的。
@@ -4133,7 +4138,7 @@ class P115OpenClient(ClientRequestMixin):
         :param filename: 文件名
         :param filesha1: 文件的 sha1
         :param filesize: 文件大小
-        :param dirname: 保存目录，是在 `pid` 对应目录下的相对路径，默认为 `pid` 所对应目录本身
+        :param dirname: 保存目录，是在 ``pid`` 对应目录下的相对路径，默认为 ``pid`` 所对应目录本身
         :param read_range_bytes_or_hash: 调用以获取 2 次验证的数据或计算 sha1，接受一个数据范围，格式符合:
             `HTTP Range Requests <https://developer.mozilla.org/en-US/docs/Web/HTTP/Range_requests>`_，
             返回值如果是 str，则视为计算好的 sha1，如果为 Buffer，则视为数据（之后会被计算 sha1）
@@ -4166,7 +4171,7 @@ class P115OpenClient(ClientRequestMixin):
             data = resp["data"]
             if data["status"] == 7:
                 if read_range_bytes_or_hash is None:
-                    raise ValueError("filesize >= 1 MB, thus need pass the `read_range_bytes_or_hash` argument")
+                    raise ValueError("filesize >= 1 MB, thus need pass the ``read_range_bytes_or_hash`` argument")
                 payload["sign_key"] = data["sign_key"]
                 sign_check: str = data["sign_check"]
                 content: str | Buffer
@@ -4264,7 +4269,7 @@ class P115OpenClient(ClientRequestMixin):
         :param filename: 文件名，如果为空，则会自动确定
         :param filesha1: 文件的 sha1，如果为空，则会自动确定
         :param filesize: 文件大小，如果为 -1，则会自动确定
-        :param dirname: 保存目录，是在 `pid` 对应目录下的相对路径，默认为 `pid` 所对应目录本身
+        :param dirname: 保存目录，是在 ``pid`` 对应目录下的相对路径，默认为 ``pid`` 所对应目录本身
         :param payload: 其它的查询参数
         :param partsize: 分块上传的分块大小。如果为 0，则不做分块上传；如果 < 0，则会自动确定
         :param callback: 回调数据
@@ -4475,7 +4480,7 @@ class P115Client(P115OpenClient):
         - 如果是 collections.abc.Mapping，则是一堆 cookie 的名称到值的映射
         - 如果是 collections.abc.Iterable，则其中每一条都视为单个 cookie
 
-    :param app: 重新登录时人工扫二维码后绑定的 `app` （或者叫 `device`），如果不指定，则根据 cookies 的 UID 字段来确定，如果不能确定，则用 "qandroid"
+    :param app: 重新登录时人工扫二维码后绑定的 ``app`` （或者叫 `device`），如果不指定，则根据 cookies 的 UID 字段来确定，如果不能确定，则用 "qandroid"
     :param app_id: 授权的 open 应用的 AppID
     :param console_qrcode: 在命令行输出二维码，否则在浏览器中打开
 
@@ -4683,7 +4688,7 @@ class P115Client(P115OpenClient):
     ) -> Self | Coroutine[Any, Any, Self]:
         """扫码二维码登录，如果已登录则忽略
 
-        :param app: 扫二维码后绑定的 `app` （或者叫 `device`），如果不指定，则根据 cookies 的 UID 字段来确定，如果不能确定，则用 "qandroid"
+        :param app: 扫二维码后绑定的 ``app`` （或者叫 `device`），如果不指定，则根据 cookies 的 UID 字段来确定，如果不能确定，则用 "qandroid"
         :param console_qrcode: 在命令行输出二维码，否则在浏览器中打开
         :param async_: 是否异步
         :param request_kwargs: 其余请求参数
@@ -4811,7 +4816,7 @@ class P115Client(P115OpenClient):
     ) -> dict | Coroutine[Any, Any, dict]:
         """执行一次自动扫登录二维码，然后绑定到指定设备
 
-        :param app: 绑定的 `app` （或者叫 `device`），如果为 None 或 ""，则和当前 client 的登录设备相同
+        :param app: 绑定的 ``app`` （或者叫 `device`），如果为 None 或 ""，则和当前 client 的登录设备相同
         :param async_: 是否异步
         :param request_kwargs: 其余请求参数
 
@@ -5246,7 +5251,7 @@ class P115Client(P115OpenClient):
             同一个开放应用 id，最多同时有 3 个登入，如果有新的登录，则自动踢掉较早的那一个
 
         :param app_id: AppID
-        :param replace: 替换某个 client 对象的 `access_token` 和 `refresh_token`
+        :param replace: 替换某个 client 对象的 ``access_token`` 和 `refresh_token`
 
             - 如果为 ``P115Client``, 则更新到此对象
             - 如果为 True，则更新到 `self`
@@ -6113,7 +6118,7 @@ class P115Client(P115OpenClient):
 
         :payload:
             - code: int | str 💡 从 0 到 9 中选取 4 个数字的一种排列
-            - sign: str = <default>     💡 来自 `captcha_sign` 接口的响应
+            - sign: str = <default>     💡 来自 ``captcha_sign`` 接口的响应
             - ac: str = "security_code" 💡 默认就行，不要自行决定
             - type: str = "web"         💡 默认就行，不要自行决定
             - ctype: str = "web"        💡 需要和 type 相同
@@ -6817,14 +6822,14 @@ class P115Client(P115OpenClient):
         POST https://clouddownload.115.com/lixianssp/?ac=add_task_bt
 
         .. note::
-            `client.clouddownload_task_add_bt(info_hash)` 相当于 `client.clouddownload_task_add_url(f"magnet:?xt=urn:btih:{info_hash}")`
+            ``client.clouddownload_task_add_bt(info_hash)`` 相当于 ``client.clouddownload_task_add_url(f"magnet:?xt=urn:btih:{info_hash}")``
 
             但此接口的优势是允许选择要下载的文件
 
         :payload:
             - info_hash: str 💡 种子文件的 info_hash
             - wanted: str = <default> 💡 选择文件进行下载（是数字索引，从 0 开始计数，用 "," 分隔）
-            - savepath: str = <default> 💡 保存到 `wp_path_id` 对应目录下的相对路径
+            - savepath: str = <default> 💡 保存到 ``wp_path_id`` 对应目录下的相对路径
             - wp_path_id: int | str = <default> 💡 保存到目录的 id
         """
         if isinstance(payload, str):
@@ -6951,7 +6956,7 @@ class P115Client(P115OpenClient):
         if not isinstance(payload, dict):
             payload = {f"url[{i}]": url for i, url in enumerate(payload) if url}
             if not payload:
-                raise ValueError("no `url` specified")
+                raise ValueError("no ``url`` specified")
         return self.clouddownload_request(
             payload, 
             "add_task_urls", 
@@ -7180,7 +7185,7 @@ class P115Client(P115OpenClient):
         elif not isinstance(payload, dict):
             payload = {f"hash[{i}]": hash for i, hash in enumerate(payload)}
             if not payload:
-                raise ValueError("no `hash` (info_hash) specified")
+                raise ValueError("no ``hash`` (info_hash) specified")
         return self.clouddownload_request(
             payload, 
             "task_del", 
@@ -7235,7 +7240,7 @@ class P115Client(P115OpenClient):
         :payload:
             - page: int = 1
             - page_size: int = 30
-            - stat: int = <default> 💡 已知：9:已失败 11:已完成 12:进行中
+            - stat: int = 0 💡 已知：<=0:全部 1-9:已失败 10-11:已完成 12:进行中 >=13:同10
         """
         if isinstance(payload, int):
             payload = {"page": payload}
@@ -7346,23 +7351,6 @@ class P115Client(P115OpenClient):
         """重试云下载任务
 
         POST https://clouddownload.115.com/?ac=restart
-
-        .. tip::
-            经常会遇到批量添加的磁力链接，因为空间不足而失败，此接口可以用于重试
-
-            .. code:: python
-
-                from p115client import P115Client
-                from p115client.tool import *
-                client = P115Client.from_path()
-
-                while True:
-                    resp = client.clouddownload_task_list({"stat": 9})
-                    tasks = [task for task in resp["tasks"] if task["status"] == 2]
-                    if not tasks:
-                        break
-                    for task in tasks:
-                        print(client.clouddownload_task_restart(task["info_hash"]))
 
         :payload:
             - info_hash: str 💡 待重试任务的 info_hash
@@ -7954,7 +7942,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """获取日记列表，此接口是对 `life_glist` 的封装
+        """获取日记列表，此接口是对 ``life_glist`` 的封装
 
         :payload:
             - start: int = 0 💡 开始索引，从 0 开始
@@ -8103,7 +8091,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """切换日记的置顶状态，此接口是对 `life_set_top` 的封装
+        """切换日记的置顶状态，此接口是对 ``life_set_top`` 的封装
 
         .. attention::
             这个接口会自动切换日记的置顶状态，但不支持手动指定是否置顶，只是在置顶和不置顶间来回切换。
@@ -8117,6 +8105,55 @@ class P115Client(P115OpenClient):
         return self.life_set_top(payload, app=app, base_url=base_url, async_=async_, **request_kwargs)
 
     ########## Download API ##########
+
+    @overload
+    def download_files(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def download_files(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def download_files(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取待下载的文件列表
+
+        GET https://webapi.115.com/files/downfiles
+
+        .. caution::
+            不允许直接从根目录获取，因为根目录没有 ``pickcode``
+
+        :payload:
+            - pickcode: str 💡 提取码
+            - page: int = 1 💡 第几页
+            - per_page: int = 5000 💡 每页大小，目前最大为 5000
+        """
+        api = complete_url(f"/files/downfiles", base_url)
+        if isinstance(payload, str):
+            payload = {"pickcode": payload}
+        payload = {"page": 1, "per_page": 5000, **payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
     def download_files_app(
@@ -8177,6 +8214,55 @@ class P115Client(P115OpenClient):
                 app = "os_windows"
             api = complete_url("/ufile/downfiles", base_url, app=app, version=version)
             request_kwargs.setdefault("ecdh_encrypt", True)
+        if isinstance(payload, str):
+            payload = {"pickcode": payload}
+        payload = {"page": 1, "per_page": 5000, **payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def download_folders(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def download_folders(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def download_folders(
+        self, 
+        payload: str | dict, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取待下载的目录列表
+
+        GET https://webapi.115.com/files/downfolders
+
+        .. caution::
+            不允许直接从根目录获取，因为根目录没有 ``pickcode``
+
+        :payload:
+            - pickcode: str 💡 提取码
+            - page: int = 1 💡 第几页
+            - per_page: int = 5000 💡 每页大小，目前最大为 5000
+        """
+        api = complete_url(f"/files/downfolders", base_url)
         if isinstance(payload, str):
             payload = {"pickcode": payload}
         payload = {"page": 1, "per_page": 5000, **payload}
@@ -8603,15 +8689,15 @@ class P115Client(P115OpenClient):
         POST https://proapi.115.com/app/chrome/downurl
 
         .. note::
-            `app` 为 "chrome" 时，支持一次获取多个提取码对应的下载链接，但是每多一个提取码，大概多耗时 50 ms，猜测服务端也是逐个从某个服务获取下载链接的。
+            ``app`` 为 "chrome" 时，支持一次获取多个提取码对应的下载链接，但是每多一个提取码，大概多耗时 50 ms，猜测服务端也是逐个从某个服务获取下载链接的。
 
-            如果 `app` 为 "chrome"，则仅支持 `aid=1` 的提取码获取下载链接（以前是不限制 aid 的，这样甚至可以获取已经删除的文件的下载链接）；否则，还支持 `aid=12` 的下载链接。
+            如果 ``app`` 为 "chrome"，则仅支持 ``aid=1`` 的提取码获取下载链接（以前是不限制 aid 的，这样甚至可以获取已经删除的文件的下载链接）；否则，还支持 ``aid=12`` 的下载链接。
 
         .. attention::
             尽量不要尝试对已经删除的文件获取下载链接，不仅会失败，还容易触发风控
 
         :payload:
-            - pickcode: str  💡 如果 `app` 为 "chrome"，则可以接受多个，多个用逗号 "," 隔开
+            - pickcode: str  💡 如果 ``app`` 为 "chrome"，则可以接受多个，多个用逗号 "," 隔开
             - pick_code: str 💡 如果不用 ``pickcode``，那就用 ``pick_code``
             - share_id: int | str = <default> 💡 共享 id
             - user_id: int = <default>
@@ -9172,7 +9258,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """解压缩到某个目录，此方法是对 `extract_add_file` 的封装，推荐使用
+        """解压缩到某个目录，此方法是对 ``extract_add_file`` 的封装，推荐使用
 
         .. caution::
             【解压到】任务不可并发、不可中止，空目录不会被导出，不会产生 life 操作事件。
@@ -9620,7 +9706,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """获取压缩文件的文件列表，此方法是对 `extract_info` 的封装，推荐使用
+        """获取压缩文件的文件列表，此方法是对 ``extract_info`` 的封装，推荐使用
 
         :param pickcode: 压缩文件的提取码
         :param path: 压缩包内（目录）路径，为空则是压缩包的根目录
@@ -10393,7 +10479,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """修改封面，可以设置目录的封面，此接口是对 `fs_edit` 的封装
+        """修改封面，可以设置目录的封面，此接口是对 ``fs_edit`` 的封装
         """
         return self._fs_edit_set(
             payload, 
@@ -10441,7 +10527,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """修改封面，可以设置目录的封面，此接口是对 `fs_files_update_app` 的封装
+        """修改封面，可以设置目录的封面，此接口是对 ``fs_files_update_app`` 的封装
         """
         return self._fs_edit_set_app(
             payload, 
@@ -10560,15 +10646,14 @@ class P115Client(P115OpenClient):
             有超过 5 万个文件和文件夹时，不能直接执行删除。如果删除的只是文件，那么在接口响应时，涉及的文件，已经删除完毕；但如果是目录，那么接口响应时，后台可能还在执行，而删除是不可并发的，因此下一个删除任务执行失败时，只需要反复重试即可
 
         .. note::
-            此接口还能删除 `aid=12` 下的文件，且不会经过回收站（`aid=7`），而是彻底删除（`aid=120`）
+            此接口还能删除 ``aid=12`` 下的文件，且不会经过回收站（``aid=7``），而是彻底删除（``aid=120``）
 
             .. code:: python
 
-                from pathlib import Path
                 from itertools import batched
                 from p115client import P115Client
+                client = P115Client.from_path()
 
-                client = P115Client(Path("~/115-cookies.txt").expanduser())
                 while True:
                     fids = [info["fid"] for info in client.fs_files({"aid": 12, "limit": 1150, "show_dir": 0})["data"]]
                     if not fids:
@@ -10719,7 +10804,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """为文件或目录设置备注，最多允许 65535 个字节 (64 KB 以内)，此接口是对 `fs_edit` 的封装
+        """为文件或目录设置备注，最多允许 65535 个字节 (64 KB 以内)，此接口是对 ``fs_edit`` 的封装
 
         .. hint::
             修改文件备注会更新文件的更新时间，即使什么也没改或者改为空字符串
@@ -10770,7 +10855,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """为文件或目录设置备注，最多允许 65535 个字节 (64 KB 以内)，此接口是对 `fs_files_update_app` 的封装
+        """为文件或目录设置备注，最多允许 65535 个字节 (64 KB 以内)，此接口是对 ``fs_files_update_app`` 的封装
 
         .. hint::
             修改文件备注会更新文件的更新时间，即使什么也没改或者改为空字符串
@@ -11059,6 +11144,9 @@ class P115Client(P115OpenClient):
 
         POST https://webapi.115.com/files/edit
 
+        .. caution::
+            web 接口有缺陷，经常会出现遗漏，所以尽量用 app 版接口 ``fs_files_update_app``
+
         :payload:
             - fid: int | str
             - fid[]: int | str
@@ -11109,7 +11197,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """批量设置文件或目录（备注、标签、封面等），此接口是对 `fs_edit` 的封装
+        """批量设置文件或目录（备注、标签、封面等），此接口是对 ``fs_edit`` 的封装
         """
         if isinstance(payload, (int, str)):
             payload = [("fid", payload), (attr, default)]
@@ -11119,7 +11207,7 @@ class P115Client(P115OpenClient):
         elif isinstance(payload, dict):
             payload.setdefault(attr, default)
         else:
-            payload = [("fid[]", fid) for fid in payload]
+            payload = [(f"fid[{i}]", fid) for i, fid in enumerate(payload, 1)]
             payload.append((attr, default))
         return self.fs_edit(payload, base_url=base_url, async_=async_, **request_kwargs)
 
@@ -11163,7 +11251,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """批量设置文件或目录（备注、标签、封面等），此接口是对 `fs_files_update_app` 的封装
+        """批量设置文件或目录（备注、标签、封面等），此接口是对 ``fs_files_update_app`` 的封装
         """
         if isinstance(payload, (int, str)):
             payload = [("file_id", payload), (attr, default)]
@@ -11173,7 +11261,7 @@ class P115Client(P115OpenClient):
         elif isinstance(payload, dict):
             payload.setdefault(attr, default)
         else:
-            payload = [(f"file_id[{i}]", fid) for i, fid in enumerate(payload)]
+            payload = [(f"file_id[{i}]", fid) for i, fid in enumerate(payload, 1)]
             payload.append((attr, default))
         return self.fs_files_update_app(
             payload, 
@@ -11410,7 +11498,7 @@ class P115Client(P115OpenClient):
         GET https://webapi.115.com/files/get_info
 
         .. caution::
-            仅当文件的 aid 是 1（网盘文件）、12（瞬间文件） 或 120（永久删除文件） 时，才能用此接口获取信息，否则请用 `client.fs_file_skim` 或 `client.fs_supervision` 获取信息（只能获取比较简略的信息）。
+            仅当文件的 aid 是 1（网盘文件）、12（瞬间文件） 或 120（永久删除文件） 时，才能用此接口获取信息，否则请用 ``client.fs_file_skim`` 或 ``client.fs_supervision`` 获取信息（只能获取比较简略的信息）。
 
             特别的，文件被移入回收站后，就不能用此接口获取信息了，除非将其还原或永久删除。
 
@@ -11531,7 +11619,7 @@ class P115Client(P115OpenClient):
         .. hint::
             当一个 cookies 被另一个更新的登录所失效，并不意味着这个 cookies 就直接不可用了。
 
-            如果你使用的是 `proapi` 下的接口，则会让你重新登录。但是 `webapi`、`aps` 等之下的接口，却依然可以正常使用。具体哪些失效，哪些还正常，请自行试验总结。这就意味着可以设计一种同一设备多 cookies 做池的分流策略。
+            如果你使用的是 ``proapi`` 下的接口，则会让你重新登录。但是 `webapi`、`aps` 等之下的接口，却依然可以正常使用。具体哪些失效，哪些还正常，请自行试验总结。这就意味着可以设计一种同一设备多 cookies 做池的分流策略。
 
         .. hint::
             对于普通的文件系统，我们只允许任何一个目录中不可有相同的名字，但是 115 网盘中却可能有重复：
@@ -11659,7 +11747,7 @@ class P115Client(P115OpenClient):
             "record_open_time": 1, "show_dir": 1, "cid": 0, **payload, 
         }
         if payload.keys() & frozenset(("asc", "fc_mix", "o")):
-            payload["custom_order"] = 2
+            payload.setdefault("custom_order", 2)
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -11818,7 +11906,7 @@ class P115Client(P115OpenClient):
             "record_open_time": 1, "show_dir": 1, "cid": 0, **payload, 
         }
         if payload.keys() & frozenset(("asc", "fc_mix", "o")):
-            payload["custom_order"] = 2
+            payload.setdefault("custom_order", 2)
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -11953,7 +12041,7 @@ class P115Client(P115OpenClient):
             "record_open_time": 1, "show_dir": 1, "cid": 0, **payload, 
         }
         if payload.keys() & frozenset(("asc", "fc_mix", "o")):
-            payload["custom_order"] = 2
+            payload.setdefault("custom_order", 2)
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -11997,7 +12085,7 @@ class P115Client(P115OpenClient):
         .. caution::
             这个函数最多获取任何一种排序条件下的前 ``1200 + n`` 条数据（``n >= 0`` 是一个潜在的不定限制）。
 
-            `o` 参数无效，效果只等于 "file_name"，而 ``fc_mix`` 和 ``asc`` 可用。
+            ``o`` 参数无效，效果只等于 "file_name"，而 ``fc_mix`` 和 ``asc`` 可用。
 
             当 ``offset >= 1200 + n``，则相当于 ``offset=0&fc_mix=1``，即从头开始，且置顶项不会置顶
 
@@ -12081,7 +12169,7 @@ class P115Client(P115OpenClient):
             "record_open_time": 1, "show_dir": 1, "cid": 0, **payload, 
         }
         if payload.keys() & frozenset(("asc", "fc_mix")):
-            payload["custom_order"] = 2
+            payload.setdefault("custom_order", 2)
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -12258,7 +12346,7 @@ class P115Client(P115OpenClient):
             这个函数大概是有 bug 的，不推荐使用，请用 ``fs_files_media`` 代替
 
         .. attention::
-            只能获取直属于 `cid` 所在目录的图片，不会遍历整个目录树
+            只能获取直属于 ``cid`` 所在目录的图片，不会遍历整个目录树
 
         :payload:
             - cid: int | str     💡 目录 id
@@ -12457,6 +12545,8 @@ class P115Client(P115OpenClient):
         if not isinstance(payload, dict):
             payload = {"cid": payload}
         payload = {"limit": 32, "offset": 0, "aid": 1, "cid": 0, "cur": 1, "type": -1, **payload}
+        if payload["type"] == 99:
+            payload["type"] = -1
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -12552,6 +12642,8 @@ class P115Client(P115OpenClient):
         if isinstance(payload, (int, str)):
             payload = {"cid": payload}
         payload = {"limit": 32, "offset": 0, "aid": 1, "cid": 0, "cur": 1, "type": -1, **payload}
+        if payload["type"] == 99:
+            payload["type"] = -1
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -13053,7 +13145,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """显示或取消目录内文件总的播放时长，此接口是对 `fs_batch_edit` 的封装
+        """显示或取消目录内文件总的播放时长，此接口是对 ``fs_batch_edit`` 的封装
 
         :param ids: 一个或多个文件或目录的 id
         :param is_set: 是否显示时长
@@ -13105,7 +13197,7 @@ class P115Client(P115OpenClient):
         POST https://proapi.115.com/{app}/folder/update
 
         .. note::
-            如果提供了 `cid` 和 `name`，则表示对 `cid` 对应的文件或目录进行改名，否则创建目录
+            如果提供了 ``cid`` 和 `name`，则表示对 ``cid`` 对应的文件或目录进行改名，否则创建目录
 
         :payload:
             - name: str 💡 名字
@@ -13158,7 +13250,7 @@ class P115Client(P115OpenClient):
         POST https://proapi.115.com/{app}/folder
 
         .. note::
-            如果提供了 `cid` 和 `name`，则表示对 `cid` 对应的文件或目录进行改名，否则创建目录
+            如果提供了 ``cid`` 和 `name`，则表示对 ``cid`` 对应的文件或目录进行改名，否则创建目录
 
         :payload:
             - name: str 💡 名字
@@ -13378,7 +13470,7 @@ class P115Client(P115OpenClient):
         :payload:
             - safe_pwd: str = "000000" 💡 安全密钥，值为实际安全密钥的 md5 哈希值
             - show: 0 | 1 = <default>  💡 是否开启隐藏模式：0:关闭 1:开启
-            - token: str = <default>   💡 令牌，调用 `P115client.user_security_key_check()` 获得，可以不传
+            - token: str = <default>   💡 令牌，调用 ``P115client.user_security_key_check()`` 获得，可以不传
         """
         api = complete_url("/files/hiddenswitch", base_url=base_url, app=app)
         if payload in (0, 1):
@@ -14478,6 +14570,18 @@ class P115Client(P115OpenClient):
 
         POST https://webapi.115.com/label/delete
 
+        .. tip::
+            有时需要批量删除所有标签
+
+            .. code:: python
+
+                from itertools import batched
+                from p115client import P115Client
+                client = P115Client.from_path()
+
+                for info in client.fs_label_list()["data"]["list"]:
+                    client.fs_label_del(info["id"])
+
         :payload:
             - id: int | str 💡 标签 id，多个用逗号 "," 隔开
         """
@@ -14774,7 +14878,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """罗列标签列表（如果要获取做了标签的文件列表，用 `fs_search` 接口）
+        """罗列标签列表（如果要获取做了标签的文件列表，用 ``fs_search`` 接口）
 
         GET https://webapi.115.com/label/list
 
@@ -14831,7 +14935,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """罗列标签列表（如果要获取做了标签的文件列表，用 `fs_search` 接口）
+        """罗列标签列表（如果要获取做了标签的文件列表，用 ``fs_search`` 接口）
 
         GET https://proapi.115.com/{app}/label/list
 
@@ -14887,7 +14991,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """为文件或目录设置标签，此接口是对 `fs_edit` 的封装
+        """为文件或目录设置标签，此接口是对 ``fs_edit`` 的封装
 
         .. attention::
             这个接口会把标签列表进行替换，而不是追加
@@ -14945,7 +15049,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """为文件或目录设置标签，此接口是对 `fs_files_update_app` 的封装
+        """为文件或目录设置标签，此接口是对 ``fs_files_update_app`` 的封装
 
         .. attention::
             这个接口会把标签列表进行替换，而不是追加
@@ -14994,6 +15098,9 @@ class P115Client(P115OpenClient):
         """批量设置标签
 
         POST https://webapi.115.com/files/batch_label
+
+        .. caution::
+            接口有缺陷，不仅速度比较慢，而且经常会出现遗漏，且可能有延迟
 
         :payload:
             - action: "add" | "remove" | "reset" | "replace" 💡 操作名
@@ -15047,6 +15154,9 @@ class P115Client(P115OpenClient):
         """批量设置标签
 
         POST https://proapi.115.com/{app}/files/batch_label
+
+        .. caution::
+            接口有缺陷，不仅速度比较慢，而且经常会出现遗漏，且可能有延迟
 
         :payload:
             - action: "add" | "remove" | "reset" | "replace" 💡 操作名
@@ -15267,7 +15377,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """新建目录，此接口是对 `fs_folder_update_app` 的封装
+        """新建目录，此接口是对 ``fs_folder_update_app`` 的封装
 
         :payload:
             - name: str          💡 新建目录名称，限制 255 个字符
@@ -17011,7 +17121,7 @@ class P115Client(P115OpenClient):
     @overload
     def fs_search(
         self, 
-        payload: str | dict = ".", 
+        payload: int | str | dict = ".", 
         /, 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
@@ -17022,7 +17132,7 @@ class P115Client(P115OpenClient):
     @overload
     def fs_search(
         self, 
-        payload: str | dict = ".", 
+        payload: int | str | dict = ".", 
         /, 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
@@ -17032,7 +17142,7 @@ class P115Client(P115OpenClient):
         ...
     def fs_search(
         self, 
-        payload: str | dict = ".", 
+        payload: int | str | dict = ".", 
         /, 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         *, 
@@ -17046,9 +17156,9 @@ class P115Client(P115OpenClient):
         .. attention::
             最多只能取回前 10,000 条数据，也就是 `limit + offset <= 10_000`，不过可以一次性取完
 
-            不过就算正确设置了 `limit` 和 `offset`，并且总数据量大于 `limit + offset`，可能也不足 `limit`，这应该是 bug，也就是说，就算数据总量足够你也取不到足量
+            不过就算正确设置了 ``limit`` 和 `offset`，并且总数据量大于 `limit + offset`，可能也不足 `limit`，这应该是 bug，也就是说，就算数据总量足够你也取不到足量
 
-            它返回数据中的 `count` 字段的值表示总数据量（即使你只能取前 10,000 条），往往并不准确，最多能当作一个可参考的估计值
+            它返回数据中的 ``count`` 字段的值表示总数据量（即使你只能取前 10,000 条），往往并不准确，最多能当作一个可参考的估计值
 
             这个接口实际上不支持在查询中直接设置排序，只能由 ``P115Client.fs_order_set()`` 设置
 
@@ -17085,7 +17195,7 @@ class P115Client(P115OpenClient):
             - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
             - file_label: int | str = <default> 💡 标签 id
             - gte_day: str 💡 搜索结果匹配的开始时间；格式：YYYY-MM-DD
-            - limit: int = 32 💡 一页大小，意思就是 page_size
+            - limit: int = 1150 💡 一页大小，意思就是 page_size
             - location: str = <default>
             - lte_day: str 💡 搜索结果匹配的结束时间；格式：YYYY-MM-DD
             - natsort: 0 | 1 = <default> 💡 是否执行自然排序(natural sorting)
@@ -17123,16 +17233,18 @@ class P115Client(P115OpenClient):
         api = complete_url("/files/search", base_url=base_url)
         if isinstance(payload, str):
             payload = {"search_value": payload}
+        elif isinstance(payload, int):
+            payload = {"file_label": payload}
         payload = {
-            "aid": 1, "cid": 0, "limit": 32, "offset": 0, 
-            "show_dir": 1, "search_value": ".", **payload, 
+            "aid": 1, "cid": 0, "limit": 1150, "offset": 0, 
+            "show_dir": 1, **payload, 
         }
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
     def fs_search_app(
         self, 
-        payload: str | dict = ".", 
+        payload: int | str | dict = ".", 
         /, 
         app: str = "android", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
@@ -17144,7 +17256,7 @@ class P115Client(P115OpenClient):
     @overload
     def fs_search_app(
         self, 
-        payload: str | dict = ".", 
+        payload: int | str | dict = ".", 
         /, 
         app: str = "android", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
@@ -17155,115 +17267,7 @@ class P115Client(P115OpenClient):
         ...
     def fs_search_app(
         self, 
-        payload: str | dict = ".", 
-        /, 
-        app: str = "android", 
-        base_url: str | Callable[[], str] = "https://proapi.115.com", 
-        *, 
-        async_: Literal[False, True] = False, 
-        **request_kwargs, 
-    ) -> dict | Coroutine[Any, Any, dict]:
-        """搜索文件或目录
-
-        GET https://proapi.115.com/{app}/2.0/ufile/search
-
-        .. attention::
-            最多只能取回前 10,000 条数据，也就是 `limit + offset <= 10_000`，不过可以一次性取完
-
-            不过就算正确设置了 `limit` 和 `offset`，并且总数据量大于 `limit + offset`，可能也不足 `limit`，这应该是 bug，也就是说，就算数据总量足够你也取不到足量
-
-            它返回数据中的 `count` 字段的值表示总数据量（即使你只能取前 10,000 条），往往并不准确，最多能当作一个可参考的估计值
-
-        :payload:
-            - aid: int = 1 💡 area_id
-
-                - 0: 会被视为 1
-                - 1: 正常文件
-                - 2: <unknown>
-                - 3: <unknown>
-                - 4: <unknown>
-                - 5: <unknown>
-                - 7: 回收站文件
-                - 9: <unknown>
-                - 12: 瞬间文件
-                - 15: <unknown>
-                - 120: 彻底删除文件、简历附件
-                - <其它>: 会被视为 0
-
-            - asc: 0 | 1 = <default> 💡 是否升序排列
-            - cid: int | str = 0 💡 目录 id。cid=-1 时，表示不返回列表任何内容
-            - count_folders: 0 | 1 = <default>
-            - date: str = <default> 💡 筛选日期，格式为 YYYY-MM-DD（或者 YYYY-MM 或者 YYYY 或者 时间戳（限定在当天）），最小单位是天，其次是月，具体可以看文件信息中的 "t" 字段的值
-            - fc: 0 | 1 = <default> 💡 只显示文件或目录。1:只显示目录 2:只显示文件
-            - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
-            - file_label: int | str = <default> 💡 标签 id
-            - gte_day: str 💡 搜索结果匹配的开始时间；格式：YYYY-MM-DD
-            - limit: int = 32 💡 一页大小，意思就是 page_size
-            - lte_day: str 💡 搜索结果匹配的结束时间；格式：YYYY-MM-DD
-            - o: str = <default> 💡 用某字段排序
-
-                - "file_name": 文件名
-                - "file_size": 文件大小
-                - "file_type": 文件种类
-                - "user_utime": 修改时间
-                - "user_ptime": 创建时间
-                - "user_otime": 上一次打开时间
-
-            - offset: int = 0  💡 索引偏移，索引从 0 开始计算
-            - search_value: str = "." 💡 搜索文本，可以是 sha1
-            - source: str = <default>
-            - star: 0 | 1 = <default> 💡 是否星标文件
-            - suffix: str = <default> 💡 后缀名（优先级高于 `type`）
-            - type: int = <default> 💡 文件类型
-
-                - 0: 全部（仅当前目录）
-                - 1: 文档
-                - 2: 图片
-                - 3: 音频
-                - 4: 视频
-                - 5: 压缩包
-                - 6: 软件/应用
-                - 7: 书籍
-                - 99: 所有文件
-
-            - version: str = <default> 💡 版本号，比如 3.1
-        """
-        api = complete_url("/2.0/ufile/search", base_url=base_url, app=app)
-        if isinstance(payload, str):
-            payload = {"search_value": payload}
-        payload = {
-            "aid": 1, "cid": 0, "limit": 32, "offset": 0, 
-            "show_dir": 1, "search_value": ".", **payload, 
-        }
-        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
-
-    @overload
-    def fs_search_app2(
-        self, 
-        payload: str | dict = ".", 
-        /, 
-        app: str = "android", 
-        base_url: str | Callable[[], str] = "https://proapi.115.com", 
-        *, 
-        async_: Literal[False] = False, 
-        **request_kwargs, 
-    ) -> dict:
-        ...
-    @overload
-    def fs_search_app2(
-        self, 
-        payload: str | dict = ".", 
-        /, 
-        app: str = "android", 
-        base_url: str | Callable[[], str] = "https://proapi.115.com", 
-        *, 
-        async_: Literal[True], 
-        **request_kwargs, 
-    ) -> Coroutine[Any, Any, dict]:
-        ...
-    def fs_search_app2(
-        self, 
-        payload: str | dict = ".", 
+        payload: int | str | dict = ".", 
         /, 
         app: str = "android", 
         base_url: str | Callable[[], str] = "https://proapi.115.com", 
@@ -17278,9 +17282,9 @@ class P115Client(P115OpenClient):
         .. attention::
             最多只能取回前 10,000 条数据，也就是 `limit + offset <= 10_000`，不过可以一次性取完
 
-            不过就算正确设置了 `limit` 和 `offset`，并且总数据量大于 `limit + offset`，可能也不足 `limit`，这应该是 bug，也就是说，就算数据总量足够你也取不到足量
+            不过就算正确设置了 ``limit`` 和 `offset`，并且总数据量大于 `limit + offset`，可能也不足 `limit`，这应该是 bug，也就是说，就算数据总量足够你也取不到足量
 
-            它返回数据中的 `count` 字段的值表示总数据量（即使你只能取前 10,000 条），往往并不准确，最多能当作一个可参考的估计值
+            它返回数据中的 ``count`` 字段的值表示总数据量（即使你只能取前 10,000 条），往往并不准确，最多能当作一个可参考的估计值
 
         :payload:
             - aid: int = 1 💡 area_id
@@ -17339,9 +17343,124 @@ class P115Client(P115OpenClient):
         api = complete_url("/files/search", base_url=base_url, app=app)
         if isinstance(payload, str):
             payload = {"search_value": payload}
+        elif isinstance(payload, int):
+            payload = {"file_label": payload}
         payload = {
-            "aid": 1, "cid": 0, "limit": 32, "offset": 0, 
-            "show_dir": 1, "search_value": ".", **payload, 
+            "aid": 1, "cid": 0, "limit": 1150, "offset": 0, 
+            "show_dir": 1, **payload, 
+        }
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def fs_search_app2(
+        self, 
+        payload: int | str | dict = ".", 
+        /, 
+        app: str = "android", 
+        base_url: str | Callable[[], str] = "https://proapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def fs_search_app2(
+        self, 
+        payload: int | str | dict = ".", 
+        /, 
+        app: str = "android", 
+        base_url: str | Callable[[], str] = "https://proapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def fs_search_app2(
+        self, 
+        payload: int | str | dict = ".", 
+        /, 
+        app: str = "android", 
+        base_url: str | Callable[[], str] = "https://proapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """搜索文件或目录
+
+        GET https://proapi.115.com/{app}/2.0/ufile/search
+
+        .. caution::
+            似乎不支持标签搜索
+
+        .. attention::
+            最多只能取回前 10,000 条数据，也就是 `limit + offset <= 10_000`，不过可以一次性取完
+
+            不过就算正确设置了 ``limit`` 和 `offset`，并且总数据量大于 `limit + offset`，可能也不足 `limit`，这应该是 bug，也就是说，就算数据总量足够你也取不到足量
+
+            它返回数据中的 ``count`` 字段的值表示总数据量（即使你只能取前 10,000 条），往往并不准确，最多能当作一个可参考的估计值
+
+        :payload:
+            - aid: int = 1 💡 area_id
+
+                - 0: 会被视为 1
+                - 1: 正常文件
+                - 2: <unknown>
+                - 3: <unknown>
+                - 4: <unknown>
+                - 5: <unknown>
+                - 7: 回收站文件
+                - 9: <unknown>
+                - 12: 瞬间文件
+                - 15: <unknown>
+                - 120: 彻底删除文件、简历附件
+                - <其它>: 会被视为 0
+
+            - asc: 0 | 1 = <default> 💡 是否升序排列
+            - cid: int | str = 0 💡 目录 id。cid=-1 时，表示不返回列表任何内容
+            - count_folders: 0 | 1 = <default>
+            - date: str = <default> 💡 筛选日期，格式为 YYYY-MM-DD（或者 YYYY-MM 或者 YYYY 或者 时间戳（限定在当天）），最小单位是天，其次是月，具体可以看文件信息中的 "t" 字段的值
+            - fc: 0 | 1 = <default> 💡 只显示文件或目录。1:只显示目录 2:只显示文件
+            - fc_mix: 0 | 1 = <default> 💡 是否目录和文件混合，如果为 0 则目录在前（目录置顶）
+            - file_label: int | str = <default> 💡 标签 id（⚠️ 似乎不支持此参数）
+            - gte_day: str 💡 搜索结果匹配的开始时间；格式：YYYY-MM-DD
+            - limit: int = 32 💡 一页大小，意思就是 page_size
+            - lte_day: str 💡 搜索结果匹配的结束时间；格式：YYYY-MM-DD
+            - o: str = <default> 💡 用某字段排序
+
+                - "file_name": 文件名
+                - "file_size": 文件大小
+                - "file_type": 文件种类
+                - "user_utime": 修改时间
+                - "user_ptime": 创建时间
+                - "user_otime": 上一次打开时间
+
+            - offset: int = 0  💡 索引偏移，索引从 0 开始计算
+            - search_value: str = "." 💡 搜索文本，可以是 sha1
+            - source: str = <default>
+            - star: 0 | 1 = <default> 💡 是否星标文件
+            - suffix: str = <default> 💡 后缀名（优先级高于 `type`）
+            - type: int = <default> 💡 文件类型
+
+                - 0: 全部（仅当前目录）
+                - 1: 文档
+                - 2: 图片
+                - 3: 音频
+                - 4: 视频
+                - 5: 压缩包
+                - 6: 软件/应用
+                - 7: 书籍
+                - 99: 所有文件
+
+            - version: str = <default> 💡 版本号，比如 3.1
+        """
+        api = complete_url("/2.0/ufile/search", base_url=base_url, app=app)
+        if isinstance(payload, str):
+            payload = {"search_value": payload}
+        elif isinstance(payload, int):
+            payload = {"file_label": payload}
+        payload = {
+            "aid": 1, "cid": 0, "limit": 1150, "offset": 0, 
+            "show_dir": 1, **payload, 
         }
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
@@ -17425,7 +17544,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """为目录设置显示时长，此接口是对 `fs_edit` 的封装
+        """为目录设置显示时长，此接口是对 ``fs_edit`` 的封装
         """
         return self._fs_edit_set(
             payload, 
@@ -17473,7 +17592,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """为目录设置显示时长，此接口是对 `fs_files_update_app` 的封装
+        """为目录设置显示时长，此接口是对 ``fs_files_update_app`` 的封装
         """
         return self._fs_edit_set_app(
             payload, 
@@ -17681,7 +17800,7 @@ class P115Client(P115OpenClient):
             payload = {"ids": ",".join(map(str, payload)), "star": int(star)}
         else:
             payload = {"star": int(star), **payload}
-        payload["user_id"] = self.user_id
+        payload.setdefault("user_id", self.user_id)
         return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     @overload
@@ -17850,7 +17969,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """获取系统目录（在根目录下，使用 `fs_files` 接口罗列时，数目体现在返回值的 `sys_count` 字段）
+        """获取系统目录（在根目录下，使用 ``fs_files`` 接口罗列时，数目体现在返回值的 ``sys_count`` 字段）
 
         GET https://proapi.115.com/{app}/files/getpackage
 
@@ -17949,9 +18068,9 @@ class P115Client(P115OpenClient):
         GET https://webapi.115.com/files/video
 
         .. caution::
-            `local` 在有些视频上不起作用，无论如何，都相当于 `local=0`，可能是因为文件超过 200 MB
+            ``local`` 在有些视频上不起作用，无论如何，都相当于 `local=0`，可能是因为文件超过 200 MB
 
-            但如果 `local=1` 有效，则返回仅可得到下载链接，key 为 "download_url"
+            但如果 ``local=1`` 有效，则返回仅可得到下载链接，key 为 "download_url"
 
         .. note::
             如果返回信息中有 "queue_url"，则可用于查询转码状态
@@ -18666,12 +18785,12 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """获取 `P115Client.life_list` 操作记录明细
+        """获取 ``P115Client.life_list`` 操作记录明细
 
         GET https://webapi.115.com/behavior/detail
 
         .. attention::
-            这个接口最多能拉取前 10_000 条数据，且响应速度也较差，请优先使用 ``P115Client.life_behavior_detail_app()``。
+            这个接口最多能拉取前 10,000 条数据，且响应速度也较差，请优先使用 ``P115Client.life_behavior_detail_app()``。
             但如果指定 ``type`` 或 ``date``，响应可能会快得多，但当涉及的总量较多时，速度依然会很慢，哪怕你只拉取其中的几条。
 
         .. caution::
@@ -18745,7 +18864,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """获取 `P115Client.life_list` 操作记录明细
+        """获取 ``P115Client.life_list`` 操作记录明细
 
         GET https://proapi.115.com/{app}/behavior/detail
 
@@ -18783,7 +18902,7 @@ class P115Client(P115OpenClient):
             - offset: int = 0
             - date: str = <default>      💡 日期，格式为 'YYYY-MM-DD'，指定拉取这一天的数据
         """
-        api = complete_url("/behavior/detail", base_url=base_url, app=app)
+        api = complete_url("/behavior/detail", base_url=base_url, app=app, force_app=("wechatmini", "alipaymini"))
         if isinstance(payload, str):
             payload = {"type": payload}
         payload = {"limit": 1_000, "offset": 0, **payload}
@@ -19184,7 +19303,7 @@ class P115Client(P115OpenClient):
             在获得的链接最后加上一个 ``&i=1``，就可以获取原始尺寸（但不一定是原图）
 
         :payload:
-            - rs: str 💡 图片的 sha1 （必须大写）或者 f"{oss_bucket}_{oss_object}"（由 `upload_file_image` 接口的响应获得），后者跳转次数更少、响应更快
+            - rs: str 💡 图片的 sha1 （必须大写）或者 f"{oss_bucket}_{oss_object}"（由 ``upload_file_image`` 接口的响应获得），后者跳转次数更少、响应更快
             - rs[]: str
             - ...
             - rs[0]: str
@@ -19251,7 +19370,7 @@ class P115Client(P115OpenClient):
             在获得的链接最后加上一个 ``&i=1``，就可以获取原始尺寸（但不一定是原图）
 
         :payload:
-            - rs: str 💡 图片的 sha1 （必须大写）或者 f"{oss_bucket}_{oss_object}"（由 `upload_file_image` 接口的响应获得），后者跳转次数更少、响应更快
+            - rs: str 💡 图片的 sha1 （必须大写）或者 f"{oss_bucket}_{oss_object}"（由 ``upload_file_image`` 接口的响应获得），后者跳转次数更少、响应更快
             - rs[]: str
             - ...
             - rs[0]: str
@@ -19361,7 +19480,7 @@ class P115Client(P115OpenClient):
         GET https://life.115.com/api/1.0/{app}/1.0/life/glist
 
         .. note::
-            返回数据列表中，每一条都有个 `"type"` 字段，这个和请求参数里面的 `"type"` 含义并不同
+            返回数据列表中，每一条都有个 ``"type"`` 字段，这个和请求参数里面的 ``"type"`` 含义并不同
 
             - 2: 备忘
             - 3: 日程
@@ -19474,7 +19593,7 @@ class P115Client(P115OpenClient):
             为了实现分页拉取，需要指定 last_data 参数。只要上次返回的数据不为空，就会有这个值，直接使用即可
 
         .. attention::
-            此接口正在被 `P115Client.life_recent_operations` 取代
+            此接口正在被 ``P115Client.life_recent_operations`` 取代
             
         .. hint::
             引用：https://cdnres.115.com/life/m_r/web/static_v11.0/homepage/lifetime.js
@@ -19668,7 +19787,7 @@ class P115Client(P115OpenClient):
             这个接口目前必须传 ``behavior_type`` 和 ``date``，而且支持的 ``behavior_type`` 仅限浏览、移动、复制、重命名
 
         .. caution::
-            谨慎，此接口明显是半成品，几乎和 `P115Client.life_behavior_detail` 一样慢，但能力却似乎远远不如
+            谨慎，此接口明显是半成品，几乎和 ``P115Client.life_behavior_detail`` 一样慢，但能力却似乎远远不如
 
         :payload:
             - behavior_type: str 💡 操作类型（尾部带🚫的表示暂不可用）
@@ -19845,6 +19964,7 @@ class P115Client(P115OpenClient):
 
         :payload:
             - delete_data: str 💡 JSON array，每条数据格式为 {"relation_id": str, "behavior_type": str}
+            - last_data: str = <default> 💡 需要经过 JSON序列化，格式为：{"last_time": int, "last_count": int, "total_count": int}
         """
         api = complete_url(f"/api/1.0/{app}/1.0/life/recent_operations_del", base_url=base_url)
         if not isinstance(payload, dict):
@@ -20421,7 +20541,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> None | Coroutine[Any, Any, None]:
-        """退出登录状态（可以把某个客户端下线，所有已登录设备可从 `login_devices` 获取）
+        """退出登录状态（可以把某个客户端下线，所有已登录设备可从 ``login_devices`` 获取）
 
         GET https://qrcodeapi.115.com/app/1.0/{app}/1.0/logout/logout
 
@@ -20532,7 +20652,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """退出登录状态（可以把某个客户端下线，所有已登录设备可从 `login_devices` 获取）
+        """退出登录状态（可以把某个客户端下线，所有已登录设备可从 ``login_devices`` 获取）
 
         POST https://qrcodeapi.115.com/app/1.0/{app}/1.0/logout/mange
 
@@ -20767,7 +20887,7 @@ class P115Client(P115OpenClient):
         GET https://webapi.115.com/multimedia/collection_listen
 
         .. todo::
-            暂不清楚 `sort` 字段各个取值的含义
+            暂不清楚 ``sort`` 字段各个取值的含义
 
         :payload:
             - channel_id: int = 1 💡 频道 id，已知：1:音乐 5:视频
@@ -20864,7 +20984,7 @@ class P115Client(P115OpenClient):
         GET https://webapi.115.com/multimedia/collection_watch
 
         .. todo::
-            暂不清楚 `sort` 字段各个取值的含义
+            暂不清楚 ``sort`` 字段各个取值的含义
 
         :payload:
             - channel_id: int = 5 💡 频道 id，已知：1:音乐 5:视频
@@ -21057,10 +21177,10 @@ class P115Client(P115OpenClient):
             - 都不指定，则罗列所有专辑（详情）列表
 
         .. todo::
-            暂不清楚 `sort` 字段各个取值的含义
+            暂不清楚 ``sort`` 字段各个取值的含义
 
         .. todo::
-            暂不清楚 `date` 字段的格式要求
+            暂不清楚 ``date`` 字段的格式要求
 
         .. todo::
             应该还可以选择【维度】和【时间区间】，但是目前 115 的网页版还未完成此功能
@@ -21197,10 +21317,10 @@ class P115Client(P115OpenClient):
             - 都不指定，则罗列所有专辑（详情）列表
 
         .. todo::
-            暂不清楚 `sort` 字段各个取值的含义
+            暂不清楚 ``sort`` 字段各个取值的含义
 
         .. todo::
-            暂不清楚 `date` 字段的格式要求
+            暂不清楚 ``date`` 字段的格式要求
 
         .. todo::
             应该还可以选择【维度】和【时间区间】，但是目前 115 的网页版还未完成此功能
@@ -21567,14 +21687,14 @@ class P115Client(P115OpenClient):
         POST https://webapi.115.com/multimedia/relate_file
 
         .. note::
-            指定 `multimedia_id` 时，则针对相应的专辑（详情）进行文件增删；未指定时，则自动创建新的专辑（详情）
+            指定 ``multimedia_id`` 时，则针对相应的专辑（详情）进行文件增删；未指定时，则自动创建新的专辑（详情）
 
         :payload:
             - file_ids: int | str 💡 文件或目录 id，多个用逗号 "," 隔开
             - op: str = "relate" 💡 已知："relate":添加 "delete":删除 "update":更新
             - channel_id: int = 1 💡 频道 id，已知：1:音乐 5:视频
             - multimedia_id: int = <default> 💡 专辑（详情） id
-            - one_by_one: 0 | 1 = <default> 💡 （未指定 `multimedia_id` 时生效）是否分别创建专辑（详情）：0:为所选文件创建为一个详情页 1:为每个文件创建单独的详情页
+            - one_by_one: 0 | 1 = <default> 💡 （未指定 ``multimedia_id`` 时生效）是否分别创建专辑（详情）：0:为所选文件创建为一个详情页 1:为每个文件创建单独的详情页
             - sort: int = <default> 💡 序号，用来作为自定义排序的依据
             - visited: 0 | 1 | 2 = <default> 💡 是否标记为访问过
         """
@@ -21667,7 +21787,7 @@ class P115Client(P115OpenClient):
         GET https://webapi.115.com/multimedia/related
 
         .. note::
-            未指定 `related_id` 时，则是添加（此时需要指定 `related_name`）；指定时，则是修改
+            未指定 ``related_id`` 时，则是添加（此时需要指定 `related_name`）；指定时，则是修改
 
         .. todo::
             暂不支持删除人员
@@ -21808,7 +21928,7 @@ class P115Client(P115OpenClient):
             目前支持创建最多 3 级分类，`parent_id=0` 时为 1 级分类
 
         .. note::
-            未指定 `type_id` 时，则是添加（此时需要指定 `type_name`）；指定时，则是修改
+            未指定 ``type_id`` 时，则是添加（此时需要指定 `type_name`）；指定时，则是修改
 
         .. todo::
             暂不支持删除分类
@@ -22451,7 +22571,7 @@ class P115Client(P115OpenClient):
             这个接口获取的链接似乎长久有效，而且支持任何文件（只要有人上传过），但限制文件大小在 50 MB 以内
 
         :payload:
-            - rs: str 💡 图片的 sha1 （必须大写）或者 f"{oss_bucket}_{oss_object}"（由 `upload_file_image` 接口的响应获得），后者跳转次数更少、响应更快
+            - rs: str 💡 图片的 sha1 （必须大写）或者 f"{oss_bucket}_{oss_object}"（由 ``upload_file_image`` 接口的响应获得），后者跳转次数更少、响应更快
             - rs[]: str
             - ...
             - rs[0]: str
@@ -22515,7 +22635,7 @@ class P115Client(P115OpenClient):
             这个接口获取的链接似乎长久有效，而且支持任何文件（只要有人上传过），但限制文件大小在 50 MB 以内
 
         :payload:
-            - rs: str 💡 图片的 sha1 （必须大写）或者 f"{oss_bucket}_{oss_object}"（由 `upload_file_image` 接口的响应获得），后者跳转次数更少、响应更快
+            - rs: str 💡 图片的 sha1 （必须大写）或者 f"{oss_bucket}_{oss_object}"（由 ``upload_file_image`` 接口的响应获得），后者跳转次数更少、响应更快
             - rs[]: str
             - ...
             - rs[0]: str
@@ -23437,7 +23557,7 @@ class P115Client(P115OpenClient):
         POST https://webapi.115.com/photo/photo
 
         .. note::
-            虽然被认为是图片的格式很多（你可以用这个方法 `client.fs_files_second_type({"type": 2})` 获得网盘中的所有图片格式），但仅支持以下格式图片添加到相册：jpg,jpeg,png,gif,svg,webp,heic,bmp,dng
+            虽然被认为是图片的格式很多（你可以用这个方法 ``client.fs_files_second_type({"type": 2})`` 获得网盘中的所有图片格式），但仅支持以下格式图片添加到相册：jpg,jpeg,png,gif,svg,webp,heic,bmp,dng
 
         .. caution::
             添加到相册，其实就是复制到 "/手机相册" 目录，如果需要删除，就直接用 ``fs_delete`` 即可
@@ -23996,7 +24116,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """获取共享相册的时间线列表，然后你可以通过 `client.photo_share_list` 获取对应时间线的图片列表
+        """获取共享相册的时间线列表，然后你可以通过 ``client.photo_share_list`` 获取对应时间线的图片列表
 
         GET https://webapi.115.com/photo/sharephototimeline
 
@@ -24043,7 +24163,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """获取时间线列表，然后你可以通过 `client.photo_list` 获取对应时间线的图片列表
+        """获取时间线列表，然后你可以通过 ``client.photo_list`` 获取对应时间线的图片列表
 
         GET https://webapi.115.com/photo/phototimeline
 
@@ -24862,7 +24982,7 @@ class P115Client(P115OpenClient):
             - receive_code: str  💡 接收码（也就是密码）
             - share_code: str    💡 分享码
 
-        :param url: 分享链接，如果提供的话，会被拆解并合并到 `payload` 中，优先级较高
+        :param url: 分享链接，如果提供的话，会被拆解并合并到 ``payload`` 中，优先级较高
         :param strict: 如果为 True，当目标是目录时，会抛出 IsADirectoryError 异常
         :param app: 使用此设备的接口
         :param async_: 是否异步
@@ -25892,7 +26012,7 @@ class P115Client(P115OpenClient):
             - receive_code: str  💡 接收码（访问密码）
             - share_code: str    💡 分享码
 
-        :param share_url: 分享链接，如果提供的话，会被拆解并合并到 `payload` 中，优先级较高
+        :param share_url: 分享链接，如果提供的话，会被拆解并合并到 ``payload`` 中，优先级较高
         :param strict: 如果为 True，当目标是目录时，会抛出 IsADirectoryError 异常
         :param app: 使用此设备的接口
         :param async_: 是否异步
@@ -27304,7 +27424,7 @@ class P115Client(P115OpenClient):
         :payload:
             - filename: str = <default> 💡 文件名，默认为一个新的 uuid4 对象的字符串表示
             - target: str = "U_1_0" 💡 上传目标，格式为 f"U_{aid}_{pid}"（网盘）或 f"S_{share_id}_{pid}"（共享目录）
-            - path: str = <default> 💡 保存目录，是在 `target` 对应目录下的相对路径，默认为 `target` 所对应目录本身
+            - path: str = <default> 💡 保存目录，是在 ``target`` 对应目录下的相对路径，默认为 ``target`` 所对应目录本身
             - filesize: int | str = <default> 💡 文件大小
         """
         api = complete_url("/3.0/sampleinitupload.php", base_url=base_url)
@@ -27366,7 +27486,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """初始化上传，可能秒传，此接口是对 `upload_init` 的封装
+        """初始化上传，可能秒传，此接口是对 ``upload_init`` 的封装
 
         .. note::
             - 文件大小 和 sha1 是必需的，只有 sha1 是没用的。
@@ -27375,11 +27495,11 @@ class P115Client(P115OpenClient):
         :param filename: 文件名
         :param filesize: 文件大小
         :param filesha1: 文件的 sha1
-        :param dirname: 保存目录，是在 `pid` 对应目录下的相对路径，默认为 `pid` 所对应目录本身
+        :param dirname: 保存目录，是在 ``pid`` 对应目录下的相对路径，默认为 ``pid`` 所对应目录本身
         :param read_range_bytes_or_hash: 调用以获取 2 次验证的数据或计算 sha1，接受一个数据范围，格式符合:
             `HTTP Range Requests <https://developer.mozilla.org/en-US/docs/Web/HTTP/Range_requests>`_，
             返回值如果是 str，则视为计算好的 sha1，如果为 Buffer，则视为数据（之后会被计算 sha1）
-        :param pid: 上传文件到此目录的 id，或者指定的 target（格式为 f"U_{aid}_{pid}" 或 f"S_{share_id}_{pid}"，但这里的 `aid` 无论如何取值，都视为 1）
+        :param pid: 上传文件到此目录的 id，或者指定的 target（格式为 f"U_{aid}_{pid}" 或 f"S_{share_id}_{pid}"，但这里的 ``aid`` 无论如何取值，都视为 1）
         :param share_id: 共享 id
         :param payload: 其它的查询参数
         :param async_: 是否异步
@@ -27414,7 +27534,7 @@ class P115Client(P115OpenClient):
             status = resp["status"]
             if status == 7:
                 if read_range_bytes_or_hash is None:
-                    raise ValueError("filesize >= 1 MB, thus need pass the `read_range_bytes_or_hash` argument")
+                    raise ValueError("filesize >= 1 MB, thus need pass the ``read_range_bytes_or_hash`` argument")
                 payload["sign_key"] = resp["sign_key"]
                 sign_check: str = resp["sign_check"]
                 content: str | Buffer
@@ -27571,7 +27691,7 @@ class P115Client(P115OpenClient):
         :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 ``f"U_{aid}_{pid}"`` 或 ``f"S_{share_id}_{pid}"``）
         :param share_id: 共享 id
         :param filename: 文件名，如果为空，则会自动确定
-        :param dirname: 保存目录，是在 `pid` 对应目录下的相对路径，默认为 `pid` 所对应目录本身
+        :param dirname: 保存目录，是在 ``pid`` 对应目录下的相对路径，默认为 ``pid`` 所对应目录本身
         :param async_: 是否异步
         :param request_kwargs: 其余请求参数
 
@@ -27675,7 +27795,7 @@ class P115Client(P115OpenClient):
         :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 ``f"U_{aid}_{pid}"`` 或 ``f"S_{share_id}_{pid}"``）
         :param share_id: 共享 id
         :param filename: 文件名，如果为空，则会自动确定
-        :param dirname: 保存目录，是在 `pid` 对应目录下的相对路径，默认为 `pid` 所对应目录本身
+        :param dirname: 保存目录，是在 ``pid`` 对应目录下的相对路径，默认为 ``pid`` 所对应目录本身
         :param async_: 是否异步
         :param request_kwargs: 其余请求参数
 
@@ -27815,7 +27935,7 @@ class P115Client(P115OpenClient):
         :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 ``f"U_{aid}_{pid}"`` 或 ``f"S_{share_id}_{pid}"``）
         :param share_id: 共享 id
         :param filename: 文件名，如果为空，则会自动确定
-        :param dirname: 保存目录，是在 `pid` 对应目录下的相对路径，默认为 `pid` 所对应目录本身
+        :param dirname: 保存目录，是在 ``pid`` 对应目录下的相对路径，默认为 ``pid`` 所对应目录本身
         :param async_: 是否异步
         :param request_kwargs: 其余请求参数
 
@@ -27942,12 +28062,12 @@ class P115Client(P115OpenClient):
             - ``U_3_-9``: 此时 ``aid=12``，可以通过 ``fs_delete_app`` 删除上传后的文件 id 来释放空间
 
         :param file: 待上传的文件
-        :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 f"U_{aid}_{pid}" 或 f"S_{share_id}_{pid}"，但这里的 `aid` 无论如何取值，都视为 1）
+        :param pid: 上传文件到此目录的 id 或 pickcode，或者指定的 target（格式为 f"U_{aid}_{pid}" 或 f"S_{share_id}_{pid}"，但这里的 ``aid`` 无论如何取值，都视为 1）
         :param share_id: 共享 id
         :param filename: 文件名，如果为空，则会自动确定
         :param filesha1: 文件的 sha1，如果为空，则会自动确定
         :param filesize: 文件大小，如果为 -1，则会自动确定
-        :param dirname: 保存目录，是在 `pid` 对应目录下的相对路径，默认为 `pid` 所对应目录本身
+        :param dirname: 保存目录，是在 ``pid`` 对应目录下的相对路径，默认为 ``pid`` 所对应目录本身
         :param payload: 其它的查询参数
         :param partsize: 分块上传的分块大小。如果为 0，则不做分块上传；如果 < 0，则会自动确定
         :param callback: 回调数据

@@ -252,7 +252,7 @@ def iter_life_behavior_once(
         当你指定有 ``from_id != 0`` 时，如果 from_time 为 0，则自动重设为 -1
 
     .. caution::
-        如果 app="web"，只能获取前 10,000 条数据，而且速度较慢，但是风控远远较轻
+        如果 app="web"，只能获取前 10,000 条数据，而且速度较慢，但是风控远远较轻。
 
     .. caution::
         115 并没有收集 复制文件 和 文件改名 的事件，以及第三方上传可能会没有 上传事件 ("upload_image_file" 和 "upload_file")
@@ -334,6 +334,7 @@ def iter_life_behavior_once(
     return run_gen_step_iter(gen_step, async_)
 
 
+# TODO: 由于 app 接口容易风控，所以当获取前 10,000 条时，可以使用 web 接口顶上，尤其是 app 接口的冷却时间最好在 5 秒以上，在此期间就用 web 接口
 @overload
 def iter_life_behavior(
     client: str | PathLike | P115Client, 

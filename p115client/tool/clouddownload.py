@@ -24,6 +24,8 @@ def clouddownload_iter(
     /, 
     page_start: int = 1, 
     page_stop: int = -1, 
+    page_size: int = 30, 
+    stat: Literal[0, 9, 11, 12] = 0, 
     cooldown: float = 0, 
     raise_for_update: bool = False, 
     use_open_api: bool = False,  
@@ -38,6 +40,8 @@ def clouddownload_iter(
     /, 
     page_start: int = 1, 
     page_stop: int = -1, 
+    page_size: int = 30, 
+    stat: Literal[0, 9, 11, 12] = 0, 
     cooldown: float = 0, 
     raise_for_update: bool = False, 
     use_open_api: bool = False, 
@@ -51,6 +55,8 @@ def clouddownload_iter(
     /, 
     page_start: int = 1, 
     page_stop: int = -1, 
+    page_size: int = 30, 
+    stat: Literal[0, 9, 11, 12] = 0, 
     cooldown: float = 0, 
     raise_for_update: bool = False, 
     use_open_api: bool = False, 
@@ -70,6 +76,8 @@ def clouddownload_iter(
     :param client: 115 客户端或 cookies
     :param page_start: 开始页数
     :param page_stop: 结束页数（不含），如果 <= 0，则不限
+    :param page_size: 分页大小
+    :param stat: 筛选任务状态，0:全部 9:已失败 11:已完成 12:进行中
     :param cooldown: 接口调用冷却时间，单位：秒
     :param raise_for_update: 当列表发生更新时，是否报错退出
     :param use_open_api: 是否使用 open api
@@ -86,6 +94,8 @@ def clouddownload_iter(
         pages: Iterable[int] = range(page_start, page_stop)
     else:
         pages = count(page_start)
+    if page_size <= 0:
+        page_size = 30
     if not isinstance(client, P115Client):
         use_open_api = True
     def gen_step():
@@ -101,12 +111,14 @@ def clouddownload_iter(
             count = -1
             seen: set[str] = set()
             add_info_hash = seen.add
+        payload = {"page": 0, "page_size": page_size, "stat": stat}
         for page in pages:
+            payload["page"] = page
             if may_sleep:
                 if last_t and (diff := last_t + cooldown - time()) > 0:
                     yield do_sleep(diff)
                 last_t = time()
-            resp = yield clouddownload_list(page, async_=async_, **request_kwargs)
+            resp = yield clouddownload_list(payload, async_=async_, **request_kwargs)
             check_response(resp)
             if use_open_api:
                 resp = resp["data"]
@@ -127,7 +139,7 @@ def clouddownload_iter(
                     yield Yield(task)
             else:
                 yield YieldFrom(resp["tasks"])
-            if len(tasks) < 30 or page >= resp["page_count"]:
+            if resp["page"] >= resp["page_count"]:
                 break
     return run_gen_step_iter(gen_step, async_)
 
@@ -136,7 +148,7 @@ def clouddownload_iter(
 def clouddownload_restart_iter(
     client: str | PathLike | P115Client, 
     /, 
-    predicate: None | Callable[[dict], bool] = None, 
+    begins_with_retryable: bool = False, 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -146,7 +158,7 @@ def clouddownload_restart_iter(
 def clouddownload_restart_iter(
     client: str | PathLike | P115Client, 
     /, 
-    predicate: None | Callable[[dict], bool] = None, 
+    begins_with_retryable: bool = False, 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -155,15 +167,15 @@ def clouddownload_restart_iter(
 def clouddownload_restart_iter(
     client: str | PathLike | P115Client, 
     /, 
-    predicate: None | Callable[[dict], bool] = None, 
+    begins_with_retryable: bool = False, 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
 ) -> Iterator[dict] | AsyncIterator[dict]:
-    """重试任务：重试那些因为空间不足而转存失败的任务
+    """重试任务
 
     :param client: 115 客户端或 cookies
-    :param predicate: 断言，用于筛选
+    :param begins_with_retryable: 是否已确认可重试的任务在最前面
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
 
@@ -172,20 +184,21 @@ def clouddownload_restart_iter(
     if isinstance(client, (str, PathLike)):
         client = P115Client(client)
     def gen_step():
-        left_no_space: list[dict] = []
-        add_task = left_no_space.append
+        tasks: list[dict] = []
+        add_task = tasks.append
         with with_iter_next(clouddownload_iter(
             client, 
+            stat=9, 
             async_=async_, 
             **request_kwargs, 
         )) as do_next:
             while True:
                 task = yield do_next()
-                if task["move"] == -1:
+                if "retry" in task["available_actions"]:
                     add_task(task)
-                elif task["status"] == 2:
+                elif begins_with_retryable:
                     break
-        for task in filter(predicate, left_no_space):
+        for task in tasks:
             resp = yield client.clouddownload_task_restart(
                 task["info_hash"], 
                 async_=async_, 
@@ -194,6 +207,4 @@ def clouddownload_restart_iter(
             resp["task"] = task
             yield Yield(resp)
     return run_gen_step_iter(gen_step, async_)
-
-# TODO: 增删改查等各种接口等封装，包括 open
 

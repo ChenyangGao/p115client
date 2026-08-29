@@ -2,12 +2,12 @@
 # encoding: utf-8
 
 __all__ = [
-    "update_abstract", "update_desc", "update_star", "update_label", "update_score", 
-    "update_top", "update_show_play_long", "update_category_shortcut", "batch_unstar", 
+    "update_abstract", "update_cover", "update_desc", "update_label", "update_show_play_long", 
+    "update_star", "update_score", "update_top", "update_category_shortcut", "batch_unstar", 
     "update_name", "post_event", "makedir", "iter_batch_makedir", "batch_makedir", 
     "batch_copy", "batch_copy_files", "batch_delete", "batch_delete_files", 
     "batch_move", "batch_move_files", "batch_recyclebin_clean", "batch_recyclebin_revert", 
-    "batch_hide", "copyfile", "renamefile", "transferfile", 
+    "batch_hide", "batch_label", "copyfile", "renamefile", "transferfile", 
 ]
 __doc__ = "这个模块提供了一些和修改文件或目录信息有关的函数"
 
@@ -28,8 +28,8 @@ from iterutils import (
     chunked, collect, foreach, map as do_map, run_gen_step, as_gen_step, 
     through, 
 )
-from p115pickcode import to_id
 
+from .attr import _get_id
 from ..client import check_response, P115Client, P115OpenClient
 from ..exception import P115BusyOSError
 from ..type import P115URL
@@ -42,7 +42,7 @@ def update_abstract(
     /, 
     method: str, 
     value: Any, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     max_workers: None | int = 0, 
     *, 
     async_: Literal[False] = False, 
@@ -56,7 +56,7 @@ def update_abstract(
     /, 
     method: str, 
     value: Any, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     max_workers: None | int = 0, 
     *, 
     async_: Literal[True], 
@@ -69,7 +69,7 @@ def update_abstract(
     /, 
     method: str, 
     value: Any, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     max_workers: None | int = 0, 
     *, 
     async_: Literal[False, True] = False, 
@@ -82,23 +82,88 @@ def update_abstract(
     :param method: 方法名
     :param value: 要设置的值
     :param batch_size: 批次大小，分批次，每次提交的 id 数
-    :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
+    :param max_workers: 并发工作数，如果为 None 或者 < 0，则自动确定
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
     """
     if isinstance(client, (str, PathLike)):
         client = P115Client(client)
-    def gen_step():
-        setter = partial(getattr(client, method), async_=async_, **request_kwargs)
-        def call(batch, /):
-            return check_response(setter(batch, value))
-        yield through(conmap(
-            call, 
-            chunked(do_map(to_id, ids), batch_size), 
-            max_workers=max_workers, 
-            async_=async_, 
-        ))
-    return run_gen_step(gen_step, async_)
+    def call(batch, func=getattr(client, method), /):
+        return check_response(func(batch, value, async_=async_, **request_kwargs))
+    return through(conmap(
+        call, 
+        chunked(do_map(_get_id, ids), batch_size), 
+        max_workers=max_workers, 
+        async_=async_, 
+    ))
+
+
+@overload
+def update_cover(
+    client: str | PathLike | P115Client, 
+    ids: Iterable[int | str], 
+    /, 
+    fid_cover: int | str = 0, 
+    batch_size: int = 1_000, 
+    max_workers: None | int = 0, 
+    app: str = "android", 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+):
+    ...
+@overload
+def update_cover(
+    client: str | PathLike | P115Client, 
+    ids: Iterable[int | str] | AsyncIterable[int | str], 
+    /, 
+    fid_cover: int | str = 0, 
+    batch_size: int = 1_000, 
+    max_workers: None | int = 0, 
+    app: str = "android", 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> Coroutine:
+    ...
+def update_cover(
+    client: str | PathLike | P115Client, 
+    ids: Iterable[int | str] | AsyncIterable[int | str], 
+    /, 
+    fid_cover: int | str = 0, 
+    batch_size: int = 1_000, 
+    max_workers: None | int = 0, 
+    app: str = "android", 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+):
+    """批量给文件或目录设置备注，此举可更新此文件或目录的 mtime
+
+    :param client: 115 客户端或 cookies
+    :param ids: 一组文件或目录的 id 或 pickcode
+    :param fid_cover: 封面图片的文件 id，多个用逗号 "," 隔开，如果要删除，值设为 0 即可
+    :param batch_size: 批次大小，分批次，每次提交的 id 数
+    :param max_workers: 并发工作数，如果为 None 或者 < 0，则自动确定
+    :param app: 使用此设备的接口
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+    """
+    if app in ("", "web", "desktop", "aps"):
+        method = "fs_cover_set"
+    else:
+        method = "fs_cover_set_app"
+        request_kwargs["app"] = app
+    return update_abstract(
+        client, 
+        ids, # type: ignore
+        method=method, 
+        value=fid_cover, 
+        batch_size=batch_size, 
+        max_workers=max_workers, 
+        async_=async_, # type: ignore
+        **request_kwargs, 
+    )
 
 
 @overload
@@ -107,9 +172,9 @@ def update_desc(
     ids: Iterable[int | str], 
     /, 
     desc: str = "", 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     max_workers: None | int = 0, 
-    app: str = "web", 
+    app: str = "android", 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -121,9 +186,9 @@ def update_desc(
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     desc: str = "", 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     max_workers: None | int = 0, 
-    app: str = "web", 
+    app: str = "android", 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -134,9 +199,9 @@ def update_desc(
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     desc: str = "", 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     max_workers: None | int = 0, 
-    app: str = "web", 
+    app: str = "android", 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -147,7 +212,7 @@ def update_desc(
     :param ids: 一组文件或目录的 id 或 pickcode
     :param desc: 备注文本
     :param batch_size: 批次大小，分批次，每次提交的 id 数
-    :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
+    :param max_workers: 并发工作数，如果为 None 或者 < 0，则自动确定
     :param app: 使用此设备的接口
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
@@ -170,12 +235,148 @@ def update_desc(
 
 
 @overload
+def update_label(
+    client: str | PathLike | P115Client, 
+    ids: Iterable[int | str], 
+    /, 
+    label: int | str = 1, 
+    batch_size: int = 1_000, 
+    max_workers: None | int = 0, 
+    app: str = "android", 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+):
+    ...
+@overload
+def update_label(
+    client: str | PathLike | P115Client, 
+    ids: Iterable[int | str] | AsyncIterable[int | str], 
+    /, 
+    label: int | str = 1, 
+    batch_size: int = 1_000, 
+    max_workers: None | int = 0, 
+    app: str = "android", 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> Coroutine:
+    ...
+def update_label(
+    client: str | PathLike | P115Client, 
+    ids: Iterable[int | str] | AsyncIterable[int | str], 
+    /, 
+    label: int | str = 1, 
+    batch_size: int = 1_000, 
+    max_workers: None | int = 0, 
+    app: str = "android", 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+):
+    """批量给文件或目录设置标签
+
+    :param client: 115 客户端或 cookies
+    :param ids: 一组文件或目录的 id 或 pickcode
+    :param label: 标签 id，多个用逗号 "," 隔开，如果用一个根本不存在的 id，效果就是清空标签列表
+    :param batch_size: 批次大小，分批次，每次提交的 id 数
+    :param max_workers: 并发工作数，如果为 None 或者 < 0，则自动确定
+    :param app: 使用此设备的接口
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+    """
+    if app in ("", "web", "desktop", "aps"):
+        method = "fs_label_set"
+    else:
+        method = "fs_label_set_app"
+        request_kwargs["app"] = app
+    return update_abstract(
+        client, 
+        ids, # type: ignore
+        method=method, 
+        value=label, 
+        batch_size=batch_size, 
+        max_workers=max_workers, 
+        async_=async_, # type: ignore
+        **request_kwargs, 
+    )
+
+
+@overload
+def update_show_play_long(
+    client: str | PathLike | P115Client, 
+    ids: Iterable[int | str], 
+    /, 
+    show: bool = True, 
+    batch_size: int = 1_000, 
+    max_workers: None | int = 0, 
+    app: str = "android", 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+):
+    ...
+@overload
+def update_show_play_long(
+    client: str | PathLike | P115Client, 
+    ids: Iterable[int | str] | AsyncIterable[int | str], 
+    /, 
+    show: bool = True, 
+    batch_size: int = 1_000, 
+    max_workers: None | int = 0, 
+    app: str = "android", 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> Coroutine:
+    ...
+def update_show_play_long(
+    client: str | PathLike | P115Client, 
+    ids: Iterable[int | str] | AsyncIterable[int | str], 
+    /, 
+    show: bool = True, 
+    batch_size: int = 1_000, 
+    max_workers: None | int = 0, 
+    app: str = "android", 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+):
+    """批量给目录设置显示时长
+
+    :param client: 115 客户端或 cookies
+    :param ids: 一组目录的 id 或 pickcode
+    :param show: 是否显示时长
+    :param batch_size: 批次大小，分批次，每次提交的 id 数
+    :param max_workers: 并发工作数，如果为 None 或者 < 0，则自动确定
+    :param app: 使用此设备的接口
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+    """
+    if app in ("", "web", "desktop", "aps"):
+        method = "fs_show_play_long_set"
+    else:
+        method = "fs_show_play_long_set_app"
+        request_kwargs["app"] = app
+    return update_abstract(
+        client, 
+        ids, # type: ignore
+        method=method, 
+        value=show, 
+        batch_size=batch_size, 
+        max_workers=max_workers, 
+        async_=async_, # type: ignore
+        **request_kwargs, 
+    )
+
+
+@overload
 def update_star(
     client: str | PathLike | P115Client | P115OpenClient, 
     ids: Iterable[int | str], 
     /, 
     star: bool = True, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     max_workers: None | int = 0, 
     app: str = "web", 
     *, 
@@ -189,7 +390,7 @@ def update_star(
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     star: bool = True, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     max_workers: None | int = 0, 
     app: str = "web", 
     *, 
@@ -202,7 +403,7 @@ def update_star(
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     star: bool = True, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     max_workers: None | int = 0, 
     app: str = "web", 
     *, 
@@ -218,7 +419,7 @@ def update_star(
     :param ids: 一组文件或目录的 id 或 pickcode
     :param star: 是否设置星标
     :param batch_size: 批次大小，分批次，每次提交的 id 数
-    :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
+    :param max_workers: 并发工作数，如果为 None 或者 < 0，则自动确定
     :param app: 使用此设备的接口
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
@@ -245,80 +446,12 @@ def update_star(
 
 
 @overload
-def update_label(
-    client: str | PathLike | P115Client, 
-    ids: Iterable[int | str], 
-    /, 
-    label: int | str = 1, 
-    batch_size: int = 10_000, 
-    max_workers: None | int = 0, 
-    app: str = "web", 
-    *, 
-    async_: Literal[False] = False, 
-    **request_kwargs, 
-):
-    ...
-@overload
-def update_label(
-    client: str | PathLike | P115Client, 
-    ids: Iterable[int | str] | AsyncIterable[int | str], 
-    /, 
-    label: int | str = 1, 
-    batch_size: int = 10_000, 
-    max_workers: None | int = 0, 
-    app: str = "web", 
-    *, 
-    async_: Literal[True], 
-    **request_kwargs, 
-) -> Coroutine:
-    ...
-def update_label(
-    client: str | PathLike | P115Client, 
-    ids: Iterable[int | str] | AsyncIterable[int | str], 
-    /, 
-    label: int | str = 1, 
-    batch_size: int = 10_000, 
-    max_workers: None | int = 0, 
-    app: str = "web", 
-    *, 
-    async_: Literal[False, True] = False, 
-    **request_kwargs, 
-):
-    """批量给文件或目录设置标签
-
-    :param client: 115 客户端或 cookies
-    :param ids: 一组文件或目录的 id 或 pickcode
-    :param label: 标签 id，多个用逗号 "," 隔开，如果用一个根本不存在的 id，效果就是清空标签列表
-    :param batch_size: 批次大小，分批次，每次提交的 id 数
-    :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
-    :param app: 使用此设备的接口
-    :param async_: 是否异步
-    :param request_kwargs: 其它请求参数
-    """
-    if app in ("", "web", "desktop", "aps"):
-        method = "fs_label_set"
-    else:
-        method = "fs_label_set_app"
-        request_kwargs["app"] = app
-    return update_abstract(
-        client, 
-        ids, # type: ignore
-        method=method, 
-        value=label, 
-        batch_size=batch_size, 
-        max_workers=max_workers, 
-        async_=async_, # type: ignore
-        **request_kwargs, 
-    )
-
-
-@overload
 def update_score(
     client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     /, 
     score: int = 0, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     max_workers: None | int = 0, 
     *, 
     async_: Literal[False] = False, 
@@ -331,7 +464,7 @@ def update_score(
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     score: int = 0, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     max_workers: None | int = 0, 
     *, 
     async_: Literal[True], 
@@ -343,7 +476,7 @@ def update_score(
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     score: int = 0, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     max_workers: None | int = 0, 
     *, 
     async_: Literal[False, True] = False, 
@@ -355,7 +488,7 @@ def update_score(
     :param ids: 一组文件或目录的 id 或 pickcode
     :param score: 分数
     :param batch_size: 批次大小，分批次，每次提交的 id 数
-    :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
+    :param max_workers: 并发工作数，如果为 None 或者 < 0，则自动确定
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
     """
@@ -377,7 +510,7 @@ def update_top(
     ids: Iterable[int | str], 
     /, 
     top: bool = True, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     max_workers: None | int = 0, 
     *, 
     async_: Literal[False] = False, 
@@ -390,7 +523,7 @@ def update_top(
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     top: bool = True, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     max_workers: None | int = 0, 
     *, 
     async_: Literal[True], 
@@ -402,7 +535,7 @@ def update_top(
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     top: bool = True, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     max_workers: None | int = 0, 
     *, 
     async_: Literal[False, True] = False, 
@@ -414,7 +547,7 @@ def update_top(
     :param ids: 一组文件或目录的 id 或 pickcode
     :param score: 分数
     :param batch_size: 批次大小，分批次，每次提交的 id 数
-    :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
+    :param max_workers: 并发工作数，如果为 None 或者 < 0，则自动确定
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
     """
@@ -430,73 +563,6 @@ def update_top(
     )
 
 
-@overload
-def update_show_play_long(
-    client: str | PathLike | P115Client, 
-    ids: Iterable[int | str], 
-    /, 
-    show: bool = True, 
-    batch_size: int = 10_000, 
-    max_workers: None | int = 0, 
-    app: str = "web", 
-    *, 
-    async_: Literal[False] = False, 
-    **request_kwargs, 
-):
-    ...
-@overload
-def update_show_play_long(
-    client: str | PathLike | P115Client, 
-    ids: Iterable[int | str] | AsyncIterable[int | str], 
-    /, 
-    show: bool = True, 
-    batch_size: int = 10_000, 
-    max_workers: None | int = 0, 
-    app: str = "web", 
-    *, 
-    async_: Literal[True], 
-    **request_kwargs, 
-) -> Coroutine:
-    ...
-def update_show_play_long(
-    client: str | PathLike | P115Client, 
-    ids: Iterable[int | str] | AsyncIterable[int | str], 
-    /, 
-    show: bool = True, 
-    batch_size: int = 10_000, 
-    max_workers: None | int = 0, 
-    app: str = "web", 
-    *, 
-    async_: Literal[False, True] = False, 
-    **request_kwargs, 
-):
-    """批量给目录设置显示时长
-
-    :param client: 115 客户端或 cookies
-    :param ids: 一组目录的 id 或 pickcode
-    :param show: 是否显示时长
-    :param batch_size: 批次大小，分批次，每次提交的 id 数
-    :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
-    :param app: 使用此设备的接口
-    :param async_: 是否异步
-    :param request_kwargs: 其它请求参数
-    """
-    if app in ("", "web", "desktop", "aps"):
-        method = "fs_show_play_long_set"
-    else:
-        method = "fs_show_play_long_set_app"
-        request_kwargs["app"] = app
-    return update_abstract(
-        client, 
-        ids, # type: ignore
-        method=method, 
-        value=show, 
-        batch_size=batch_size, 
-        max_workers=max_workers, 
-        async_=async_, # type: ignore
-        **request_kwargs, 
-    )
-
 
 @overload
 def update_category_shortcut(
@@ -504,7 +570,7 @@ def update_category_shortcut(
     ids: Iterable[int | str], 
     /, 
     set: bool = True, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     max_workers: None | int = 0, 
     *, 
     async_: Literal[False] = False, 
@@ -517,7 +583,7 @@ def update_category_shortcut(
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     set: bool = True, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     max_workers: None | int = 0, 
     *, 
     async_: Literal[True], 
@@ -529,7 +595,7 @@ def update_category_shortcut(
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
     set: bool = True, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     max_workers: None | int = 0, 
     *, 
     async_: Literal[False, True] = False, 
@@ -541,7 +607,7 @@ def update_category_shortcut(
     :param ids: 一组目录的 id 或 pickcode
     :param set: 是否设为快捷入口
     :param batch_size: 批次大小，分批次，每次提交的 id 数
-    :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
+    :param max_workers: 并发工作数，如果为 None 或者 < 0，则自动确定
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
     """
@@ -562,7 +628,7 @@ def update_name(
     client: str | PathLike | P115Client, 
     id_name_pairs: Iterable[tuple[int | str, str]], 
     /, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     app: str = "web", 
     *, 
     async_: Literal[False] = False, 
@@ -574,7 +640,7 @@ def update_name(
     client: str | PathLike | P115Client, 
     id_name_pairs: Iterable[tuple[int | str, str]], 
     /, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     app: str = "web", 
     *, 
     async_: Literal[True], 
@@ -585,7 +651,7 @@ def update_name(
     client: str | PathLike | P115Client, 
     id_name_pairs: Iterable[tuple[int | str, str]], 
     /, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     app: str = "web", 
     *, 
     async_: Literal[False, True] = False, 
@@ -675,7 +741,7 @@ def batch_unstar(
         - False: 必须是目录
         - None: 可以是目录或文件
 
-    :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
+    :param max_workers: 并发工作数，如果为 None 或者 < 0，则自动确定
     :param app: 使用此设备的接口
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
@@ -689,8 +755,8 @@ def batch_unstar(
         raise KeyError
     def gen_step():
         if max_workers == 0:
+            from .attr import overview_attr
             from .fs_files import fs_files
-            from .iterdir import overview_attr
             while True:
                 resp = yield fs_files(
                     client, 
@@ -714,16 +780,17 @@ def batch_unstar(
                 if not resp["has_next_page"]:
                     break
         else:
-            from .iterdir import iter_stared
+            from .iterdir import iterdir
             ids: list[int] = []
             append = ids.append
             yield foreach(
                 lambda a: append(get_id(a)), 
-                iter_stared(
+                iterdir(
                     client, 
+                    cur=0, 
+                    star=1, 
                     ensure_file=ensure_file, 
                     app=app, 
-                    cooldown=0.5, 
                     async_=async_, 
                     **request_kwargs, 
                 )
@@ -794,7 +861,7 @@ def post_event(
         - "img": 推送 "browse_image" 事件
 
     :param batch_size: 批次大小，分批次，每次提交的 id 数
-    :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
+    :param max_workers: 并发工作数，如果为 None 或者 < 0，则自动确定
     :param app: 使用此设备的接口
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
@@ -805,21 +872,12 @@ def post_event(
         post = client.life_behavior_doc_post_app
     else:
         post = client.life_behavior_img_post_app
-    def call(batch, /):
-        return check_response(post(
-            batch, 
-            app=app, 
-            async_=async_, 
-            request_kwargs=request_kwargs, 
-        ))
-    def gen_step():
-        yield through(conmap(
-            call, 
-            chunked(do_map(to_id, ids), batch_size), 
-            max_workers=max_workers, 
-            async_=async_, 
-        ))
-    return run_gen_step(gen_step, async_)
+    return through(conmap(
+        partial(post, app=app, async_=async_, **request_kwargs), 
+        chunked(do_map(_get_id, ids), batch_size), 
+        max_workers=max_workers, 
+        async_=async_, 
+    ))
 
 
 @overload
@@ -891,7 +949,7 @@ def makedir(
     def gen_step():
         resp = yield makedir(
             name, 
-            pid=to_id(pid), 
+            pid=_get_id(pid), 
             async_=async_, 
             **request_kwargs, 
         )
@@ -953,7 +1011,7 @@ def iter_batch_makedir(
     :param pid: 目录的 id 或 pickcode，如果输入的是 **名字或相对路径**，则创建在此目录下
     :param contain_dir: 如果为 True，则要创建的是相对路径（文件存在也能正确返回），否则就是一个文件（即使其中包含 "/"，但文件存在时会报错）
     :param mapping: 结果缓存，如果要创建的对象在此中，则会被跳过
-    :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
+    :param max_workers: 并发工作数，如果为 None 或者 < 0，则自动确定
     :param app: 使用此设备的接口
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
@@ -962,7 +1020,7 @@ def iter_batch_makedir(
     """
     if isinstance(client, (str, PathLike)):
         client = P115Client(client)
-    pid = to_id(pid)
+    pid = _get_id(pid)
     if app == "open" or not isinstance(client, P115Client):
         if contain_dir:
             raise ValueError("115 Open does not support one-shot multiple-level directories creation")
@@ -982,7 +1040,7 @@ def iter_batch_makedir(
     def call[T: (str, tuple[int | str, str])](pair: T, /):
         if isinstance(pair, tuple):
             cid, name = pair
-            cid = to_id(cid)
+            cid = _get_id(cid)
         else:
             cid = pid
             name = pair
@@ -1051,7 +1109,7 @@ def batch_makedir(
     :param pid: 目标目录的 id 或 pickcode 或 path，如果输入的是 **名字或相对路径**，则创建在此目录下
     :param contain_dir: 如果为 True，则要创建的是相对路径（文件存在也能正确返回），否则就是一个文件（即使其中包含 "/"，但文件存在时会报错）
     :param mapping: 结果缓存，如果要创建的对象在此中，则会被跳过
-    :param max_workers: 并发工作数，如果为 None 或者 <= 0，则自动确定
+    :param max_workers: 并发工作数，如果为 None 或者 < 0，则自动确定
     :param app: 使用此设备的接口
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
@@ -1169,13 +1227,13 @@ def batch_copy(
         request_kwargs["app"] = app
     if isinstance(ids, (int, str)):
         ids = ids,
-    pid = to_id(pid)
+    pid = _get_id(pid)
     def gen_step():
         if batch_size <= 0:
-            resp = yield fs_copy(map(to_id, ids), pid=pid, async_=async_, **request_kwargs)
+            resp = yield fs_copy(map(_get_id, ids), pid=pid, async_=async_, **request_kwargs)
             check_response(resp)
         else:
-            for batch in batched(map(to_id, ids), batch_size):
+            for batch in batched(map(_get_id, ids), batch_size):
                 while True:
                     with suppress(P115BusyOSError):
                         resp = yield fs_copy(batch, pid=pid, async_=async_, **request_kwargs)
@@ -1244,9 +1302,9 @@ def batch_copy_files(
         if app not in ("", "web", "desktop", "aps"):
             request_kwargs["app"] = app
         from .download import iter_download_files as iter_files
-    pid = to_id(pid)
+    pid = _get_id(pid)
     def gen_step():
-        cid = to_id(top)
+        cid = _get_id(top)
         if cid == pid:
             return {}
         dir_map: defaultdict[int, int] = defaultdict(lambda: pid)
@@ -1362,12 +1420,17 @@ def batch_delete(
     if isinstance(ids, (int, str)):
         ids = ids,
     def gen_step():
-        for batch in batched(map(to_id, ids), batch_size):
+        if batch_size <= 0:
             while True:
-                with suppress(P115BusyOSError):
-                    resp = yield fs_delete(batch, async_=async_, **request_kwargs)
-                    check_response(resp)
-                    break
+                resp = yield fs_delete(map(_get_id, ids), async_=async_, **request_kwargs)
+                check_response(resp)
+        else:
+            for batch in batched(map(_get_id, ids), batch_size):
+                while True:
+                    with suppress(P115BusyOSError):
+                        resp = yield fs_delete(batch, async_=async_, **request_kwargs)
+                        check_response(resp)
+                        break
     return run_gen_step(gen_step, async_)
 
 
@@ -1419,7 +1482,7 @@ def batch_delete_files(
     def get_ids_by_fs_files(top=top, /):
         resp = yield fs_files(
             client, 
-            {"cid": to_id(top), "show_dir": 0, "cur": 0, "limit": batch_size}, 
+            {"cid": _get_id(top), "show_dir": 0, "cur": 0, "limit": batch_size}, 
             async_=async_, 
             **request_kwargs, 
         )
@@ -1430,18 +1493,20 @@ def batch_delete_files(
     else:
         if app in ("", "web", "desktop", "aps"):
             fs_delete = client.fs_delete
+            get_nodes = client.download_files
         else:
             fs_delete = client.fs_delete_app
+            get_nodes = client.download_files_app
             request_kwargs["app"] = app
         def get_ids_by_download_files(top=top, /):
-            resp = yield client.download_files_app(
+            resp = yield get_nodes(
                 {"pickcode": client.to_pickcode(top), "per_page": batch_size}, 
                 async_=async_, 
                 **request_kwargs, 
             )
             check_response(resp)
-            return resp["data"]["has_next_page"], [to_id(a["pc"]) for a in resp["data"]["list"]]
-        if to_id(top):
+            return resp["data"]["has_next_page"], [_get_id(a["pc"]) for a in resp["data"]["list"]]
+        if _get_id(top):
             get_ids = get_ids_by_download_files
         else:
             dirs: None | list[dict] = None
@@ -1532,14 +1597,18 @@ def batch_move(
         request_kwargs["app"] = app
     if isinstance(ids, (int, str)):
         ids = ids,
-    pid = to_id(pid)
+    pid = _get_id(pid)
     def gen_step():
-        for batch in batched(map(to_id, ids), batch_size):
-            while True:
-                with suppress(P115BusyOSError):
-                    resp = yield fs_move(batch, pid=pid, async_=async_, **request_kwargs)
-                    check_response(resp)
-                    break
+        if batch_size <= 0:
+            resp = yield fs_move(map(_get_id, ids), pid=pid, async_=async_, **request_kwargs)
+            check_response(resp)
+        else:
+            for batch in batched(map(_get_id, ids), batch_size):
+                while True:
+                    with suppress(P115BusyOSError):
+                        resp = yield fs_move(batch, pid=pid, async_=async_, **request_kwargs)
+                        check_response(resp)
+                        break
     return run_gen_step(gen_step, async_)
 
 
@@ -1604,9 +1673,9 @@ def batch_move_files(
         if app not in ("", "web", "desktop", "aps"):
             request_kwargs["app"] = app
         from .download import iter_download_files as iter_files
-    pid = to_id(pid)
+    pid = _get_id(pid)
     def gen_step():
-        cid = to_id(top)
+        cid = _get_id(top)
         if cid == pid:
             return {}
         dir_map: defaultdict[int, int] = defaultdict(lambda: pid)
@@ -1814,7 +1883,7 @@ def batch_hide(
     client: str | PathLike | P115Client, 
     ids: int | str | Iterable[int | str], 
     hidden: bool = True, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     app: str = "web", 
     *, 
     async_: Literal[False] = False, 
@@ -1826,7 +1895,7 @@ def batch_hide(
     client: str | PathLike | P115Client, 
     ids: int | str | Iterable[int | str], 
     hidden: bool = True, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     app: str = "web", 
     *, 
     async_: Literal[True], 
@@ -1837,7 +1906,7 @@ def batch_hide(
     client: str | PathLike | P115Client, 
     ids: int | str | Iterable[int | str], 
     hidden: bool = True, 
-    batch_size: int = 10_000, 
+    batch_size: int = 1_000, 
     app: str = "web", 
     *, 
     async_: Literal[False, True] = False, 
@@ -1869,6 +1938,79 @@ def batch_hide(
                     check_response(resp)
                     break
     return run_gen_step(gen_step, async_)
+
+
+@overload
+def batch_label(
+    client: str | PathLike | P115Client, 
+    ids: Iterable[int | str], 
+    /, 
+    payload: dict, 
+    batch_size: int = 1_000, 
+    max_workers: None | int = 0, 
+    app: str = "web", 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+):
+    ...
+@overload
+def batch_label(
+    client: str | PathLike | P115Client, 
+    ids: Iterable[int | str] | AsyncIterable[int | str], 
+    /, 
+    payload: dict, 
+    batch_size: int = 1_000, 
+    max_workers: None | int = 0, 
+    app: str = "web", 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> Coroutine:
+    ...
+def batch_label(
+    client: str | PathLike | P115Client, 
+    ids: Iterable[int | str] | AsyncIterable[int | str], 
+    /, 
+    payload: dict, 
+    batch_size: int = 1_000, 
+    max_workers: None | int = 0, 
+    app: str = "web", 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+):
+    """批量调整标签
+
+    .. caution::
+        接口有缺陷，不仅速度比较慢，而且经常会出现遗漏，且可能有延迟
+
+    :param client: 115 客户端或 cookies
+    :param ids: 一组文件或目录的 id 或 pickcode
+    :param payload: 相关查询参数
+    :param batch_size: 批次大小，分批次，每次提交的 id 数
+    :param max_workers: 并发工作数，如果为 None 或者 < 0，则自动确定
+    :param app: 使用此设备的接口
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+    """
+    if app in ("", "web", "desktop", "aps"):
+        batch_label = client.fs_label_batch
+    else:
+        batch_label = client.fs_label_batch_app
+        request_kwargs["app"] = app
+    def call(batch, /):
+        return check_response(batch_label(
+            {**payload, "file_ids": ",".join(map(str, batch))}, 
+            async_=async_, 
+            request_kwargs=request_kwargs, 
+        ))
+    return through(conmap(
+        call, 
+        chunked(do_map(_get_id, ids), batch_size), 
+        max_workers=max_workers, 
+        async_=async_, 
+    ))
 
 
 @overload
@@ -1953,7 +2095,7 @@ def copyfile(
         if pid is None:
             pid = attr["parent_id"]
         else:
-            pid = client.to_id(pid)
+            pid = client._get_id(pid)
         if not name:
             name = attr["name"]
         if attr["name"] == name:
@@ -2079,7 +2221,7 @@ def renamefile(
         if pid is None:
             pid = attr["parent_id"]
         else:
-            pid = client.to_id(pid)
+            pid = client._get_id(pid)
         if not name:
             name = attr["name"]
         is_same_name = attr["name"] == name
@@ -2206,7 +2348,7 @@ def transferfile(
                 **request_kwargs, 
             )
             attr = url.__dict__
-        pid = client_to.to_id(pid)
+        pid = client_to._get_id(pid)
         if not name:
             name = attr["name"]
         @as_gen_step(async_=async_)

@@ -2,16 +2,12 @@
 # encoding: utf-8
 
 __all__ = [
-    "get_pic_url", "batch_get_url", "iter_url_batches", "iter_files_with_url", 
-    "iter_images_with_url", "iter_subtitles_with_url", "iter_subtitle_batches", 
-    "iter_download_nodes", "iter_download_files", "get_remaining_open_count", 
-    "download_file", 
+    "get_pic_url", "iter_urls", "iter_subtitles", "iter_download_nodes", 
+    "get_remaining_open_count", "download_file", 
 ]
 __doc__ = "这个模块提供了一些和下载有关的函数"
 
-from asyncio import (
-    create_task, gather as async_gather, to_thread, 
-)
+from asyncio import to_thread
 from base64 import b32decode
 from collections.abc import (
     AsyncIterable, AsyncIterator, Buffer, Callable, Coroutine, 
@@ -19,7 +15,8 @@ from collections.abc import (
 )
 from functools import partial
 from inspect import isawaitable
-from itertools import batched, chain, cycle
+from operator import methodcaller
+from itertools import cycle
 from os import cpu_count, makedirs, PathLike
 from os.path import dirname, getsize
 from re import compile as re_compile
@@ -28,12 +25,9 @@ from types import EllipsisType
 from typing import cast, overload, Any, Final, Literal
 from urllib.request import urlopen, Request
 from uuid import uuid4
-from warnings import warn
 
 from argtools import argcount
-from asynctools import async_chain_from_iterable
-from concurrenttools import conmap, run_as_thread, iter_page, iter_page_multi
-from dicttools import get_first
+from concurrenttools import conmap, iter_page, iter_page_multi
 from errno2 import errno
 from filewrap import (
     bio_chunk_iter, bio_chunk_async_iter, 
@@ -42,33 +36,21 @@ from filewrap import (
 from http_response import get_status_code, is_timeouterror
 from iterutils import (
     chunked, map as do_map, chain_from_iterable, run_gen_step, 
-    run_gen_step_iter, through, wrap_iter, wrap_aiter, with_iter_next, 
+    run_gen_step_iter, wrap_iter, wrap_aiter, with_iter_next, 
     Yield, YieldFrom, 
 )
 from p115pickcode import to_id
 
 from ..client import check_response, json_maybe_decrypt_parse, P115Client, P115OpenClient, P115URL
 from ..const import ID_TO_DIRNODE_CACHE
-from ..exception import P115Warning, P115AccessError
+from ..exception import P115AccessError
 from ..type import TaskResultTuple
-from ..util import reduce_image_url_layers
-from .attr import normalize_attr, normalize_attr_simple, get_attr, get_info
-from .iterdir import iterdir, iter_files, unescape_115_charref
+from ..util import unescape_115_charref
+from .attr import normalize_attr_simple, get_attr, get_info, _get_id, _get_pickcode
+from .iterdir import iterdir, iter_files
 
 
 _get_pic_url_next_select: Final = cycle(("life_v1", "life_v2", "note_v1", "note_v2")).__next__
-
-
-def _get_id(id: int | str | Mapping, /) -> int:
-    if isinstance(id, Mapping):
-        id = cast(int | str, get_first(id, "id", "pickcode"))
-    return to_id(id)
-
-
-def _get_pickcode(client: P115OpenClient, pickcode: int | str | Mapping, /) -> str:
-    if isinstance(pickcode, Mapping):
-        pickcode = cast(str | int, get_first(pickcode, "pickcode", "id"))
-    return client.to_pickcode(pickcode)
 
 
 @overload
@@ -105,7 +87,7 @@ def get_pic_url(
 def get_pic_url(
     client: str | PathLike | P115Client, 
     sha1: Iterable[str], 
-    select: None | Literal["life_v1", "life_v2", "note_v1", "note_v2"] = "life_v1", 
+    select: None | Literal["life_v1", "life_v2", "note_v1", "note_v2"] = None, 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -114,7 +96,7 @@ def get_pic_url(
 def get_pic_url(
     client: str | PathLike | P115Client, 
     sha1: str | Iterable[str], 
-    select: None | Literal["life_v1", "life_v2", "note_v1", "note_v2"] = "life_v1", 
+    select: None | Literal["life_v1", "life_v2", "note_v1", "note_v2"] = None, 
     *, 
     _match_fhn_prefix=re_compile("^fhn[a-z]+_").match, 
     async_: Literal[False, True] = False, 
@@ -188,69 +170,13 @@ def get_pic_url(
     return run_gen_step(gen_step, async_)
 
 
-# TODO: 之后加上并发拉取，以加快速度
-# TODO: 为了避免拉了太多赶不上用，用队列来收集结果，队列长度有限，这样可以在队列满的时候阻塞工作者
 @overload
-def batch_get_url(
+def iter_urls(
     client: str | PathLike | P115Client | P115OpenClient, 
-    pickcode: int | str | Iterable[int | str], 
-    user_agent: str = "", 
-    app: str = "android", 
-    *, 
-    async_: Literal[False] = False, 
-    **request_kwargs, 
-) -> dict[int, P115URL]:
-    ...
-@overload
-def batch_get_url(
-    client: str | PathLike | P115Client | P115OpenClient, 
-    pickcode: int | str | Iterable[int | str], 
-    user_agent: str = "", 
-    app: str = "android", 
-    *, 
-    async_: Literal[True], 
-    **request_kwargs, 
-) -> Coroutine[Any, Any, dict[int, P115URL]]:
-    ...
-def batch_get_url(
-    client: str | PathLike | P115Client | P115OpenClient, 
-    pickcode: int | str | Iterable[int | str], 
-    user_agent: str = "", 
-    app: str = "android", 
-    *, 
-    async_: Literal[False, True] = False, 
-    **request_kwargs, 
-) -> dict[int, P115URL] | Coroutine[Any, Any, dict[int, P115URL]]:
-    """批量获取下载链接
-
-    :param client: 115 客户端或 cookies
-    :param pickcode: pickcode 或 id
-    :param user_agent: "user-agent" 请求头的值
-    :param app: 使用指定 app（设备）的接口
-    :param async_: 是否异步
-    :param request_kwargs: 其它请求参数
-
-    :return: 字典，key 是文件 id，value 是下载链接，自动忽略所有无效项目
-    """
-    if isinstance(client, (str, PathLike)):
-        client = P115Client(client)
-    if headers := request_kwargs.get("headers"):
-        request_kwargs["headers"] = dict(headers, **{"user-agent": user_agent})
-    else:
-        request_kwargs["headers"] = {"user-agent": user_agent}
-    if isinstance(pickcode, (int, str)):
-        pickcode = client.to_pickcode(pickcode)
-    elif not isinstance(pickcode, str):
-        pickcode = ",".join(map(client.to_pickcode, pickcode))
-    return client.download_urls(pickcode, app=app, async_=async_, **request_kwargs)
-
-
-@overload
-def iter_url_batches(
-    client: str | PathLike | P115Client | P115OpenClient, 
-    pickcodes: Iterator[int | str], 
+    pickcodes: int | str | Mapping | Iterator[int | str | Mapping] = 0, 
     user_agent: str = "", 
     batch_size: int = 10, 
+    max_workers: None | int = 0, 
     app: str = "os_windows", 
     *, 
     async_: Literal[False] = False, 
@@ -258,22 +184,24 @@ def iter_url_batches(
 ) -> Iterator[P115URL]:
     ...
 @overload
-def iter_url_batches(
+def iter_urls(
     client: str | PathLike | P115Client | P115OpenClient, 
-    pickcodes: Iterator[int | str], 
+    pickcodes: int | str | Mapping | Iterator[int | str | Mapping] | AsyncIterable[int | str | Mapping] = 0, 
     user_agent: str = "", 
     batch_size: int = 10, 
+    max_workers: None | int = 0, 
     app: str = "os_windows", 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
 ) -> AsyncIterator[P115URL]:
     ...
-def iter_url_batches(
+def iter_urls(
     client: str | PathLike | P115Client | P115OpenClient, 
-    pickcodes: Iterator[int | str], 
+    pickcodes: int | str | Mapping | Iterator[int | str | Mapping] | AsyncIterable[int | str | Mapping] = 0, 
     user_agent: str = "", 
     batch_size: int = 10, 
+    max_workers: None | int = 0, 
     app: str = "os_windows", 
     *, 
     async_: Literal[False, True] = False, 
@@ -286,10 +214,14 @@ def iter_url_batches(
 
         如果有目录的 pickcode 混在其中，则会自动排除。
 
+    .. note::
+        一次获取多个下载链接时，每多一个提取码，大约多耗时 50ms，因此 ``batch_size`` 指定得很大反而会拖慢响应速度。
+
     :param client: 115 客户端或 cookies
-    :param pickcodes: 一个迭代器，产生 pickcode 或 id
+    :param pickcodes: 一组文件的 pickcode 或 id，或者一个顶层目录的 id 或 pickcode
     :param user_agent: "user-agent" 请求头的值
     :param batch_size: 每一个批次处理的个量
+    :param max_workers: 并发工作数，如果为 None 或者 < 0，则自动确定
     :param app: 使用指定 app（设备）的接口
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
@@ -298,574 +230,59 @@ def iter_url_batches(
     """
     if isinstance(client, (str, PathLike)):
         client = P115Client(client)
+    if isinstance(pickcodes, (int, str, Mapping)):
+        if app == "open" or not isinstance(client, P115Client):
+            pickcodes = iter_files(
+                client, 
+                pickcodes, 
+                normalize_attr=normalize_attr_simple, 
+                id_to_dirnode=..., 
+                app=app, 
+                async_=async_, 
+                **request_kwargs, 
+            )
+        else:
+            pickcodes = iter_download_nodes(
+                client, 
+                pickcodes, 
+                async_=async_, 
+                **request_kwargs, 
+            )
     if headers := request_kwargs.get("headers"):
         request_kwargs["headers"] = dict(headers, **{"user-agent": user_agent})
     else:
         request_kwargs["headers"] = {"user-agent": user_agent}
-    if batch_size <= 0:
-        batch_size = 1
-    def gen_step():
-        if batch_size == 1:
-            get_url = client.download_url
-            for pickcode in map(client.to_pickcode, pickcodes):
-                yield Yield(get_url(
-                    pickcode, 
-                    app=app, 
-                    async_=async_, 
-                    **request_kwargs, 
-                ))
-        else:
-            get_urls = client.download_urls
-            for pcs in batched(map(client.to_pickcode, pickcodes), batch_size):
-                if urls := (yield get_urls(
-                    ",".join(pcs), 
-                    app=app, 
-                    async_=async_, 
-                    **request_kwargs, 
-                )):
-                    yield YieldFrom(urls.values())
-    return run_gen_step_iter(gen_step, async_)
-
-
-@overload
-def iter_files_with_url(
-    client: str | PathLike | P115Client | P115OpenClient, 
-    cid: int | str | Mapping = 0, 
-    suffixes: None | str | Iterable[str] = None, 
-    type: Literal[1, 2, 3, 4, 5, 6, 7, 99] = 99, 
-    cur: Literal[0, 1] = 0, 
-    with_ancestors: bool = False, 
-    with_path: bool = False, 
-    use_star: None | bool = False, 
-    escape: None | bool | Callable[[str], str] = True, 
-    normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
-    app: str = "web", 
-    raise_for_changed_count: bool = False, 
-    user_agent: str = "", 
-    *, 
-    async_: Literal[False] = False, 
-    **request_kwargs, 
-) -> Iterator[dict]:
-    ...
-@overload
-def iter_files_with_url(
-    client: str | PathLike | P115Client | P115OpenClient, 
-    cid: int | str | Mapping = 0, 
-    suffixes: None | str | Iterable[str] = None, 
-    type: Literal[1, 2, 3, 4, 5, 6, 7, 99] = 99, 
-    cur: Literal[0, 1] = 0, 
-    with_ancestors: bool = False, 
-    with_path: bool = False, 
-    use_star: None | bool = False, 
-    escape: None | bool | Callable[[str], str] = True, 
-    normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
-    app: str = "web", 
-    raise_for_changed_count: bool = False, 
-    user_agent: str = "", 
-    *, 
-    async_: Literal[True], 
-    **request_kwargs, 
-) -> AsyncIterator[dict]:
-    ...
-def iter_files_with_url(
-    client: str | PathLike | P115Client | P115OpenClient, 
-    cid: int | str | Mapping = 0, 
-    suffixes: None | str | Iterable[str] = None, 
-    type: Literal[1, 2, 3, 4, 5, 6, 7, 99] = 99, 
-    cur: Literal[0, 1] = 0, 
-    with_ancestors: bool = False, 
-    with_path: bool = False, 
-    use_star: None | bool = False, 
-    escape: None | bool | Callable[[str], str] = True, 
-    normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
-    app: str = "web", 
-    raise_for_changed_count: bool = False, 
-    user_agent: str = "", 
-    *, 
-    async_: Literal[False, True] = False, 
-    **request_kwargs, 
-) -> Iterator[dict] | AsyncIterator[dict]:
-    """获取文件信息和下载链接
-
-    :param client: 115 客户端或 cookies
-    :param cid: 目录 id 或 pickcode
-    :param suffixes: 扩展名，可以有多个，最前面的 "." 可以省略
-    :param type: 文件类型
-
-        - 1: 文档
-        - 2: 图片
-        - 3: 音频
-        - 4: 视频
-        - 5: 压缩包
-        - 6: 应用
-        - 7: 书籍
-        - 99: 仅文件
-
-    :param cur: 仅当前目录。0: 否（将遍历子目录树上所有叶子节点），1: 是
-    :param with_ancestors: 文件信息中是否要包含 "ancestors"
-    :param with_path: 文件信息中是否要包含 "path"
-    :param use_star: 获取目录信息时，是否允许使用星标 （如果为 None，则采用流处理，否则采用批处理）
-    :param escape: 对文件名进行转义
-
-        - 如果为 None，则不处理；否则，这个函数用来对文件名中某些符号进行转义，例如 "/" 等
-        - 如果为 True，则使用 `posixpatht.escape`，会对文件名中 "/"，或单独出现的 "." 和 ".." 用 "\\" 进行转义
-        - 如果为 False，则使用 `posix_escape_name` 函数对名字进行转义，会把文件名中的 "/" 转换为 "|"
-        - 如果为 Callable，则用你所提供的调用，以或者转义后的名字
-
-    :param normalize_attr: 把数据进行转换处理，使之便于阅读
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
-    :param app: 使用指定 app（设备）的接口
-    :param raise_for_changed_count: 分批拉取时，发现总数发生变化后，是否报错
-    :param user_agent: "user-agent" 请求头的值
-    :param async_: 是否异步
-    :param request_kwargs: 其它请求参数
-
-    :return: 迭代器，产生文件信息，并增加一个 "url" 作为下载链接
-    """
-    cid = _get_id(cid)
-    if isinstance(client, (str, PathLike)):
-        client = P115Client(client)
-    params = dict(
-        cur=cur, 
-        with_ancestors=with_ancestors, 
-        with_path=with_path, 
-        use_star=use_star, 
-        escape=escape, 
-        normalize_attr=normalize_attr, 
-        id_to_dirnode=id_to_dirnode, 
-        raise_for_changed_count=raise_for_changed_count, 
-        async_=async_, 
-        **request_kwargs, 
-    )
-    get_url = client.download_url
-    cid = to_id(cid)
-    def gen_step():
-        if suffixes is None:
-            it = iter_files(
-                client, 
-                cid, 
-                type=type, 
+    stable_point = client.pickcode_stable_point
+    if batch_size <= 1:
+        get_url = client.download_url
+        return conmap(
+            lambda pickcode, /: get_url(
+                _get_pickcode(stable_point, pickcode), 
                 app=app, 
-                **params, # type: ignore
-            )
-        elif isinstance(suffixes, str):
-            it = iter_files(
-                client, 
-                cid, 
-                suffix=suffixes, 
-                app=app, 
-                **params, # type: ignore
-            )
-        else:
-            for suffix in suffixes:
-                yield YieldFrom(
-                    iter_files_with_url(
-                        client, 
-                        cid, 
-                        suffixes=suffix, 
-                        app=app, 
-                        user_agent=user_agent, 
-                        **params, # type: ignore
-                    )
-                )
-            return
-        if headers := request_kwargs.get("headers"):
-            request_kwargs["headers"] = dict(headers, **{"user-agent": user_agent})
-        else:
-            request_kwargs["headers"] = {"user-agent": user_agent}
-        with with_iter_next(it) as get_next:
-            while True:
-                attr = yield get_next()
-                if attr.get("is_collect", False):
-                    if attr["size"] <= 1024 * 1024 * 200:
-                        attr["url"] = yield get_url(
-                            attr["pickcode"], 
-                            app="web2", 
-                            async_=async_, 
-                            **request_kwargs, 
-                        )
-                    else:
-                        warn(f"unable to get url for {attr!r}", category=P115Warning)
-                else:
-                    attr["url"] = yield get_url(
-                        attr["pickcode"], 
-                        app="os_windows", 
-                        async_=async_, 
-                        **request_kwargs, 
-                    )
-                yield Yield(attr)
-    return run_gen_step_iter(gen_step, async_)
-
-
-@overload
-def iter_images_with_url(
-    client: str | PathLike | P115Client | P115OpenClient, 
-    cid: int | str | Mapping = 0, 
-    suffixes: None | str | Iterable[str] = None, 
-    cur: Literal[0, 1] = 0, 
-    with_ancestors: bool = False, 
-    with_path: bool = False, 
-    use_star: None | bool = False, 
-    escape: None | bool | Callable[[str], str] = True, 
-    normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
-    app: str = "web", 
-    raise_for_changed_count: bool = False, 
-    *, 
-    async_: Literal[False] = False, 
-    **request_kwargs, 
-) -> Iterator[dict]:
-    ...
-@overload
-def iter_images_with_url(
-    client: str | PathLike | P115Client | P115OpenClient, 
-    cid: int | str | Mapping = 0, 
-    suffixes: None | str | Iterable[str] = None, 
-    cur: Literal[0, 1] = 0, 
-    with_ancestors: bool = False, 
-    with_path: bool = False, 
-    use_star: None | bool = False, 
-    escape: None | bool | Callable[[str], str] = True, 
-    normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
-    app: str = "web", 
-    raise_for_changed_count: bool = False, 
-    *, 
-    async_: Literal[True], 
-    **request_kwargs, 
-) -> AsyncIterator[dict]:
-    ...
-def iter_images_with_url(
-    client: str | PathLike | P115Client | P115OpenClient, 
-    cid: int | str | Mapping = 0, 
-    suffixes: None | str | Iterable[str] = None, 
-    cur: Literal[0, 1] = 0, 
-    with_ancestors: bool = False, 
-    with_path: bool = False, 
-    use_star: None | bool = False, 
-    escape: None | bool | Callable[[str], str] = True, 
-    normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
-    app: str = "web", 
-    raise_for_changed_count: bool = False, 
-    *, 
-    async_: Literal[False, True] = False, 
-    **request_kwargs, 
-) -> Iterator[dict] | AsyncIterator[dict]:
-    """获取图片文件信息和下载链接
-
-    .. attention::
-        请不要把不能被 115 识别为图片的文件扩展名放在 ``suffixes`` 参数中传入，这只是浪费时间，最后也只能获得普通的下载链接
-
-    :param client: 115 客户端或 cookies
-    :param cid: 目录 id 或 pickcode
-    :param suffixes: 扩展名，可以有多个，最前面的 "." 可以省略（请确保扩展名确实能被 115 认为是图片，否则会因为不能批量获取到链接而浪费一些时间再去单独生成下载链接）；如果不传（默认），则会获取所有图片
-    :param cur: 仅当前目录。0: 否（将遍历子目录树上所有叶子节点），1: 是
-    :param with_ancestors: 文件信息中是否要包含 "ancestors"
-    :param with_path: 文件信息中是否要包含 "path"
-    :param use_star: 获取目录信息时，是否允许使用星标 （如果为 None，则采用流处理，否则采用批处理）
-    :param escape: 对文件名进行转义
-
-        - 如果为 None，则不处理；否则，这个函数用来对文件名中某些符号进行转义，例如 "/" 等
-        - 如果为 True，则使用 `posixpatht.escape`，会对文件名中 "/"，或单独出现的 "." 和 ".." 用 "\\" 进行转义
-        - 如果为 False，则使用 `posix_escape_name` 函数对名字进行转义，会把文件名中的 "/" 转换为 "|"
-        - 如果为 Callable，则用你所提供的调用，以或者转义后的名字
-
-    :param normalize_attr: 把数据进行转换处理，使之便于阅读
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
-    :param app: 使用指定 app（设备）的接口
-    :param raise_for_changed_count: 分批拉取时，发现总数发生变化后，是否报错
-    :param async_: 是否异步
-    :param request_kwargs: 其它请求参数
-
-    :return: 迭代器，产生文件信息，并增加一个 "url" 作为下载链接
-    """
-    cid = _get_id(cid)
-    if isinstance(client, (str, PathLike)):
-        client = P115Client(client)
-    params = dict(
-        cur=cur, 
-        with_ancestors=with_ancestors, 
-        with_path=with_path, 
-        use_star=use_star, 
-        escape=escape, 
-        normalize_attr=normalize_attr, 
-        id_to_dirnode=id_to_dirnode, 
-        raise_for_changed_count=raise_for_changed_count, 
-        async_=async_, 
-        **request_kwargs
-    )
-    get_url = client.download_url
-    cid = to_id(cid)
-    def gen_step():
-        if suffixes is None:
-            it = iter_files(
-                client, 
-                cid, 
-                type=2, 
-                app=app, 
-                **params, # type: ignore
-            )
-        elif isinstance(suffixes, str):
-            it = iter_files(
-                client, 
-                cid, 
-                suffix=suffixes, 
-                app=app, 
-                **params, # type: ignore
-            )
-        else:
-            for suffix in suffixes:
-                yield YieldFrom(
-                    iter_images_with_url(
-                        client, 
-                        cid, 
-                        suffixes=suffix, 
-                        app=app, 
-                        **params, # type: ignore
-                    )
-                )
-            return
-        with with_iter_next(it) as get_next:
-            while True:
-                attr = yield get_next()
-                try:
-                    attr["url"] = reduce_image_url_layers(attr["thumb"])
-                except KeyError:
-                    if attr.get("is_collect", False):
-                        if attr["size"] <= 1024 * 1024 * 200:
-                            attr["url"] = yield get_url(
-                                attr["pickcode"], 
-                                app="web2", 
-                                async_=async_, 
-                                **request_kwargs, 
-                            )
-                        else:
-                            warn(f"unable to get url for {attr!r}", category=P115Warning)
-                    else:
-                        attr["url"] = yield get_url(
-                            attr["pickcode"], 
-                            app="os_windows", 
-                            async_=async_, 
-                            **request_kwargs, 
-                        )
-                yield Yield(attr)
-    return run_gen_step_iter(gen_step, async_)
-
-
-@overload
-def iter_subtitles_with_url(
-    client: str | PathLike | P115Client | P115OpenClient, 
-    cid: int | str | Mapping = 0, 
-    suffixes: str | Iterable[str] = (".srt", ".ass", ".ssa"), 
-    cur: Literal[0, 1] = 0, 
-    with_ancestors: bool = False, 
-    with_path: bool = False, 
-    use_star: None | bool = False, 
-    escape: None | bool | Callable[[str], str] = True, 
-    normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
-    app: str = "web", 
-    raise_for_changed_count: bool = False, 
-    *, 
-    async_: Literal[False] = False, 
-    **request_kwargs, 
-) -> Iterator[dict]:
-    ...
-@overload
-def iter_subtitles_with_url(
-    client: str | PathLike | P115Client | P115OpenClient, 
-    cid: int | str | Mapping = 0, 
-    suffixes: str | Iterable[str] = (".srt", ".ass", ".ssa"), 
-    cur: Literal[0, 1] = 0, 
-    with_ancestors: bool = False, 
-    with_path: bool = False, 
-    use_star: None | bool = False, 
-    escape: None | bool | Callable[[str], str] = True, 
-    normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
-    app: str = "web", 
-    raise_for_changed_count: bool = False, 
-    *, 
-    async_: Literal[True], 
-    **request_kwargs, 
-) -> AsyncIterator[dict]:
-    ...
-def iter_subtitles_with_url(
-    client: str | PathLike | P115Client | P115OpenClient, 
-    cid: int | str | Mapping = 0, 
-    suffixes: str | Iterable[str] = (".srt", ".ass", ".ssa"), 
-    cur: Literal[0, 1] = 0, 
-    with_ancestors: bool = False, 
-    with_path: bool = False, 
-    use_star: None | bool = False, 
-    escape: None | bool | Callable[[str], str] = True, 
-    normalize_attr: Callable[[dict], dict] = normalize_attr, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
-    app: str = "web", 
-    raise_for_changed_count: bool = False, 
-    *, 
-    async_: Literal[False, True] = False, 
-    **request_kwargs, 
-) -> Iterator[dict] | AsyncIterator[dict]:
-    """获取字幕文件信息和下载链接
-
-    .. caution::
-        这个函数运行时，会把相关文件以 1,000 为一批，同一批次复制到同一个新建的目录，在批量获取链接后，自动把目录删除到回收站。
-
-    .. attention::
-        目前看来 115 只支持：".srt", ".ass", ".ssa"
-
-        请不要把不能被 115 识别为字幕的文件扩展名放在 `suffixes` 参数中传入，这只是浪费时间，最后也只能获得普通的下载链接
-
-    :param client: 115 客户端或 cookies
-    :param cid: 目录 id 或 pickcode
-    :param suffixes: 扩展名，可以有多个，最前面的 "." 可以省略（请确保扩展名确实能被 115 认为是字幕，否则会因为不能批量获取到链接而浪费一些时间再去单独生成下载链接）
-    :param cur: 仅当前目录。0: 否（将遍历子目录树上所有叶子节点），1: 是
-    :param with_ancestors: 文件信息中是否要包含 "ancestors"
-    :param with_path: 文件信息中是否要包含 "path"
-    :param use_star: 获取目录信息时，是否允许使用星标 （如果为 None，则采用流处理，否则采用批处理）
-    :param escape: 对文件名进行转义
-
-        - 如果为 None，则不处理；否则，这个函数用来对文件名中某些符号进行转义，例如 "/" 等
-        - 如果为 True，则使用 `posixpatht.escape`，会对文件名中 "/"，或单独出现的 "." 和 ".." 用 "\\" 进行转义
-        - 如果为 False，则使用 `posix_escape_name` 函数对名字进行转义，会把文件名中的 "/" 转换为 "|"
-        - 如果为 Callable，则用你所提供的调用，以或者转义后的名字
-
-    :param normalize_attr: 把数据进行转换处理，使之便于阅读
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
-    :param app: 使用指定 app（设备）的接口
-    :param raise_for_changed_count: 分批拉取时，发现总数发生变化后，是否报错
-    :param async_: 是否异步
-    :param request_kwargs: 其它请求参数
-
-    :return: 迭代器，产生文件信息，并增加一个 "url" 作为下载链接
-    """
-    cid = _get_id(cid)
-    if isinstance(client, (str, PathLike)):
-        client = P115Client(client)
-    get_url = client.download_url
-    if not isinstance(client, P115Client) or app == "open":
-        fs_mkdir: Callable = client.fs_mkdir_open
-        fs_copy: Callable = client.fs_copy_open
-        fs_delete: Callable = client.fs_delete_open
-        fs_video_subtitle: Callable = client.fs_video_subtitle_open
-    elif app in ("", "web", "desktop", "aps"):
-        fs_mkdir = client.fs_mkdir
-        fs_copy = client.fs_copy
-        fs_delete = client.fs_delete
-        fs_video_subtitle = client.fs_video_subtitle
-    else:
-        fs_mkdir = partial(client.fs_mkdir_app, app=app)
-        fs_copy = partial(client.fs_copy_app, app=app)
-        fs_delete = partial(client.fs_delete_app, app=app)
-        fs_video_subtitle = partial(client.fs_video_subtitle_app, app=app)
-    from .iterdir import iter_file_list
-    cid = to_id(cid)
-    def gen_step():
-        nonlocal suffixes
-        if isinstance(suffixes, str):
-            suffixes = suffixes,
-        do_chain: Callable = async_chain_from_iterable if async_ else chain.from_iterable
-        do_next: Callable = anext if async_ else next
-        with with_iter_next(chunked(do_chain(
-            iter_files(
-                client, 
-                cid, 
-                suffix=suffix, 
-                cur=cur, 
-                with_ancestors=with_ancestors, 
-                with_path=with_path, 
-                use_star=use_star, 
-                escape=escape, 
-                normalize_attr=normalize_attr, 
-                id_to_dirnode=id_to_dirnode, 
-                app=app, 
-                raise_for_changed_count=raise_for_changed_count, 
-                async_=async_, # type: ignore
+                async_=async_, 
                 **request_kwargs, 
-            )
-            for suffix in suffixes
-        ), 1000)) as get_next:
-            while True:
-                items: tuple[dict] = yield get_next()
-                resp = yield fs_mkdir(
-                    f"subtitle-{uuid4()}", 
-                    async_=async_, 
-                    **request_kwargs, 
-                )
-                check_response(resp)
-                try:
-                    if "cid" in resp:
-                        scid = resp["cid"]
-                    else:
-                        data = resp["data"]
-                        if "category_id" in data:
-                            scid = data["category_id"]
-                        else:
-                            scid = data["file_id"]
-                    resp = yield fs_copy(
-                        (attr["id"] for attr in items), 
-                        pid=scid, 
-                        async_=async_, 
-                        **request_kwargs, 
-                    )
-                    check_response(resp)
-                    attr = yield do_next(iter_file_list(
-                        client, 
-                        scid, 
-                        page_size=1, 
-                        normalize_attr=normalize_attr_simple, 
-                        app=app, 
-                        async_=async_, 
-                        **request_kwargs, 
-                    ))
-                    resp = yield fs_video_subtitle(
-                        attr["pickcode"], 
-                        async_=async_, 
-                        **request_kwargs, 
-                    )
-                    subtitles = {
-                        info["sha1"]: info["url"]
-                        for info in resp["data"]["list"] 
-                        if info.get("file_id")
-                    }
-                finally:
-                    yield fs_delete(scid, async_=async_, **request_kwargs)
-                if subtitles:
-                    for attr in items:
-                        attr["url"] = subtitles[attr["sha1"]]
-                        yield Yield(attr)
-                else:
-                    for attr in items:
-                        if attr.get("is_collect", False):
-                            if attr["size"] <= 1024 * 1024 * 200:
-                                attr["url"] = yield get_url(
-                                    attr["pickcode"], 
-                                    app="web2", 
-                                    async_=async_, 
-                                    **request_kwargs, 
-                                )
-                            else:
-                                warn(f"unable to get url for {attr!r}", category=P115Warning)
-                        else:
-                            attr["url"] = yield get_url(
-                                attr["pickcode"], 
-                                app="os_windows", 
-                                async_=async_, 
-                                **request_kwargs, 
-                            )
-                        yield Yield(attr)
-    return run_gen_step_iter(gen_step, async_)
+            ), 
+            pickcodes, 
+            max_workers=max_workers, 
+            async_=async_, 
+        )
+    else:
+        get_urls = client.download_urls
+        return chain_from_iterable(do_map(methodcaller("values"), conmap(
+            lambda pickcodes, /: get_urls(
+                ",".join(_get_pickcode(stable_point, p) for p in pickcodes), 
+                chunked(pickcodes, batch_size), 
+                app=app, 
+                async_=async_, 
+                **request_kwargs, 
+            ), 
+        )))
 
 
 @overload
-def iter_subtitle_batches(
+def iter_subtitles(
     client: str | PathLike | P115Client | P115OpenClient, 
-    file_ids: Iterable[int | str], 
+    file_ids: int | str | Mapping | Iterable[int | str | Mapping] = 0, 
     batch_size: int = 1_000, 
     app: str = "web", 
     *, 
@@ -874,9 +291,9 @@ def iter_subtitle_batches(
 ) -> Iterator[dict]:
     ...
 @overload
-def iter_subtitle_batches(
+def iter_subtitles(
     client: str | PathLike | P115Client | P115OpenClient, 
-    file_ids: Iterable[int | str], 
+    file_ids: int | str | Mapping | Iterable[int | str | Mapping] | AsyncIterable[int | str | Mapping] = 0, 
     batch_size: int = 1_000, 
     app: str = "web", 
     *, 
@@ -884,9 +301,9 @@ def iter_subtitle_batches(
     **request_kwargs, 
 ) -> AsyncIterator[dict]:
     ...
-def iter_subtitle_batches(
+def iter_subtitles(
     client: str | PathLike | P115Client | P115OpenClient, 
-    file_ids: Iterable[int | str], 
+    file_ids: int | str | Mapping | Iterable[int | str | Mapping] | AsyncIterable[int | str | Mapping] = 0, 
     batch_size: int = 1_000, 
     app: str = "web", 
     *, 
@@ -902,73 +319,102 @@ def iter_subtitle_batches(
         目前看来 115 只支持：".srt"、".ass"、".ssa"，如果不能被 115 识别为字幕，将会被自动略过
 
     :param client: 115 客户端或 cookies
-    :param file_ids: 一组文件的 id 或 pickcode
+    :param file_ids: 一组文件的 id 或 pickcode，或者一个顶层目录的 id 或 pickcode
     :param batch_size: 每一个批次处理的个量
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
 
-    :return: 迭代器，产生文件信息，并增加一个 "url" 作为下载链接，文件信息中的 file_id 是复制所得的文件信息，不是原来文件的 id
+    :return: 迭代器
     """
     if isinstance(client, (str, PathLike)):
         client = P115Client(client)
     if batch_size <= 0:
         batch_size = 1_000
+    from .edit import makedir, batch_copy, batch_delete
     if not isinstance(client, P115Client) or app == "open":
-        fs_mkdir: Callable = client.fs_mkdir_open
-        fs_copy: Callable = client.fs_copy_open
-        fs_delete: Callable = client.fs_delete_open
         fs_video_subtitle: Callable = client.fs_video_subtitle_open
     elif app in ("", "web", "desktop", "aps"):
-        fs_mkdir = client.fs_mkdir
-        fs_copy = client.fs_copy
-        fs_delete = client.fs_delete
         fs_video_subtitle = client.fs_video_subtitle
     else:
-        fs_mkdir = partial(client.fs_mkdir_app, app=app)
-        fs_copy = partial(client.fs_copy_app, app=app)
-        fs_delete = partial(client.fs_delete_app, app=app)
         fs_video_subtitle = partial(client.fs_video_subtitle_app, app=app)
-    from .iterdir import iter_file_list
+    from .fs_files import fs_files
     def gen_step():
-        do_next: Callable = anext if async_ else next
-        for ids in batched(map(to_id, file_ids), batch_size):
-            try:
-                resp = yield fs_mkdir(
-                    f"subtitle-{uuid4()}", 
-                    async_=async_, 
-                    **request_kwargs, 
-                )
-                check_response(resp)
-                scid = resp["cid"]
-                resp = yield fs_copy(
-                    ids, 
-                    pid=scid, 
-                    async_=async_, 
-                    **request_kwargs, 
-                )
-                check_response(resp)
-                attr = yield do_next(iter_file_list(
+        nonlocal file_ids
+        if isinstance(file_ids, (int, str, Mapping)):
+            cid = _get_id(file_ids)
+            if app in ("", "web", "desktop", "chrome", "aps") and isinstance(client, P115Client):
+                file_ids = iter_files(
                     client, 
-                    scid, 
-                    page_size=1, 
-                    normalize_attr=normalize_attr_simple, 
+                    cid, 
+                    page_size=1000, 
+                    type=16, 
+                    id_to_dirnode=..., 
                     app=app, 
                     async_=async_, 
                     **request_kwargs, 
-                ))
-                resp = yield fs_video_subtitle(
-                    attr["pickcode"], 
-                    async_=async_, 
-                    **request_kwargs, 
                 )
-                check_response(resp)
-                yield YieldFrom(
-                    filter(lambda info: "file_id" in info, resp["data"]["list"])
+            else:
+                file_ids = chain_from_iterable(
+                    iter_files(
+                        client, 
+                        cid, 
+                        page_size=1000, 
+                        suffix=suffix, 
+                        id_to_dirnode=..., 
+                        app=app, 
+                        async_=async_, 
+                        **request_kwargs, 
+                    )
+                    for suffix in (".srt", ".ass", ".ssa")
                 )
-            except (StopIteration, StopAsyncIteration):
-                pass
-            finally:
-                yield fs_delete(scid, async_=async_, **request_kwargs)
+        with with_iter_next(chunked(file_ids, batch_size)) as get_next:
+            while True:
+                ids = map(_get_id, (yield get_next()))
+                try:
+                    scid = yield makedir(
+                        client, 
+                        f"subtitle-{uuid4()}", 
+                        app=app, 
+                        async_=async_, 
+                        **request_kwargs, 
+                    )
+                    resp = yield batch_copy(
+                        ids, 
+                        pid=scid, 
+                        batch_size=0, 
+                        app=app, 
+                        async_=async_, 
+                        **request_kwargs, 
+                    )
+                    check_response(resp)
+                    resp = yield fs_files(
+                        client, 
+                        scid, 
+                        page_size=1, 
+                        normalize_attr=normalize_attr_simple, 
+                        app=app, 
+                        async_=async_, 
+                        **request_kwargs, 
+                    )
+                    attr = normalize_attr_simple(resp["data"][0])
+                    resp = yield fs_video_subtitle(
+                        attr["pickcode"], 
+                        async_=async_, 
+                        **request_kwargs, 
+                    )
+                    check_response(resp)
+                    yield YieldFrom(filter(lambda info: "file_id" in info, resp["data"]["list"]))
+                except (StopIteration, StopAsyncIteration):
+                    pass
+                finally:
+                    yield batch_delete(
+                        client, 
+                        scid, 
+                        batch_size=0, 
+                        app=app, 
+                        async_=async_, 
+                        **request_kwargs, 
+                    )
     return run_gen_step_iter(gen_step, async_)
 
 
@@ -984,7 +430,7 @@ def iter_download_nodes(
     cooldown: float = 0, 
     max_page: int = 0, 
     max_workers: None | int = 0, 
-    app: str = "chrome", 
+    app: str = "web", 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -1002,7 +448,7 @@ def iter_download_nodes(
     cooldown: float = 0, 
     max_page: int = 0, 
     max_workers: None | int = 0, 
-    app: str = "chrome", 
+    app: str = "web", 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -1019,7 +465,7 @@ def iter_download_nodes(
     cooldown: float = 0, 
     max_page: int = 0, 
     max_workers: None | int = 0, 
-    app: str = "chrome", 
+    app: str = "web", 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -1049,10 +495,16 @@ def iter_download_nodes(
     if not 0 < page_size <= 5000:
         page_size = 5000
     if files:
-        get_nodes = client.download_files_app
+        if app in ("", "web", "desktop", "aps"):
+            get_nodes = client.download_files
+        else:
+            get_nodes = partial(client.download_files_app, app=app)
     else:
         ensure_name = False
-        get_nodes = client.download_folders_app
+        if app in ("", "web", "desktop", "aps"):
+            get_nodes = client.download_folders
+        else:
+            get_nodes = partial(client.download_folders_app, app=app)
         if id_to_dirnode is None:
             id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
     def parse(_, content: bytes, /) -> dict:
@@ -1083,7 +535,7 @@ def iter_download_nodes(
                     for attr in attrs:
                         id_to_dirnode[attr["id"]] = (attr["name"], attr["parent_id"])
         return data
-    call = partial(get_nodes, **dict(request_kwargs, parse=parse, app=app, async_=async_))
+    call = partial(get_nodes, **dict(request_kwargs, parse=parse, async_=async_))
     is_multi = True
     if isinstance(pickcodes, (int, str, Mapping)):
         pickcode = _get_pickcode(client, pickcodes)
@@ -1245,233 +697,6 @@ def iter_download_nodes(
 
 
 @overload
-def iter_download_files(
-    client: str | PathLike | P115Client, 
-    cid: int | str | Mapping = 0, 
-    ensure_name: bool = False, 
-    escape: None | bool | Callable[[str], str] = True, 
-    with_ancestors: bool = False, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
-    path_already: bool = False, 
-    max_workers: None | int = 0, 
-    max_files: int = 0, 
-    max_dirs: int = 0, 
-    app: str = "chrome", 
-    *, 
-    async_: Literal[False] = False, 
-    **request_kwargs, 
-) -> Iterator[dict]:
-    ...
-@overload
-def iter_download_files(
-    client: str | PathLike | P115Client, 
-    cid: int | str | Mapping = 0, 
-    ensure_name: bool = False, 
-    escape: None | bool | Callable[[str], str] = True, 
-    with_ancestors: bool = False, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
-    path_already: bool = False, 
-    max_workers: None | int = 0, 
-    max_files: int = 0, 
-    max_dirs: int = 0, 
-    app: str = "chrome", 
-    *, 
-    async_: Literal[True], 
-    **request_kwargs, 
-) -> AsyncIterator[dict]:
-    ...
-def iter_download_files(
-    client: str | PathLike | P115Client, 
-    cid: int | str | Mapping = 0, 
-    ensure_name: bool = False, 
-    escape: None | bool | Callable[[str], str] = True, 
-    with_ancestors: bool = False, 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
-    path_already: bool = False, 
-    max_workers: None | int = 0, 
-    max_files: int = 0, 
-    max_dirs: int = 0, 
-    app: str = "chrome", 
-    *, 
-    async_: Literal[False, True] = False, 
-    **request_kwargs, 
-) -> Iterator[dict] | AsyncIterator[dict]:
-    """获取一个目录内所有的文件信息，不包括目录
-
-    :param client: 115 客户端或 cookies
-    :param cid: 目录 id 或 pickcode
-    :param ensure_name: 确保返回数据中有 "name" 字段
-    :param escape: 对文件名进行转义
-
-        - 如果为 None，则不处理；否则，这个函数用来对文件名中某些符号进行转义，例如 "/" 等
-        - 如果为 True，则使用 `posixpatht.escape`，会对文件名中 "/"，或单独出现的 "." 和 ".." 用 "\\" 进行转义
-        - 如果为 False，则使用 `posix_escape_name` 函数对名字进行转义，会把文件名中的 "/" 转换为 "|"
-        - 如果为 Callable，则用你所提供的调用，以或者转义后的名字
-
-    :param with_ancestors: 文件信息中是否要包含 "ancestors"
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典
-    :param path_already: 如果为 True，则说明 id_to_dirnode 中已经具备构建路径所需要的目录节点，所以不会再去拉取目录节点的信息
-    :param max_workers: 最大并发数，如果为 None 或 < 0 则自动确定，如果为 0 则单工作者惰性执行
-    :param max_files: 估计最大存在的文件数，<= 0 时则无限
-    :param max_dirs: 估计最大存在的目录数，<= 0 时则无限
-    :param app: 使用指定 app（设备）的接口
-    :param async_: 是否异步
-    :param request_kwargs: 其它请求参数
-
-    :return: 迭代器，产生文件的简略信息
-    """
-    if isinstance(cid, Mapping):
-        cid = cast(int | str, get_first(cid, "id", "pickcode"))
-    if isinstance(client, (str, PathLike)):
-        client = P115Client(client)
-    if id_to_dirnode is None:
-        id_to_dirnode = ID_TO_DIRNODE_CACHE[client.user_id]
-    elif id_to_dirnode is ...:
-        id_to_dirnode = {}
-        path_already = False
-    from .iterdir import make_path_binder
-    bind = make_path_binder(
-        id_to_dirnode, 
-        escape=escape, 
-        with_ancestors=with_ancestors, 
-        key_of_path="path" if ensure_name else "dirname", 
-        key_of_ancestors="ancestors" if ensure_name else "dir_ancestors", 
-    )
-    top_id = cid = to_id(cid)
-    top_ancestors: list[dict]
-    top_path: str
-    top_prefix_len: int = 0
-    def update_attr(attr: dict, /):
-        nonlocal top_ancestors, top_path, top_prefix_len
-        if not top_prefix_len:
-            if cid:
-                top_path = bind.get_path(top_id) # type: ignore
-                if with_ancestors:
-                    top_ancestors = bind.get_ancestors(top_id) # type: ignore
-                top_prefix_len = len(top_path) + 1
-            else:
-                top_ancestors = [{"id": 0, "parent_id": 0, "name": ""}]
-                top_path = "/"
-                top_prefix_len = 1
-        attr["top_id"] = top_id
-        attr["top_path"] = top_path
-        if with_ancestors:
-            attr["top_ancestors"] = top_ancestors
-        try:
-            bind(attr)
-            if ensure_name:
-                attr["relpath"] = attr["path"][top_prefix_len:]
-            else:
-                attr["rel_dirname"] = attr["dirname"][top_prefix_len:]
-        except KeyError:
-            pass
-        return attr
-    if path_already:
-        return do_map(update_attr, iter_download_nodes(
-            client, 
-            cid, 
-            files=True, 
-            ensure_name=ensure_name, 
-            max_page=max_files > 0 and -(-max_files // 5000), 
-            max_workers=max_workers, 
-            app=app, 
-            async_=async_, 
-            **request_kwargs, 
-        ))
-    else:
-        class BoolRaise:
-            def __init__(self, /, exception):
-                self.exception = exception
-            def __bool__(self, /):
-                raise self.exception
-        path_not_already: bool | BoolRaise = True
-        def set_path_already(fu, /):
-            nonlocal path_not_already
-            if isinstance(fu, BaseException):
-                exc = fu
-            else:
-                exc = fu.exception()
-            if exc is None:
-                path_not_already = False
-            else:
-                path_not_already = BoolRaise(exc)
-        def gen_step():
-            nonlocal path_already
-            path_already = False
-            def load_ancestors():
-                return through(iter_download_nodes(
-                    client, 
-                    cid, 
-                    files=False, 
-                    id_to_dirnode=id_to_dirnode, 
-                    max_page=max_dirs > 0 and -(-max_dirs // 5000), 
-                    max_workers=max_workers, 
-                    app="os_windows", 
-                    async_=async_, 
-                    **request_kwargs, 
-                ))
-            if async_:
-                task: Any = create_task(load_ancestors())
-            else:
-                task = run_as_thread(load_ancestors)
-            if cid:
-                from .attr import get_ancestors
-                def update_top():
-                    return (yield get_ancestors(
-                        client, 
-                        cid, 
-                        id_to_dirnode=id_to_dirnode, 
-                        ensure_file=False, 
-                        app=app, 
-                        async_=async_, 
-                        **request_kwargs, 
-                    ))
-                if async_:
-                    task2 = async_gather(run_gen_step(update_top, True), task)
-                    task2.add_done_callback(set_path_already)
-                else:
-                    task0 = run_as_thread(run_gen_step, update_top, False)
-                    def done_callback(fu, /):
-                        try:
-                            task0.result()
-                        except BaseException as e:
-                            set_path_already(e)
-                        else:
-                            set_path_already(fu)
-                    task.add_done_callback(done_callback)
-            else:
-                task.add_done_callback(set_path_already)
-            cache: list[dict] = []
-            add_to_cache = cache.append
-            with with_iter_next(iter_download_nodes(
-                client, 
-                cid, 
-                files=True, 
-                ensure_name=ensure_name, 
-                max_page=max_files > 0 and -(-max_files // 5000), 
-                max_workers=max_workers, 
-                app=app, 
-                async_=async_, 
-                **request_kwargs, 
-            )) as get_next:
-                while path_not_already:
-                    add_to_cache((yield get_next()))
-                if cache:
-                    yield YieldFrom(do_map(update_attr, cache))
-                    cache.clear()
-                while True:
-                    yield Yield(update_attr((yield get_next())))
-            if cache:
-                if async_:
-                    yield task
-                else:
-                    task.result()
-                bool(path_not_already)
-                yield YieldFrom(do_map(update_attr, cache))
-    return run_gen_step_iter(gen_step, async_)
-
-
-@overload
 def get_remaining_open_count(
     client: str | PathLike | P115Client | P115OpenClient, 
     app: str = "android", 
@@ -1518,7 +743,8 @@ def get_remaining_open_count(
             if isinstance(client, P115OpenClient):
                 it: Iterator[dict] | AsyncIterator[dict] = iter_files(
                     client, 
-                    type=4, 
+                    normalize_attr=normalize_attr_simple, 
+                    id_to_dirnode=..., 
                     app=app, 
                     async_=async_, # type: ignore
                     **request_kwargs, 
@@ -1550,8 +776,6 @@ def get_remaining_open_count(
     return run_gen_step(gen_step, async_)
 
 
-# TODO: 再写一个 upload_file、transfer_file 等函数，也尽量支持差不多的参数
-# TODO: 再写一个 download_tree 函数，用于实现批量下载
 @overload
 def download_file(
     client: str | PathLike | P115Client | P115OpenClient, 
@@ -1703,7 +927,7 @@ def download_file(
                     start = 0
             if attr and attr.get("is_dir", ):
                 return TaskResultTuple(False, NotADirectoryError(errno.EISDIR, attr))
-            if isinstance(client, P115Client):
+            if app != "web2" and isinstance(client, P115Client):
                 try:
                     url = yield get_url(
                         pickcode, 

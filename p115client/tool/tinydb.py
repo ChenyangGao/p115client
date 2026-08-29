@@ -13,7 +13,8 @@ from iterutils import foreach, run_gen_step
 from sqlitetools import connect, execute, executescript, query, upsert_items
 
 from .history import iter_history_once
-from .iterdir import iter_dirs, iter_life_behavior_once
+from .iterdir import iter_dirs
+from .life import iter_life_behavior_once
 from .querydb import P115QueryDB
 from .updatedb import locked_gen_step, updatedb, event_normalize_attr, wrap_async
 

@@ -260,7 +260,8 @@ TYPE_TO_SUFFIXES: Final[dict[int, tuple[str, ...]]] = {
         (v, k) for k, v in SUFFIX_TO_TYPE.items()).items()}
 
 #: 用于缓存每个用户或者分享，的每个目录 id 到所对应的 (name, parent_id) 的元组的字典的字典
-ID_TO_DIRNODE_CACHE: Final[dict[int | str, MutableMapping[int, tuple[str, int]]]] = defaultdict(dict)
+from .type import DirNode
+ID_TO_DIRNODE_CACHE: Final[dict[int | str, MutableMapping[int, tuple[str, int] | DirNode]]] = defaultdict(dict)
 
 #: 一些 webapi.115.com 的接口允许的前缀（而 proapi.115.com 却可以是任何前缀）
 WEPAPI_PREFIXES: Final = (

@@ -43,10 +43,10 @@ from ..client import check_response, P115Client, P115OpenClient
 from ..exception import P115BadFile
 from ..type import P115URL
 from ..tool import load_final_image
+from ..util import unescape_115_charref
 from .attr import normalize_attr_simple
-from .download import iter_download_files
 from .edit import makedir
-from .iterdir import iterdir, iter_files_with_path, unescape_115_charref
+from .iterdir import iterdir, iter_files, iter_files_skim
 
 
 @overload
@@ -194,7 +194,7 @@ def iter_115_to_115(
     :param to_pid: 去向 115 的父目录 id 或 pickcode
     :param max_workers: 最大并发数
     :param with_root: 是否保留 `from_cid` 对应的目录名（如果为 False，则会少 1 级目录）
-    :param use_iter_files: 如果为 True，则调用 iter_files_with_path，否则调用 iter_download_files
+    :param use_iter_files: 如果为 True，则调用 iter_files，否则调用 iter_files_skim
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
 
@@ -303,17 +303,19 @@ def iter_115_to_115(
             return pid
     dir_to_cid = {"": 0}
     if use_iter_files:
-        it = iter_files_with_path(
+        it = iter_files(
             from_client, 
             from_cid, 
             normalize_attr=normalize_attr_simple, 
+            with_path=True, 
             async_=async_, 
             **request_kwargs, 
         )
     else:
-        it = iter_download_files(
+        it = iter_files_skim(
             from_client, 
             from_cid, 
+            with_path=True, 
             async_=async_, 
             **request_kwargs, 
         )
@@ -1461,3 +1463,4 @@ class P115MultipartUpload:
 # TODO: 增加一个工具函数，用于从某个本地目录下载到网盘目录，允许提供自定义的进度条调用
 # TODO: 增加一个工具函数，用于在两个115网盘之间的转移，允许提供自定义的进度条调用
 # TODO: 增加 3 个函数，upload、transfer、download，是直接可用的（但要不要把处理目录树的整个过程打包在一起呢？）
+# TODO: 再写一个 upload_file、transfer_file 等函数，也尽量支持差不多的参数
