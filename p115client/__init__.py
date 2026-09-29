@@ -10,3 +10,6 @@ from .exception import *
 from .fs import *
 from .type import *
 from . import util
+
+from . import _init_ipython
+del _init_ipython

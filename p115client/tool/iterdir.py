@@ -1199,7 +1199,7 @@ def search_iter(
     suffix: str = "", 
     type: int = 0, 
     offset: int = 0, 
-    page_size: int = 115, 
+    page_size: int = 1000, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
     cooldown: float = 0, 
     app: str = "web", 
@@ -1216,7 +1216,7 @@ def search_iter(
     suffix: str = "", 
     type: int = 0, 
     offset: int = 0, 
-    page_size: int = 115, 
+    page_size: int = 1000, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
     cooldown: float = 0, 
     app: str = "web", 
@@ -1232,7 +1232,7 @@ def search_iter(
     suffix: str = "", 
     type: int = 0, 
     offset: int = 0, 
-    page_size: int = 115, 
+    page_size: int = 1000, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
     cooldown: float = 0, 
     app: str = "web", 
@@ -1314,6 +1314,7 @@ def search_iter(
             else:
                 yield YieldFrom(map(normalize_attr, data_list))
             offset += len(data_list)
+            payload["offset"] = offset
     return run_gen_step_iter(gen_step, async_)
 
 
@@ -1614,7 +1615,7 @@ def share_search_iter(
     suffix: str = "", 
     type: int = 99, 
     offset: int = 0, 
-    page_size: int = 115, 
+    page_size: int = 1000, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
     cooldown: float = 0, 
     *, 
@@ -1632,7 +1633,7 @@ def share_search_iter(
     suffix: str = "", 
     type: int = 99, 
     offset: int = 0, 
-    page_size: int = 115, 
+    page_size: int = 1000, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
     cooldown: float = 0, 
     *, 
@@ -1649,7 +1650,7 @@ def share_search_iter(
     suffix: str = "", 
     type: int = 99, 
     offset: int = 0, 
-    page_size: int = 115, 
+    page_size: int = 1000, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
     cooldown: float = 0, 
     *, 
@@ -1734,6 +1735,7 @@ def share_search_iter(
             else:
                 yield YieldFrom(map(normalize_attr, data_list))
             offset += page_size
+            payload["offset"] = offset
     return run_gen_step_iter(gen_step, async_)
 
 

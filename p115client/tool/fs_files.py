@@ -235,10 +235,13 @@ def fs_files_iter(
             page_size = min(page_size, 1200)
             fs_files = client.fs_files_aps
         else:
-            if payload.get("type") == 2:
-                fs_files = client.fs_files_image_app
+            if use_media_api:
+                if payload.get("type") == 2:
+                    fs_files = client.fs_files_image_app
+                else:
+                    fs_files = client.fs_files_media_app
             else:
-                fs_files = client.fs_files_media_app
+                fs_files = client.fs_files_app
             request_kwargs["app"] = app
             request_kwargs.setdefault("base_url", get_proapi_origin)
     fs_files = cast(Callable, fs_files)
@@ -277,7 +280,7 @@ def fs_files_iter(
         call, 
         payload, 
         check_for_stop=lambda offset, limit, resp, /: offset != resp["offset"] or limit > len(resp["data"]) or resp["count"] <= offset + len(resp["data"]), 
-        retry_for_exception=lambda e, /: is_timeouterror(e) or isinstance(e, Exception) and get_status_code(e) < 400, 
+        retry_for_exception=lambda e, /: is_timeouterror(e) or isinstance(e, Exception) and 0 < get_status_code(e) < 400, 
         page_size=page_size, 
         first_page_size=first_page_size, 
         cooldown=cooldown, 
