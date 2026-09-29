@@ -18,6 +18,7 @@ else:
         pass
 
     def _load_magics():
+        __all__ = ["get_pic_url", "get_url", "listdir", "dictdir", "search", "attr"]
         from IPython.core.magic import register_line_magic
 
         @register_line_magic
@@ -148,6 +149,8 @@ else:
             parts = _shlex_split(line)
             for a in iter_nodes_by_file_skim(client, parts):
                 print(a)
+
+        print(f"检测到你正在使用 ipython，已自动加载魔法函数 {__all__}")
 
     _load_magics()
     _ipython.user_ns.update((k, v) for k, v in globals().items() if not k.startswith("_"))
