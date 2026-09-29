@@ -14,7 +14,6 @@ from os import PathLike
 from threading import Lock
 from typing import overload, Any, ClassVar, Literal, Self
 
-from dictattr import AttrDict
 from dicttools import dict_key_to_lower_update
 from errno2 import errno
 from filewrap import Buffer, SupportsRead
@@ -271,7 +270,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
-    ) -> AttrDict:
+    ) -> dict:
         ...
     @overload
     def _get_attr_by_id(
@@ -282,7 +281,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
         *, 
         async_: Literal[True], 
         **request_kwargs, 
-    ) -> Coroutine[Any, Any, AttrDict]:
+    ) -> Coroutine[Any, Any, dict]:
         ...
     def _get_attr_by_id(
         self, 
@@ -292,7 +291,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
-    ) -> AttrDict | Coroutine[Any, Any, AttrDict]:
+    ) -> dict | Coroutine[Any, Any, dict]:
         if refresh is None:
             refresh = self.refresh
         def gen_step():
@@ -566,7 +565,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
-    ) -> AttrDict:
+    ) -> dict:
         ...
     @overload
     def mkdir(
@@ -579,7 +578,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
         *, 
         async_: Literal[True], 
         **request_kwargs, 
-    ) -> Coroutine[Any, Any, AttrDict]:
+    ) -> Coroutine[Any, Any, dict]:
         ...
     def mkdir(
         self, 
@@ -591,7 +590,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
-    ) -> AttrDict | Coroutine[Any, Any, AttrDict]:
+    ) -> dict | Coroutine[Any, Any, dict]:
         "创建目录"
         def gen_step():
             cid = yield self.get_id(
@@ -611,7 +610,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
             info = resp["data"]
             fid = int(info["category_id"])
             cname = info["category_name"]
-            attr: dict = AttrDict(
+            attr: dict = dict(
                 id=fid, 
                 parent_id=cid, 
                 is_dir=True, 
@@ -639,7 +638,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
-    ) -> AttrDict:
+    ) -> dict:
         ...
     @overload
     def move(
@@ -652,7 +651,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
         *, 
         async_: Literal[True], 
         **request_kwargs, 
-    ) -> Coroutine[Any, Any, AttrDict]:
+    ) -> Coroutine[Any, Any, dict]:
         ...
     def move(
         self, 
@@ -664,7 +663,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
-    ) -> AttrDict | Coroutine[Any, Any, AttrDict]:
+    ) -> dict | Coroutine[Any, Any, dict]:
         "移动文件或目录"
         def gen_step():
             attr = yield self.get_attr(
@@ -721,7 +720,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
-    ) -> AttrDict:
+    ) -> dict:
         ...
     @overload
     def remove(
@@ -733,7 +732,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
         *, 
         async_: Literal[True], 
         **request_kwargs, 
-    ) -> Coroutine[Any, Any, AttrDict]:
+    ) -> Coroutine[Any, Any, dict]:
         ...
     def remove(
         self, 
@@ -744,7 +743,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
-    ) -> AttrDict | Coroutine[Any, Any, AttrDict]:
+    ) -> dict | Coroutine[Any, Any, dict]:
         "删除文件或目录"
         def gen_step():
             attr = yield self.get_attr(
@@ -790,7 +789,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
-    ) -> AttrDict:
+    ) -> dict:
         ...
     @overload
     def rename(
@@ -803,7 +802,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
         *, 
         async_: Literal[True], 
         **request_kwargs, 
-    ) -> Coroutine[Any, Any, AttrDict]:
+    ) -> Coroutine[Any, Any, dict]:
         ...
     def rename(
         self, 
@@ -815,7 +814,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
-    ) -> AttrDict | Coroutine[Any, Any, AttrDict]:
+    ) -> dict | Coroutine[Any, Any, dict]:
         """重命名文件或路径
         """
         assert name
@@ -854,7 +853,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
-    ) -> AttrDict:
+    ) -> dict:
         ...
     @overload
     def upload(
@@ -871,7 +870,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
         *, 
         async_: Literal[True], 
         **request_kwargs, 
-    ) -> Coroutine[Any, Any, AttrDict]:
+    ) -> Coroutine[Any, Any, dict]:
         ...
     def upload(
         self, 
@@ -887,7 +886,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
-    ) -> AttrDict | Coroutine[Any, Any, AttrDict]:
+    ) -> dict | Coroutine[Any, Any, dict]:
         "上传文件到目录"
         def gen_step():
             attr = yield self.get_attr(
@@ -914,7 +913,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
                 check_response(resp)
                 if resp.get("request") == "upload":
                     info = resp["data"]
-                    attr = AttrDict(
+                    attr = dict(
                         id=int(info["id"]), 
                         parent_id=cid, 
                         name=info["filename"], 
@@ -925,7 +924,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
                     )
                 else:
                     info = resp["data"]
-                    attr = AttrDict(
+                    attr = dict(
                         id=int(info["file_id"]), 
                         parent_id=cid, 
                         name=info["file_name"], 
@@ -945,7 +944,7 @@ class P115FileSystem(P115FileSystemBase[P115Path]):
                 check_response(resp)
                 info = resp["data"]
                 ctime = int(info["file_ptime"])
-                attr = AttrDict(
+                attr = dict(
                     id=int(info["file_id"]), 
                     parent_id=cid, 
                     name=info["file_name"], 

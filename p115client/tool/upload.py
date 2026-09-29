@@ -209,14 +209,13 @@ def iter_115_to_115(
             if attr["is_collect"]:
                 url = yield from_client.download_url(
                     attr["pickcode"], 
-                    app="web2", 
+                    app="web", 
                     async_=async_, 
                     **request_kwargs, 
                 )
             else:
                 url = yield from_client.download_url(
                     attr["pickcode"], 
-                    app="android", 
                     async_=async_, 
                     **request_kwargs, 
                 )
@@ -247,8 +246,6 @@ def iter_115_to_115(
                     is_collect=int(info["is_collect"]), 
                     file_type=int(info["file_type"]), 
                 )
-                if attr["is_collect"] and attr["size"] >= 1024 * 1024 * 200:
-                    return {"type": "skip", "attr": attr, "resp": None}
             resp = yield to_client.upload_file_init(
                 filename=attr["name"], 
                 filesize=attr["size"], 
@@ -272,8 +269,6 @@ def iter_115_to_115(
     key_of_id = "id" if with_root else "parent_id"
     def get_pid(attr: dict, /):
         if use_iter_files:
-            if attr["is_collect"] and attr["size"] >= 1024 * 1024 * 200:
-                return -1
             if from_cid:
                 dir_ = "/".join(a["name"] for a in dropwhile(
                     lambda a: a[key_of_id] != from_cid, 
@@ -387,14 +382,13 @@ def iter_115_to_115_resume(
             if attr["is_collect"]:
                 url = yield from_client.download_url(
                     attr["pickcode"], 
-                    app="web2", 
+                    app="web", 
                     async_=async_, 
                     **request_kwargs, 
                 )
             else:
                 url = yield from_client.download_url(
                     attr["pickcode"], 
-                    app="android", 
                     async_=async_, 
                     **request_kwargs, 
                 )
@@ -432,8 +426,6 @@ def iter_115_to_115_resume(
     dirt_to_cid: dict[tuple[str, ...], int] = {}
     key_of_id = "id" if with_root else "parent_id"
     def get_pid(attr: dict, /):
-        if attr["is_collect"] and attr["size"] >= 1024 * 1024 * 200:
-            return -1
         dirt = tuple(a["name"] for a in dropwhile(
             lambda a: a[key_of_id] != from_cid, 
             attr["ancestors"][1:-1], 
@@ -457,7 +449,7 @@ def iter_115_to_115_resume(
                     pid = dirt_to_cid[p_dirt] = int(resp["cid"])
             return pid
     def gen_step():
-        from_files: Any = iter_files_with_path(
+        from_files: Any = iter_files(
             from_client, 
             from_cid, 
             normalize_attr=normalize_attr_simple, 
@@ -505,7 +497,7 @@ def iter_115_to_115_resume(
                     )
                 dirt_to_cid[()] = to_cid
                 id_to_dirnode: dict[int, tuple[str, int]] = {}
-                to_files: Any = iter_files_with_path(
+                to_files: Any = iter_files(
                     to_client, 
                     to_cid, 
                     id_to_dirnode=id_to_dirnode, 
@@ -684,6 +676,7 @@ class UploadBlock(NamedTuple):
     hashes: dict[str, str]
 
 
+# TODO: 支持 open 接口
 @overload
 def iter_download_upload(
     client: str | PathLike | P115Client, 
@@ -772,7 +765,7 @@ def iter_download_upload(
             return
         url = yield client.download_url(
             pickcode, 
-            app="android" if size > 1024 * 1024 * 200 else "web2", # 200 MB
+            app="web", 
             async_=async_, 
             **request_kwargs, 
         )

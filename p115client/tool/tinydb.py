@@ -287,3 +287,5 @@ def tinydb_update_event(
             )
     return run_gen_step(gen_step, async_)
 
+# TODO: 存入的 id 类数据使用 str，包括 ancestors 中的
+

@@ -35,7 +35,7 @@ from .attr import (
     normalize_attr, normalize_attr_simple, _get_id, _get_pickcode, 
     update_resp_ancestors, overview_attr, OverviewAttr, 
 )
-from .edit import update_desc, update_star, post_event, update_label
+from .edit import batch_label, update_desc, update_star, post_event, update_label
 from .fs_files import fs_files_iter
 from .life import iter_life_behavior_once, life_show
 
@@ -430,7 +430,7 @@ def iter_nodes_by_info(
     if isinstance(client, (str, PathLike)):
         client = P115Client(client)
     if not isinstance(client, P115Client) or app == "open":
-        fs_info = client.fs_info_open
+        fs_info: Callable = client.fs_info_open
     elif app in ("", "web", "desktop", "aps"):
         fs_info = client.fs_category_get
     else:
@@ -498,7 +498,7 @@ def iter_nodes_by_supervision(
     if isinstance(client, (str, PathLike)):
         client = P115Client(client)
     if app in ("", "web", "desktop", "chrome", "aps"):
-        fs_supervision = client.fs_supervision
+        fs_supervision: Callable = client.fs_supervision
     else:
         fs_supervision = client.fs_supervision_app
         request_kwargs["app"] = app
@@ -511,7 +511,7 @@ def iter_nodes_by_supervision(
         project, 
         conmap(
             partial(fs_supervision, async_=async_, **request_kwargs), 
-            map(_get_pickcode, pickcodes), 
+            (_get_pickcode(client, p) for p in pickcodes), 
             max_workers=max_workers, 
             async_=async_, 
         )))
@@ -573,7 +573,7 @@ def iter_nodes_by_update(
             partial(client.fs_files_update_app, app=app, async_=async_, **request_kwargs), 
             map(_get_id, ids), 
             max_workers=max_workers, 
-            async_=async_, 
+            async_=async_, # type: ignore
         )
     ))
 
@@ -642,19 +642,18 @@ def iter_nodes_by_event(
     else:
         event_name = "browse_image"
     def gen_step():
-        nonlocal ids
         ts = int(time())
-        ids = set(map(_get_id, ids))
+        fids = set(map(_get_id, ids))
         yield life_show(client, async_=async_, **request_kwargs)
         yield post_event(
             client, 
-            ids, 
+            fids, 
             type=type, 
             app=app, 
             async_=async_, 
             **request_kwargs, 
         )
-        discard = ids.discard
+        discard = fids.discard
         with with_iter_next(iter_life_behavior_once(
             client, 
             from_time=ts, 
@@ -664,10 +663,10 @@ def iter_nodes_by_event(
             async_=async_, 
             **request_kwargs, 
         )) as get_next:
-            while ids:
+            while fids:
                 event: dict = yield get_next()
                 fid = int(event["file_id"])
-                if fid in ids:
+                if fid in fids:
                     yield Yield(event)
                     discard(fid)
     return run_gen_step_iter(gen_step, async_)
@@ -682,6 +681,7 @@ def iter_nodes_by_label(
     max_workers: None | int = 0, 
     sleep_interval: float = 1, 
     no_deletion: bool = False, 
+    replace_label: bool = True, 
     app: str = "android", 
     *, 
     async_: Literal[False] = False, 
@@ -697,6 +697,7 @@ def iter_nodes_by_label(
     max_workers: None | int = 0, 
     sleep_interval: float = 1, 
     no_deletion: bool = False, 
+    replace_label: bool = True, 
     app: str = "android", 
     *, 
     async_: Literal[True], 
@@ -711,6 +712,7 @@ def iter_nodes_by_label(
     max_workers: None | int = 0, 
     sleep_interval: float = 1, 
     no_deletion: bool = False, 
+    replace_label: bool = True, 
     app: str = "android", 
     *, 
     async_: Literal[False, True] = False, 
@@ -718,8 +720,8 @@ def iter_nodes_by_label(
 ) -> Iterator[dict] | AsyncIterator[dict]:
     """通过先加标签，然后用文件列表接口获取一组 id 的信息
 
-    .. attention::
-        为了速度和稳妥起见，使用 app 版的替换标签接口，也即如果原有标签，会被直接替换掉，由于不用此接口会导致遗漏，斟酌后定死
+    .. caution::
+        为了稳定起见，不要使用 web 接口
 
     :param client: 115 客户端或 cookies
     :param ids: 一组目录的 id 或 pickcode（如果包括文件，则会被忽略）
@@ -728,6 +730,7 @@ def iter_nodes_by_label(
     :param max_workers: 最大并发数，如果为 None 或 < 0 则自动确定，如果为 0 则单工作者惰性执行
     :param sleep_interval: 拉取文件列表时，发现文件数不对时，睡眠一定时间后重试
     :param no_deletion: 确定所有 id 都是有效的，不会有已被删除的
+    :param replace_label: 是否替换所有标签
     :param app: 使用指定 app（设备）的接口
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
@@ -766,13 +769,22 @@ def iter_nodes_by_label(
         check_response(resp)
         label_id = int(resp["data"][0]["id"])
         try:
-            yield update_label(
-                client, 
-                batch, 
-                label_id, 
-                async_=async_, 
-                **request_kwargs, 
-            )
+            if replace_label:
+                yield update_label(
+                    client, 
+                    batch, 
+                    label_id, 
+                    async_=async_, 
+                    **request_kwargs, 
+                )
+            else:
+                yield batch_label(
+                    client, 
+                    batch, 
+                    {"action": "add", "file_label": label_id}, 
+                    async_=async_, 
+                    **request_kwargs, 
+                )
             count = -1
             size = len(batch)
             while True:
@@ -853,8 +865,8 @@ def iter_nodes_by_label(
 def iter_nodes_by_star(
     client: str | PathLike | P115Client, 
     ids: Iterable[int | str | Mapping], 
-    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     normalize_attr: None | Callable[[dict], dict] = normalize_attr, 
+    id_to_dirnode: None | EllipsisType | MutableMapping[int, tuple[str, int]] = None, 
     app: str = "android", 
     cooldown: None | float = None, 
     max_workers: None | int = 0, 
@@ -922,13 +934,12 @@ def iter_nodes_by_star(
         order = "user_utime"
         key_mtime = "mtime"
     def gen_step():
-        nonlocal ids
         ts = int(time())
-        ids = set(map(_get_id, ids))
-        discard = ids.discard
+        fids = set(map(_get_id, ids))
+        discard = fids.discard
         yield update_star(
             client, 
-            ids, 
+            fids, 
             max_workers=max_workers, 
             app=app, 
             async_=async_, 
@@ -938,7 +949,7 @@ def iter_nodes_by_star(
             # NOTE: 非 web 端文件列表接口并不能按照星标时间排序，只能利用更新时间排序，但是只有在更新目录的备注后，才会改变更新时间，文件是不会改变的
             yield update_desc(
                 client, 
-                ids, 
+                fids, 
                 max_workers=max_workers, 
                 app=app, 
                 async_=async_, 
@@ -951,7 +962,7 @@ def iter_nodes_by_star(
             cur=0, 
             order=order, 
             star=1, 
-            first_page_size=min(len(ids), 1150), 
+            first_page_size=min(len(fids), 1150), 
             id_to_dirnode=id_to_dirnode, 
             normalize_attr=normalize_attr, 
             app=app, 
@@ -960,7 +971,7 @@ def iter_nodes_by_star(
             async_=async_, # type: ignore
             **request_kwargs, 
         )) as get_next:
-            while ids:
+            while fids:
                 info: dict = yield get_next()
                 if normalize_attr is None:
                     attr: Any = normalize_attr_simple(info)
@@ -969,7 +980,7 @@ def iter_nodes_by_star(
                 if attr[key_mtime] < ts:
                     break
                 cid = attr["id"]
-                if cid in ids:
+                if cid in fids:
                     yield Yield(info)
                     discard(cid)
     return run_gen_step_iter(gen_step, async_)

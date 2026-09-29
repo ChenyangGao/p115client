@@ -14,7 +14,6 @@ from posixpath import basename, dirname
 from threading import Lock
 from typing import overload, Any, Literal
 
-from dictattr import AttrDict
 from dicttools import dict_key_to_lower_update
 from errno2 import errno
 from iterutils import run_gen_step, run_gen_step_iter, with_iter_next, Yield
@@ -459,13 +458,13 @@ class P115ZipFileSystem(P115FileSystemBase[P115ZipPath]):
                     cid = path_to_id[dir_] = get_id()
                     id_to_path[cid] = dir_
                     name = basename(dir_)
-                    id_to_readdir[pid][cid] = id_to_attr[cid] = AttrDict({
+                    id_to_readdir[pid][cid] = id_to_attr[cid] = {
                         "id": cid, 
                         "parent_id": pid, 
                         "name": name, 
                         "is_dir": True, 
                         "path": dir_, 
-                    })
+                    }
                     id_to_dirnode[cid] = (name, pid)
                     id_to_readdir[cid] = {}
                     return cid
@@ -476,7 +475,7 @@ class P115ZipFileSystem(P115FileSystemBase[P115ZipPath]):
                 **request_kwargs, 
             )) as get_next:
                 while True:
-                    attr: MutableMapping = AttrDict((yield get_next()))
+                    attr: MutableMapping = dict((yield get_next()))
                     attr["parent_id"] = pid = get_parent_id(attr["path"])
                     attr["id"] = id = get_id()
                     attr["is_dir"] = False

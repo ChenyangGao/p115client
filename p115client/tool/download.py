@@ -2,8 +2,8 @@
 # encoding: utf-8
 
 __all__ = [
-    "get_pic_url", "iter_urls", "iter_subtitles", "iter_download_nodes", 
-    "get_remaining_open_count", "download_file", 
+    "get_url", "get_pic_url", "iter_urls", "iter_subtitles", 
+    "iter_download_nodes", "get_remaining_open_count", "download_file", 
 ]
 __doc__ = "这个模块提供了一些和下载有关的函数"
 
@@ -41,16 +41,206 @@ from iterutils import (
 )
 from p115pickcode import to_id
 
-from ..client import check_response, json_maybe_decrypt_parse, P115Client, P115OpenClient, P115URL
+from ..client import check_response, json_maybe_decrypt_parse, P115Client, P115OpenClient
 from ..const import ID_TO_DIRNODE_CACHE
 from ..exception import P115AccessError
-from ..type import TaskResultTuple
-from ..util import unescape_115_charref
-from .attr import normalize_attr_simple, get_attr, get_info, _get_id, _get_pickcode
+from ..type import P115URL, TaskResultTuple
+from ..util import (
+    share_extract_payload, unescape_115_charref, is_valid_sha1, unescape_115_charref, 
+)
+from .attr import (
+    normalize_attr_simple, get_attr, get_info, get_id, share_get_id, 
+    _get_id, _get_pickcode, 
+)
 from .iterdir import iterdir, iter_files
 
 
 _get_pic_url_next_select: Final = cycle(("life_v1", "life_v2", "note_v1", "note_v2")).__next__
+
+
+@overload
+def get_url(
+    client: str | PathLike | P115Client | P115OpenClient, 
+    value: int | str | Sequence[str] | Mapping, 
+    /, 
+    size: int = -1, 
+    share_code: str = "", 
+    receive_code: str = "", 
+    cid: int = 0, 
+    user_agent: str = "", 
+    is_posixpath: bool = False, 
+    refresh: bool = False, 
+    id_to_dirnode: EllipsisType | MutableMapping[int, tuple[str, int]] | None = None, 
+    app: str = "", 
+    *, 
+    async_: Literal[False] = False, 
+    **request_kwargs, 
+) -> P115URL:
+    ...
+@overload
+def get_url(
+    client: str | PathLike | P115Client | P115OpenClient, 
+    value: int | str | Sequence[str] | Mapping, 
+    /, 
+    size: int = -1, 
+    share_code: str = "", 
+    receive_code: str = "", 
+    cid: int = 0, 
+    user_agent: str = "", 
+    is_posixpath: bool = False, 
+    refresh: bool = False, 
+    id_to_dirnode: EllipsisType | MutableMapping[int, tuple[str, int]] | None = None, 
+    app: str = "", 
+    *, 
+    async_: Literal[True], 
+    **request_kwargs, 
+) -> Coroutine[Any, Any, P115URL]:
+    ...
+def get_url(
+    client: str | PathLike | P115Client | P115OpenClient, 
+    value: int | str | Sequence[str] | Mapping, 
+    /, 
+    size: int = -1, 
+    share_code: str = "", 
+    receive_code: str = "", 
+    cid: int = 0, 
+    user_agent: str = "", 
+    is_posixpath: bool = False, 
+    refresh: bool = False, 
+    id_to_dirnode: EllipsisType | MutableMapping[int, tuple[str, int]] | None = None, 
+    app: str = "", 
+    *, 
+    async_: Literal[False, True] = False, 
+    **request_kwargs, 
+) -> P115URL | Coroutine[Any, Any, P115URL]:
+    """获取文件的下载链接
+
+    .. tip::
+        - 文件 <= 50 MB，只要有 ``sha1``，就能下载，无论是否在自己网盘，此时可视同图片
+        - 文件 <= 200 MB，无论文件是否永久删除，还是封禁，都能获取下载链接
+        - 文件 > 200 MB，要么没有被删除（``app="web"``），要么未被封禁（``app="os_windows"``），都能获取下载链接
+
+    :param client: 115 客户端或 cookies
+    :param value: 文件的 id, pickcode, sha1, path, name 其一
+    :param size: 文件的大小，用于辅助判断
+    :param share_code: 分享码或链接
+    :param receive_code: 接收码
+    :param cid: 文件所在目录，用于辅助判断
+    :param user_agent: 下载链接的请求头中的 User-Agent
+    :param is_posixpath: 使用 posixpath，会把 "/" 转换为 "|"，因此解析的时候，会对 "|" 进行特别处理
+    :param refresh: 是否刷新。如果为 True，则会执行网络请求以查询；如果为 False，则直接从 `id_to_dirnode` 中获取
+    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典    
+    :param app: 使用指定 app（设备）的接口，若为 ""，则会自动确定
+    :param async_: 是否异步
+    :param request_kwargs: 其它请求参数
+
+    :return: 文件的下载链接
+    """
+    if isinstance(client, (str, PathLike)):
+        client = P115Client(client)
+    if share_code:
+        def gen_step():
+            assert isinstance(client, P115Client)
+            if (0 <= size <= 1024 * 1024 * 50 
+                and isinstance(value, str)
+                and is_valid_sha1(value)
+            ):
+                from .download import get_pic_url
+                return get_pic_url(
+                    client, 
+                    value if size else "DA39A3EE5E6B4B0D3255BFEF95601890AFD80709", 
+                    async_=async_, # type: ignore
+                    **request_kwargs, 
+                )
+            payload = dict(share_extract_payload(share_code))
+            if receive_code:
+                payload["receive_code"] = receive_code
+            elif "receive_code" not in payload:
+                resp = yield client.share_info(
+                    share_code, 
+                    async_=async_, 
+                    **request_kwargs, 
+                )
+                check_response(resp)
+                payload["receive_code"] = resp["data"]["receive_code"]
+            payload["file_id"] = yield share_get_id(
+                client, 
+                value=value, 
+                **payload, 
+                size=size, 
+                cid=cid, 
+                ensure_file=True, 
+                is_posixpath=is_posixpath, 
+                id_to_dirnode=id_to_dirnode, 
+                refresh=refresh, 
+                async_=async_, # type: ignore
+                **request_kwargs, 
+            )
+            return client.share_download_url(
+                payload, 
+                async_=async_, 
+                **request_kwargs, 
+            )
+    else:
+        def gen_step():
+            if (isinstance(client, P115Client) 
+                and 0 <= size <= 1024 * 1024 * 50 
+                and isinstance(value, str)
+                and is_valid_sha1(value)
+            ):
+                return get_pic_url(
+                    client, 
+                    value if size else "DA39A3EE5E6B4B0D3255BFEF95601890AFD80709", 
+                    async_=async_, # type: ignore
+                    **request_kwargs, 
+                )
+            pickcode = client.to_pickcode((yield get_id(
+                client, 
+                value=value, 
+                size=size, 
+                cid=cid, 
+                ensure_file=True, 
+                is_posixpath=is_posixpath, 
+                id_to_dirnode=id_to_dirnode, 
+                refresh=refresh, 
+                app=app, 
+                async_=async_, 
+                **request_kwargs, 
+            )))
+            if app:
+                return client.download_url(
+                    pickcode, 
+                    user_agent=user_agent, 
+                    app=app, 
+                    async_=async_, 
+                    **request_kwargs, 
+                )
+            else:
+                try:
+                    url = yield client.download_url(
+                        pickcode, 
+                        user_agent=user_agent, 
+                        app="os_windows", 
+                        async_=async_, 
+                        **request_kwargs, 
+                    )
+                except P115AccessError:
+                    attr = yield get_attr(
+                        client, 
+                        pickcode, 
+                        skim=True, 
+                        async_=async_, # type: ignore
+                        **request_kwargs, 
+                    )
+                    url = yield client.download_url(
+                        pickcode, 
+                        user_agent=user_agent, 
+                        app="web" + "2"[:attr["size"] <= 1024 * 1024 * 200], 
+                        async_=async_, 
+                        **request_kwargs, 
+                    )
+                return url
+    return run_gen_step(gen_step, async_)
 
 
 @overload
@@ -252,9 +442,9 @@ def iter_urls(
         request_kwargs["headers"] = dict(headers, **{"user-agent": user_agent})
     else:
         request_kwargs["headers"] = {"user-agent": user_agent}
-    stable_point = client.pickcode_stable_point
+    stable_point: str = client.pickcode_stable_point
     if batch_size <= 1:
-        get_url = client.download_url
+        get_url: Callable = client.download_url
         return conmap(
             lambda pickcode, /: get_url(
                 _get_pickcode(stable_point, pickcode), 
@@ -264,7 +454,7 @@ def iter_urls(
             ), 
             pickcodes, 
             max_workers=max_workers, 
-            async_=async_, 
+            async_=async_, # type: ignore
         )
     else:
         get_urls = client.download_urls
@@ -273,7 +463,7 @@ def iter_urls(
                 ",".join(_get_pickcode(stable_point, p) for p in pickcodes), 
                 chunked(pickcodes, batch_size), 
                 app=app, 
-                async_=async_, 
+                async_=async_, # type: ignore
                 **request_kwargs, 
             ), 
         )))
@@ -362,7 +552,7 @@ def iter_subtitles(
                         suffix=suffix, 
                         id_to_dirnode=..., 
                         app=app, 
-                        async_=async_, 
+                        async_=async_, # type: ignore
                         **request_kwargs, 
                     )
                     for suffix in (".srt", ".ass", ".ssa")
@@ -383,7 +573,7 @@ def iter_subtitles(
                         pid=scid, 
                         batch_size=0, 
                         app=app, 
-                        async_=async_, 
+                        async_=async_, # type: ignore
                         **request_kwargs, 
                     )
                     check_response(resp)
@@ -494,6 +684,7 @@ def iter_download_nodes(
         max_workers = 20 if async_ else min(32, (cpu_count() or 1) + 4)
     if not 0 < page_size <= 5000:
         page_size = 5000
+    get_nodes: Callable
     if files:
         if app in ("", "web", "desktop", "aps"):
             get_nodes = client.download_files
@@ -783,7 +974,7 @@ def download_file(
     path: str = "", 
     resume: bool = True, 
     reporthook: None | Callable[[int], Any] = None, 
-    app: str = "android", 
+    app: str = "os_windows", 
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
@@ -796,7 +987,7 @@ def download_file(
     path: str = "", 
     resume: bool = True, 
     reporthook: None | Callable[[int], Any] = None, 
-    app: str = "android", 
+    app: str = "os_windows", 
     *, 
     async_: Literal[True], 
     **request_kwargs, 
@@ -808,7 +999,7 @@ def download_file(
     path: str = "", 
     resume: bool = True, 
     reporthook: None | Callable[[int], Any] = None, 
-    app: str = "android", 
+    app: str = "os_windows", 
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
@@ -875,7 +1066,6 @@ def download_file(
         attr = None
         pickcode = client.to_pickcode(fid)
         fid = client.to_id(fid)
-    get_url = client.download_url
     def gen_step():
         nonlocal attr, path, resume
         if not path or path.endswith("/"):
@@ -925,52 +1115,18 @@ def download_file(
                 elif start > attr["size"]:
                     resume = False
                     start = 0
-            if attr and attr.get("is_dir", ):
-                return TaskResultTuple(False, NotADirectoryError(errno.EISDIR, attr))
-            if app != "web2" and isinstance(client, P115Client):
-                try:
-                    url = yield get_url(
-                        pickcode, 
-                        strict=True, 
-                        app=app, 
-                        async_=async_, 
-                        **request_kwargs, 
-                    )
-                except P115AccessError as e:
-                    if not attr or "size" not in attr:
-                        attr = yield get_attr(
-                            client, 
-                            fid, 
-                            skim=True, 
-                            async_=async_, 
-                            **request_kwargs, 
-                        )
-                        if attr["is_dir"]:
-                            return TaskResultTuple(False, NotADirectoryError(errno.EISDIR, attr))
-                        if attr["size"] > 1024 * 1024 * 200:
-                            return TaskResultTuple(False, e)
-                    url = yield get_url(
-                        pickcode, 
-                        strict=True, 
-                        app="web2", 
-                        async_=async_, 
-                        **request_kwargs, 
-                    )
-            else:
-                url = get_url(
+            if attr and attr.get("is_dir"):
+                return TaskResultTuple(False, IsADirectoryError(errno.EISDIR, attr))
+            try:
+                url = yield get_url(
+                    client, 
                     pickcode, 
-                    strict=True, 
-                    app=app, 
                     async_=async_, 
                     **request_kwargs, 
                 )
-            resp = yield client.request(
-                url, 
-                async_=async_, 
-                **({"parse": None} | request_kwargs | {
-                    "headers": (getattr(url, "headers", None) or {}) | {"range": f"bytes={start}-"}, 
-                }), 
-            )
+            except Exception as e:
+                return TaskResultTuple(False, e)
+            resp = yield client.open(url, start=start, async_=async_)
             try:
                 try:
                     file = open(path, "ab" if resume else "wb")

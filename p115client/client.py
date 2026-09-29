@@ -7,7 +7,7 @@ __all__ = ["check_response", "P115OpenClient", "P115Client"]
 __doc__ = "115 客户端模块"
 
 from asyncio import Lock as AsyncLock
-from base64 import b64encode
+from base64 import b64decode, b64encode
 from collections import UserString
 from collections.abc import (
     AsyncIterable, Awaitable, Buffer, Callable, Coroutine, 
@@ -42,7 +42,13 @@ from http_request import complete_url as make_url, SupportsGeturl
 from http_response import get_status_code
 from httpfile import HTTPFileReader, AsyncHTTPFileReader
 from iterutils import run_gen_step
-from orjson import dumps, loads
+loads: Callable
+dumps: Callable[..., bytes]
+try:
+    from orjson import dumps, loads
+except ImportError:
+    from json import dumps as _dumps, loads
+    dumps = lambda o, /: _dumps(o, ensure_ascii=False).encode("utf-8")
 from p115cipher import (
     rsa_encrypt, rsa_decrypt, ecdh_aes_encrypt, ecdh_aes_decrypt, 
     ecdh_encode_token, make_upload_payload, 
@@ -364,6 +370,12 @@ def check_response(resp: dict | Awaitable[dict], /) -> dict | Coroutine[Any, Any
                     throw(errno.EINVAL, resp)
                 # {"state": 0, "errno": 40101004, "error": "IP登录异常,请稍候再登录！"}
                 case 40101004:
+                    raise P115LoginError(errno.EAUTH, resp)
+                # {"state": 0, "errno": 40101009, "error": "用户名或密码错误"}
+                case 40101009:
+                    raise P115LoginError(errno.EAUTH, resp)
+                # {"state": 0, "errno": 40101010, "error": "已开启两步验证登录！"}
+                case 40101010:
                     raise P115LoginError(errno.EAUTH, resp)
                 # {"state": 0, "errno": 40101017, "error": "用户验证失败！"}
                 case 40101017:
@@ -1025,7 +1037,7 @@ class ClientRequestMixin:
         request, request_kwargs = get_request(url=api, **request_kwargs)
         return request(async_=async_, **request_kwargs)
 
-    ########## Qrcode API ##########
+    ########## Login API ##########
 
     @overload
     @staticmethod
@@ -1145,6 +1157,74 @@ class ClientRequestMixin:
             data={"grant_type": "authorization_code", **payload}, 
             **request_kwargs, 
         )
+        return request(async_=async_, **request_kwargs)
+
+    @overload
+    @staticmethod
+    def login_login(
+        payload: dict = {}, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    @staticmethod
+    def login_login(
+        payload: dict = {}, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    @staticmethod
+    def login_login(
+        payload: dict = {}, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """使用账号和密码登录
+
+        POST https://passportapi.115.com/app/1.0/{app}/1.0/login/login
+
+        .. note::
+            ``app="web"`` 时，不需要提供 ``device_id``，但可能需要提交验证码识别结果，此时响应信息 "短信验证次数超过限制"；``app`` 取其它设备值时，需要提供 ``device_id``。
+            如果响应信息 "已开启两步验证登录"，则可能说明此 ``device_id``。如果你并未开启两步验证或者已经信任此 ``device_id``，则说明 115 可能存在 bug。
+
+        .. tip::
+            密码 ``passwd`` 需要经过 RSA 加密。假设原始密码为 ``password``
+
+            .. code:: python
+
+                # NOTE: 原始密码
+                password = "..."
+                # 密码需要经过 sha1 处理后拼接一个时间后缀
+                text = f"{hashlib.sha1(password.encode('utf-8')).hexdigest()}_{int(time.time())}"
+                # 最终上传的密码密文，假设其中的 rsa_encrypt 是 RSA 加密函数
+                passwd = base64.b64encode(rsa_encrypt(text)).decode()
+
+        :payload:
+            - account: str 💡 115 账号或手机号
+            - passwd: str 💡 密码，经过 RSA 加密
+            - cipher_ver: int = 2
+            - device_id: str = "" 💡 设备 id
+            - code: str = ""      💡 验证码识别结果，是数字 0-9 中取 4 个的排列
+            - code_id: str = ""   💡 验证码 id
+        """
+        api = complete_url(f"/app/1.0/{app}/1.0/login/login", base_url=base_url)
+        payload.setdefault("cipher_ver", 2)
+        request, request_kwargs = get_request(
+            url=api, method="POST", data=payload, **request_kwargs)
         return request(async_=async_, **request_kwargs)
 
     @overload
@@ -1684,6 +1764,223 @@ class ClientRequestMixin:
         request, request_kwargs = get_request(
             url=api, method="POST", data=payload, **request_kwargs)
         return request(async_=async_, **request_kwargs)
+
+    @overload
+    @staticmethod
+    def login_two_step_sms(
+        payload: dict | int | str, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    @staticmethod
+    def login_two_step_sms(
+        payload: dict | int | str, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    @staticmethod
+    def login_two_step_sms(
+        payload: dict | int | str, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """两步验证登录：发送短信
+
+        POST https://passportapi.115.com/app/1.0/{app}/1.0/code/sms/login
+
+        :payload:
+            - user_id: int | str
+            - tpl: str = "login_from_two_step"
+            - cv21: int = 2
+        """
+        api = complete_url(f"/app/1.0/{app}/1.0/code/sms/login", base_url=base_url)
+        if not isinstance(payload, dict):
+            payload = {"user_id": payload}
+        payload = {"tpl": "login_from_two_step", "cv21": 2, **payload}
+        request, request_kwargs = get_request(
+            url=api, method="POST", data=payload, **request_kwargs)
+        return request(async_=async_, **request_kwargs)
+
+    @overload
+    @staticmethod
+    def login_two_step_sms_login(
+        payload: dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    @staticmethod
+    def login_two_step_sms_login(
+        payload: dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    @staticmethod
+    def login_two_step_sms_login(
+        payload: dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """两步验证登录：提交短信验证码
+
+        POST https://passportapi.115.com/app/1.0/{app}/1.0/login/vip
+
+        :payload:
+            - account: int | str 💡 账号或手机号
+            - code: str 💡 短信验证码
+        """
+        api = complete_url(f"/app/1.0/{app}/1.0/login/vip", base_url=base_url)
+        request, request_kwargs = get_request(
+            url=api, method="POST", data=payload, **request_kwargs)
+        return request(async_=async_, **request_kwargs)
+
+    @overload
+    @classmethod
+    def login_with_password(
+        cls, 
+        /, 
+        app: str, 
+        account: str, 
+        password: str, 
+        device_id: str = "", 
+        code: str = "", 
+        code_id: str = "", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    @classmethod
+    def login_with_password(
+        cls, 
+        /, 
+        app: str, 
+        account: str, 
+        password: str, 
+        device_id: str = "", 
+        code: str = "", 
+        code_id: str = "", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    @classmethod
+    def login_with_password(
+        cls, 
+        /, 
+        app: str, 
+        account: str, 
+        password: str, 
+        device_id: str = "", 
+        code: str = "", 
+        code_id: str = "", 
+        base_url: str | Callable[[], str] = "https://qrcodeapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """使用账号和密码登录
+
+        .. caution::
+            ``app="web"`` 时往往需要提交验证码，此时会响应信息 "短信验证次数超过限制"。
+            如果响应信息 "已开启两步验证登录！"，则说明需要短信验证。
+
+        :param app: 扫二维码后绑定的 ``app`` （或者叫 `device`）
+        :param account: 账号或手机号
+        :param password: 密码
+        :param device_id: 设备 id，``app="web"`` 时不用传
+        :param code: 验证码识别结果，是数字 0-9 中取 4 个的排列
+        :param code_id: 验证码 id
+        :param async_: 是否异步
+        :param request_kwargs: 其余请求参数
+
+        :return: 接口响应
+        """
+        from p115cipher.util import parse_rsa_perm, rsa_encrypt_with_pubkey
+        if app == "desktop":
+            app = "web"
+        elif app in ("windows", "mac", "linux"):
+            app = "os_" + app
+        def gen_step():
+            resp = yield cls.app_publick_key(
+                base_url=base_url, 
+                async_=async_, 
+                **request_kwargs, 
+            )
+            pub_pem = b64decode(resp["data"]["key"]).decode()
+            plain_text = f"{sha1(password.encode("utf-8")).hexdigest()}_{int(time())}"
+            cipher_text = rsa_encrypt_with_pubkey(plain_text.encode(), 512, *parse_rsa_perm(pub_pem))
+            resp = yield cls.login_login(
+                {
+                    "code": code, 
+                    "code_id": code_id, 
+                    "account": account, 
+                    "device_id": device_id, 
+                    "passwd": b64encode(cipher_text).decode(), 
+                }, 
+                app=app, 
+                base_url=base_url, 
+                async_=async_, 
+                **request_kwargs, 
+            )
+            if not resp["state"] and resp.get("errno") == 40101010:
+                warn(resp["error"], category=P115Warning)
+                user_id = resp["data"]["user_id"]
+                sms_code = ""
+                while True:
+                    if not sms_code:
+                        result = yield cls.login_two_step_sms(
+                            user_id, 
+                            base_url=base_url, 
+                            async_=async_, 
+                            **request_kwargs, 
+                        )
+                        check_response(result)
+                    sms_code = input("请输入短信验证码: ")
+                    if sms_code:
+                        resp = yield cls.login_two_step_sms_login(
+                            {"account": account, "code": sms_code}, 
+                            base_url=base_url, 
+                            async_=async_, 
+                            **request_kwargs, 
+                        )
+                        if resp.get("errno") != 40103003:
+                            break
+            return resp
+        return run_gen_step(gen_step, async_)
 
     @overload
     @classmethod
@@ -6549,7 +6846,7 @@ class P115Client(P115OpenClient):
         GET https://clouddownload.115.com/?ac=get_quota_info
         """
         return self.clouddownload_request(
-            ac="get_quota_info", 
+            action="get_quota_info", 
             method=method, 
             type=type, 
             base_url=base_url, 
@@ -6596,7 +6893,7 @@ class P115Client(P115OpenClient):
         GET https://clouddownload.115.com/?ac=get_quota_package_array
         """
         return self.clouddownload_request(
-            ac="get_quota_package_array", 
+            action="get_quota_package_array", 
             method=method, 
             type=type, 
             base_url=base_url, 
@@ -6643,7 +6940,7 @@ class P115Client(P115OpenClient):
         GET https://clouddownload.115.com/?ac=get_quota_package_info
         """
         return self.clouddownload_request(
-            ac="get_quota_package_info", 
+            action="get_quota_package_info", 
             method=method, 
             type=type, 
             base_url=base_url, 
@@ -8470,7 +8767,7 @@ class P115Client(P115OpenClient):
                     is_dir=False, 
                     headers=resp["headers"], 
                 )
-            elif app in ("web", "desktop"):
+            elif app in ("", "web", "desktop", "aps"):
                 resp = yield self.download_url_web(
                     pickcode, 
                     user_agent=user_agent, 
@@ -8484,12 +8781,13 @@ class P115Client(P115OpenClient):
                 except IsADirectoryError:
                     if strict:
                         raise
+                data = resp.get("data", resp)
                 return P115URL(
-                    resp.get("file_url", ""), 
-                    id=int(resp["file_id"]), 
+                    data.get("file_url", ""), 
+                    id=int(data["file_id"]), 
                     pickcode=pickcode, 
-                    name=resp["file_name"], 
-                    size=int(resp["file_size"]), 
+                    name=data["file_name"], 
+                    size=int(data["file_size"]), 
                     is_dir=not resp["state"], 
                     headers=resp["headers"], 
                 )
@@ -8753,6 +9051,7 @@ class P115Client(P115OpenClient):
         /, 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         user_agent: None | str = None, 
+        method: str = "POST", 
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
@@ -8765,6 +9064,7 @@ class P115Client(P115OpenClient):
         /, 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         user_agent: None | str = None, 
+        method: str = "POST", 
         *, 
         async_: Literal[True], 
         **request_kwargs, 
@@ -8776,16 +9076,17 @@ class P115Client(P115OpenClient):
         /, 
         base_url: str | Callable[[], str] = "https://webapi.115.com", 
         user_agent: None | str = None, 
+        method: str = "POST", 
         *, 
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
         """获取文件的下载链接（网页版接口）
 
-        GET https://webapi.115.com/files/download
+        POST https://webapi.115.com/files/download
 
         .. note::
-            最大允许下载 200 MB 的文件，即使文件违规，或者 `aid=12`，也可以正常下载
+            如果 ``method="GET"``，最大允许下载 200 MB 的文件，即使文件违规，或者 `aid=12`，也可以正常下载
 
         :payload:
             - pickcode: str
@@ -8799,22 +9100,38 @@ class P115Client(P115OpenClient):
             headers.setdefault("user-agent", "")
         else:
             headers["user-agent"] = user_agent
-        def parse(resp, content: bytes, /) -> dict:
-            json = json_maybe_decrypt_loads(content)
-            if "Set-Cookie" in resp.headers:
-                if isinstance(resp.headers, Mapping):
-                    match = CRE_SET_COOKIE.search(resp.headers["Set-Cookie"])
-                    if match is not None:
-                        headers["cookie"] = match[0]
-                else:
-                    for k, v in reversed(resp.headers.items()):
-                        if k == "Set-Cookie" and CRE_SET_COOKIE.match(v) is not None:
-                            headers["cookie"] = v
-                            break
-            json["headers"] = headers
-            return json
-        request_kwargs.setdefault("parse", parse)
-        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+        if method.upper() == "POST":
+            def parse(_, content: bytes, /) -> dict:
+                json = json_maybe_decrypt_loads(content)
+                if json["state"] and (data := json.get("data")):
+                    json["data"] = json_loads(rsa_decrypt(data))
+                json["headers"] = headers
+                return json
+            request_kwargs.setdefault("parse", parse)
+            request_kwargs["data"] = {"data": rsa_encrypt(dumps(payload)).decode("ascii")}
+            return self.request(
+                url=api, 
+                method="POST", 
+                async_=async_, 
+                **request_kwargs, 
+            )
+        else:
+            def parse(resp, content: bytes, /) -> dict:
+                json = json_maybe_decrypt_loads(content)
+                if "Set-Cookie" in resp.headers:
+                    if isinstance(resp.headers, Mapping):
+                        match = CRE_SET_COOKIE.search(resp.headers["Set-Cookie"])
+                        if match is not None:
+                            headers["cookie"] = match[0]
+                    else:
+                        for k, v in reversed(resp.headers.items()):
+                            if k == "Set-Cookie" and CRE_SET_COOKIE.match(v) is not None:
+                                headers["cookie"] = v
+                                break
+                json["headers"] = headers
+                return json
+            request_kwargs.setdefault("parse", parse)
+            return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
     def download_url_web2(
@@ -15451,7 +15768,11 @@ class P115Client(P115OpenClient):
             - ...
             - pid: int | str = 0 💡 目标目录 id
             - move_proid: str = <default> 💡 任务 id
-            - conflict_policy: str = <default>
+            - conflict_policy: str = <default> 💡 重名策略，JSON 格式：``'{"${id}":{"action":"{$action}"}}'``，以下是 ``action`` 的取值
+
+                - merge: 合并，将源文件夹内容移到目标同名目录内，子项重名文件保留两者
+                - replace: 【文件默认】替换，目标文件将被覆盖，不可恢复
+                - keep_both: 【文件夹默认】保留全部，源文件(夹)将重命名为原名加后缀括号数字
         """
         api = complete_url("/files/move", base_url=base_url)
         if isinstance(payload, (int, str)):
@@ -18079,8 +18400,10 @@ class P115Client(P115OpenClient):
 
         :payload:
             - pickcode: str 💡 提取码
+            - pick_code: str 💡 提取码，和 ``pickcode`` 只需提供其一
             - share_id: int | str = <default> 💡 共享 id
             - local: 0 | 1 = <default> 💡 是否本地，如果为 1，则不包括 m3u8
+            - supports_origin_file: 0 | 1 = <default>
         """
         api = complete_url("/files/video", base_url=base_url)
         if isinstance(payload, str):
@@ -20021,6 +20344,12 @@ class P115Client(P115OpenClient):
 
     ########## Login API ##########
 
+    @property
+    def login_ssoent(self, /) -> str:
+        """获取当前的登录设备 ssoent，如果为空，说明未能获得（会直接获取 Cookies 中名为 UID 字段的值，所以即使能获取，也不能说明登录未失效）
+        """
+        return self.cookies_str.UID.ssoent
+
     @overload
     def login_app(
         self, 
@@ -20418,6 +20747,47 @@ class P115Client(P115OpenClient):
         return self.request(url=api, async_=async_, **request_kwargs)
 
     @overload
+    def login_renewal(
+        self, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        method: str = "GET", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> bool:
+        ...
+    @overload
+    def login_renewal(
+        self, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        method: str = "GET", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, bool]:
+        ...
+    def login_renewal(
+        self, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        method: str = "GET", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> bool | Coroutine[Any, Any, bool]:
+        """（实际用途未知）可用来检查是否已登录
+
+        GET https://passportapi.115.com/app/1.0/{app}/1.0/login/renewal
+        """
+        api = complete_url(f"/app/1.0/{app}/1.0/login/renewal", base_url=base_url)
+        return self.request(url=api, method=method, async_=async_, **request_kwargs)
+
+    @overload
     def login_status(
         self, 
         /, 
@@ -20458,11 +20828,193 @@ class P115Client(P115OpenClient):
         request_kwargs.setdefault("parse", parse)
         return self.request(url=api, async_=async_, **request_kwargs)
 
-    @property
-    def login_ssoent(self, /) -> str:
-        """获取当前的登录设备 ssoent，如果为空，说明未能获得（会直接获取 Cookies 中名为 UID 字段的值，所以即使能获取，也不能说明登录未失效）
+    @overload
+    def login_two_step_trust_device_del(
+        self, 
+        payload: int | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> bool:
+        ...
+    @overload
+    def login_two_step_trust_device_del(
+        self, 
+        payload: int | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, bool]:
+        ...
+    def login_two_step_trust_device_del(
+        self, 
+        payload: int | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> bool | Coroutine[Any, Any, bool]:
+        """两步验证：删除设备
+
+        POST https://passportapi.115.com/app/1.0/{app}/1.0/two_step_trust/device_del
+
+        :payload:
+            - id: int
         """
-        return self.cookies_str.UID.ssoent
+        api = complete_url(f"/app/1.0/{app}/1.0/two_step_trust/device_del", base_url=base_url)
+        if not isinstance(payload, dict):
+            payload = {"id": payload}
+        payload["device_id"] = payload["id"]
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def login_two_step_trust_device_edit(
+        self, 
+        payload: dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> bool:
+        ...
+    @overload
+    def login_two_step_trust_device_edit(
+        self, 
+        payload: dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, bool]:
+        ...
+    def login_two_step_trust_device_edit(
+        self, 
+        payload: dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> bool | Coroutine[Any, Any, bool]:
+        """两步验证：编辑设备
+
+        POST https://passportapi.115.com/app/1.0/{app}/1.0/two_step_trust/device_edit
+
+        :payload:
+            - id: int
+            - device_name: str 💡 设备名
+        """
+        api = complete_url(f"/app/1.0/{app}/1.0/two_step_trust/device_edit", base_url=base_url)
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def login_two_step_trust_device_list(
+        self, 
+        payload: int | dict = 0, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> bool:
+        ...
+    @overload
+    def login_two_step_trust_device_list(
+        self, 
+        payload: int | dict = 0, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, bool]:
+        ...
+    def login_two_step_trust_device_list(
+        self, 
+        payload: int | dict = 0, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> bool | Coroutine[Any, Any, bool]:
+        """两步验证：设备列表
+
+        GET https://passportapi.115.com/app/1.0/{app}/1.0/two_step_trust/device_list
+
+        :payload:
+            - offset: int = 0
+            - limit: int = 100
+        """
+        api = complete_url(f"/app/1.0/{app}/1.0/two_step_trust/device_list", base_url=base_url)
+        if isinstance(payload, int):
+            payload = {"offset": payload}
+        payload.setdefault("limit", 100)
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
+    def login_two_step_trust_device_trust(
+        self, 
+        payload: str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> bool:
+        ...
+    @overload
+    def login_two_step_trust_device_trust(
+        self, 
+        payload: str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, bool]:
+        ...
+    def login_two_step_trust_device_trust(
+        self, 
+        payload: str | dict, 
+        /, 
+        app: str = "web", 
+        base_url: str | Callable[[], str] = "https://passportapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> bool | Coroutine[Any, Any, bool]:
+        """两步验证：信任某设备
+
+        POST https://passportapi.115.com/app/1.0/{app}/1.0/two_step_trust/device_trust
+
+        :payload:
+            - device_id: str 💡 设备 id
+            - device_name: str = <default>
+            - os_ver: str = <default>
+        """
+        api = complete_url(f"/app/1.0/{app}/1.0/two_step_trust/device_trust", base_url=base_url)
+        if not isinstance(payload, dict):
+            payload = {"device_id": payload}
+        return self.request(url=api, method="POST", data=payload, async_=async_, **request_kwargs)
 
     ########## Logout API ##########
 
@@ -21137,6 +21689,52 @@ class P115Client(P115OpenClient):
         return self.request(url=api, params=payload, async_=async_, **request_kwargs)
 
     @overload
+    def multimedia_date(
+        self, 
+        payload: int | dict = 0, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def multimedia_date(
+        self, 
+        payload: int | dict = 0, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def multimedia_date(
+        self, 
+        payload: int | dict = 0, 
+        /, 
+        base_url: str | Callable[[], str] = "https://webapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """我听&我看：日期列表
+
+        GET https://webapi.115.com/multimedia/date
+
+        :payload:
+            - channel_id: int = 1 💡 频道 id，已知：1:音乐 5:视频
+            - limit: int = 1,000 💡 最多返回数量
+            - offset: int = 0 💡 索引偏移，索引从 0 开始计算
+        """
+        api = complete_url("/multimedia/date", base_url=base_url)
+        if isinstance(payload, int):
+            payload = {"offset": payload}
+        payload = {"channel_id": 1, "limit": 1000, "offset": 0, **payload}
+        return self.request(url=api, params=payload, async_=async_, **request_kwargs)
+
+    @overload
     def multimedia_listen(
         self, 
         payload: int | dict = 0, 
@@ -21199,8 +21797,10 @@ class P115Client(P115OpenClient):
             - visit_type: int = <default> 💡 已知：0:全部 1:已听 2:未听
             - type_id: int = <default> 💡 分类 id
             - related_name: str = <default> 💡 相关人员名称
-            - collection: 0 | 1 = <default> 💡 内容类型：<default>:全部 0:属性 1:合集
+            - collection: 0 | 1 = <default> 💡 内容类型：<default>:全部 0:详情/属性 1:合集
             - date: str = <default> 💡 日期、月份或者年份
+            - keyword: str = <default> 💡 搜索关键词
+            - country: str = <default> 💡 国家或地区
         """
         api = complete_url("/multimedia/listen", base_url=base_url)
         if isinstance(payload, int):
@@ -21339,9 +21939,10 @@ class P115Client(P115OpenClient):
             - visit_type: int = <default> 💡 已知：0:全部 1:已看 2:未看
             - type_id: int = <default> 💡 分类 id
             - related_name: str = <default> 💡 相关人员名称
-            - collection: 0 | 1 = <default> 💡 内容类型：<default>:全部 0:详情 1:合集
+            - collection: 0 | 1 = <default> 💡 内容类型：<default>:全部 0:详情/属性 1:合集
             - date: str = <default> 💡 日期、月份或者年份
             - keyword: str = <default> 💡 搜索关键词
+            - country: str = <default> 💡 国家或地区
         """
         api = complete_url("/multimedia/watch", base_url=base_url)
         if isinstance(payload, int):
@@ -21737,12 +22338,13 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """我听&我看：人员列表
+        """我听&我看：角色列表
 
         GET https://webapi.115.com/multimedia/related
 
         :payload:
             - channel_id: int = 1 💡 频道 id，已知：1:音乐 5:视频
+            - related_id: int = <default>
         """
         api = complete_url("/multimedia/related", base_url=base_url)
         if isinstance(payload, int):
@@ -21874,7 +22476,7 @@ class P115Client(P115OpenClient):
         async_: Literal[False, True] = False, 
         **request_kwargs, 
     ) -> dict | Coroutine[Any, Any, dict]:
-        """我听&我看：分类列表
+        """我听&我看：风格和分类列表
 
         GET https://webapi.115.com/multimedia/type
 
@@ -25275,8 +25877,8 @@ class P115Client(P115OpenClient):
             - offset: int = 0
             - order: str = <default> 💡 排序依据，例如 "create_time"
             - asc: 0 | 1 = <default> 💡 是否升序排列
-            - show_cancel_share: 0 | 1 = 0
-            - share_state: int = <default>
+            - show_cancel_share: 0 | 1 = 0 💡 是否包括已取消的分享
+            - share_state: 0 | 1 = <default> 💡 是否只包括有效的分享：0:全部 1:有效
         """
         api = complete_url("/share/slist", base_url=base_url)
         if isinstance(payload, int):
@@ -28470,6 +29072,44 @@ class P115Client(P115OpenClient):
         GET https://webapi.115.com/user/info
         """
         api = complete_url("/user/info", base_url=base_url)
+        return self.request(url=api, async_=async_, **request_kwargs)
+
+    @overload
+    def user_info4_app(
+        self, 
+        /, 
+        app: str = "android", 
+        base_url: str | Callable[[], str] = "https://proapi.115.com", 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict:
+        ...
+    @overload
+    def user_info4_app(
+        self, 
+        /, 
+        app: str = "android", 
+        base_url: str | Callable[[], str] = "https://proapi.115.com", 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict]:
+        ...
+    def user_info4_app(
+        self, 
+        /, 
+        app: str = "android", 
+        base_url: str | Callable[[], str] = "https://proapi.115.com", 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict | Coroutine[Any, Any, dict]:
+        """获取用户信息
+
+        GET https://proapi.115.com/{app}/2.0/user/info
+        """
+        api = complete_url("/2.0/user/info", base_url=base_url, app=app)
         return self.request(url=api, async_=async_, **request_kwargs)
 
     @overload

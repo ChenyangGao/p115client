@@ -17,7 +17,12 @@ from iterutils import (
     chunked, foreach, run_gen_step, run_gen_step_iter, 
     with_iter_next, Yield, 
 )
-from orjson import dumps
+dumps: Callable[..., bytes]
+try:
+    from orjson import dumps
+except ImportError:
+    from json import dumps as _dumps
+    dumps = lambda o, /: _dumps(o, ensure_ascii=False).encode("utf-8")
 from sqlitetools import connect, executescript, execute, find, query, upsert_items
 
 from ..client import P115Client

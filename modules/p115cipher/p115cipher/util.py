@@ -2,6 +2,7 @@
 # encoding: utf-8
 
 from collections.abc import Callable, Iterator
+from base64 import b64decode
 
 from filewrap import to_bytes_view
 from typing_extensions import Buffer, Final, Literal
@@ -47,6 +48,48 @@ def _unpad(data, /):
     if 0 < (pad_size := view[-1]) < 16 and all(c == pad_size for c in view[-pad_size:]):
         return view[:-pad_size].tobytes()
     return data
+
+
+def parse_tlv(data: bytes, /, offset: int = 0):
+    "简易 ASN.1 DER 节点解析函数"
+    tag = data[offset]
+    offset += 1
+    length = data[offset]
+    offset += 1
+    if length & 0x80:
+        num_bytes = length & 0x7F
+        length = from_bytes(data[offset : offset + num_bytes])
+        offset += num_bytes
+    value = data[offset : offset + length]
+    return tag, value, offset + length
+
+
+def parse_rsa_perm(perm: str, /) -> tuple[int, int]:
+    "解析 RSA 证书"
+    # 清理并解码 Base64
+    der_bytes = b64decode("".join(
+        line
+        for l in perm.splitlines()
+        if (line := l.strip()) and not line.startswith("-----")
+    ))
+
+    # 解析外层 SubjectPublicKeyInfo SEQUENCE
+    _, outer_val, _ = parse_tlv(der_bytes, 0)
+
+    # 提取 AlgorithmIdentifier 和 subjectPublicKey (BIT STRING)
+    _, _, off = parse_tlv(outer_val, 0)
+    _, bit_string_val, _ = parse_tlv(outer_val, off)
+
+    # 跳过 BIT STRING 的首字节(填充位数标志)，提取内部 RSAPublicKey DER 数据
+    rsa_der = bit_string_val[1:]
+
+    # 解析内层 RSAPublicKey SEQUENCE { INTEGER n, INTEGER e }
+    _, rsa_val, _ = parse_tlv(rsa_der, 0)
+    _, n_bytes, rsa_off = parse_tlv(rsa_val, 0)
+    _, e_bytes, _ = parse_tlv(rsa_val, rsa_off)
+
+    # 转为大整数
+    return from_bytes(n_bytes), from_bytes(e_bytes)
 
 
 aes_cbc_encrypt: Callable[[Buffer, bytes, bytes], bytes]
@@ -297,29 +340,44 @@ def rsa_gen_key(
     return xor_key
 
 
-def pad_pkcs1_v1_5(message: Buffer, /) -> int:
+def pad_pkcs1_v1_5(message: Buffer, /, size: int = 128) -> int:
     data = bytearray(b"\x00")
-    data += b"\x02" * (126 - memoryview(message).nbytes)
+    data += b"\x02" * (size - 2 - memoryview(message).nbytes)
     data += b"\x00"
     data += message
     return from_bytes(data)
 
 
-def rsa_encrypt_with_pubkey(data: Buffer, /) -> bytearray:
+def rsa_encrypt_with_pubkey(
+    data: Buffer, 
+    /, 
+    block_size: int = 128, 
+    n: int = RSA_PUBKEY_PAIR[0], 
+    e: int = RSA_PUBKEY_PAIR[1], 
+) -> bytearray:
     "把数据用 RSA 公钥加密"
     cipher_data = bytearray()
     view = to_bytes_view(data)
-    for l, r, _ in acc_step(0, len(view), 117):
-        cipher_data += to_bytes(pow(pad_pkcs1_v1_5(view[l:r]), RSA_PUBKEY_PAIR[1], RSA_PUBKEY_PAIR[0]), 128)
+    for l, r, _ in acc_step(0, len(view), block_size - 11):
+        cipher_data += to_bytes(
+            pow(pad_pkcs1_v1_5(view[l:r], block_size), e, n), 
+            block_size, 
+        )
     return cipher_data
 
 
-def rsa_decrypt_with_pubkey(cipher_data: Buffer, /) -> bytearray:
+def rsa_decrypt_with_pubkey(
+    cipher_data: Buffer, 
+    /, 
+    block_size: int = 128, 
+    n: int = RSA_PUBKEY_PAIR[0], 
+    e: int = RSA_PUBKEY_PAIR[1], 
+) -> bytearray:
     "把数据用 RSA 公钥解密"
     data = bytearray()
     view = to_bytes_view(cipher_data)
-    for l, r, _ in acc_step(0, len(view), 128):
-        p = pow(from_bytes(view[l:r]), RSA_PUBKEY_PAIR[1], RSA_PUBKEY_PAIR[0])
+    for l, r, _ in acc_step(0, len(view), block_size):
+        p = pow(from_bytes(view[l:r]), e, n)
         b = to_bytes(p, (p.bit_length() + 0b111) >> 3)
         data += memoryview(b)[b.index(0)+1:]
     return data

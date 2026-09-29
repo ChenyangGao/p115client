@@ -876,7 +876,7 @@ def post_event(
         partial(post, app=app, async_=async_, **request_kwargs), 
         chunked(do_map(_get_id, ids), batch_size), 
         max_workers=max_workers, 
-        async_=async_, 
+        async_=async_, # type: ignore
     ))
 
 
@@ -1299,9 +1299,8 @@ def batch_copy_files(
     if app == "open" or not isinstance(client, P115Client):
         from .iterdir import iter_files
     else:
-        if app not in ("", "web", "desktop", "aps"):
-            request_kwargs["app"] = app
-        from .download import iter_download_files as iter_files
+        from .iterdir import iter_files_skim as iter_files
+        request_kwargs["app"] = app
     pid = _get_id(pid)
     def gen_step():
         cid = _get_id(top)
@@ -1491,6 +1490,7 @@ def batch_delete_files(
         fs_delete: Callable = client.fs_delete_open
         get_ids: Callable = get_ids_by_fs_files
     else:
+        get_nodes: Callable
         if app in ("", "web", "desktop", "aps"):
             fs_delete = client.fs_delete
             get_nodes = client.download_files
@@ -1672,7 +1672,7 @@ def batch_move_files(
     else:
         if app not in ("", "web", "desktop", "aps"):
             request_kwargs["app"] = app
-        from .download import iter_download_files as iter_files
+        from .iterdir import iter_files_skim as iter_files
     pid = _get_id(pid)
     def gen_step():
         cid = _get_id(top)
@@ -1945,7 +1945,7 @@ def batch_label(
     client: str | PathLike | P115Client, 
     ids: Iterable[int | str], 
     /, 
-    payload: dict, 
+    payload: dict | int | str, 
     batch_size: int = 1_000, 
     max_workers: None | int = 0, 
     app: str = "web", 
@@ -1959,7 +1959,7 @@ def batch_label(
     client: str | PathLike | P115Client, 
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
-    payload: dict, 
+    payload: dict | int | str, 
     batch_size: int = 1_000, 
     max_workers: None | int = 0, 
     app: str = "web", 
@@ -1972,7 +1972,7 @@ def batch_label(
     client: str | PathLike | P115Client, 
     ids: Iterable[int | str] | AsyncIterable[int | str], 
     /, 
-    payload: dict, 
+    payload: dict | int | str, 
     batch_size: int = 1_000, 
     max_workers: None | int = 0, 
     app: str = "web", 
@@ -1994,11 +1994,15 @@ def batch_label(
     :param async_: 是否异步
     :param request_kwargs: 其它请求参数
     """
+    if isinstance(client, (str, PathLike)):
+        client = P115Client(client)
     if app in ("", "web", "desktop", "aps"):
-        batch_label = client.fs_label_batch
+        batch_label: Callable = client.fs_label_batch
     else:
         batch_label = client.fs_label_batch_app
         request_kwargs["app"] = app
+    if not isinstance(payload, dict):
+        payload = {"action": "add", "file_label": payload}
     def call(batch, /):
         return check_response(batch_label(
             {**payload, "file_ids": ",".join(map(str, batch))}, 
@@ -2095,7 +2099,7 @@ def copyfile(
         if pid is None:
             pid = attr["parent_id"]
         else:
-            pid = client._get_id(pid)
+            pid = _get_id(pid)
         if not name:
             name = attr["name"]
         if attr["name"] == name:
@@ -2221,7 +2225,7 @@ def renamefile(
         if pid is None:
             pid = attr["parent_id"]
         else:
-            pid = client._get_id(pid)
+            pid = _get_id(pid)
         if not name:
             name = attr["name"]
         is_same_name = attr["name"] == name
@@ -2348,7 +2352,7 @@ def transferfile(
                 **request_kwargs, 
             )
             attr = url.__dict__
-        pid = client_to._get_id(pid)
+        pid = _get_id(pid)
         if not name:
             name = attr["name"]
         @as_gen_step(async_=async_)

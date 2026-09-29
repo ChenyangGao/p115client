@@ -383,11 +383,21 @@ def make_application(
         if cache_url and (url := CACHE_URL.get((id, user_agent))):
             if int(URL(url).query["t"]) - time() > 60 * 5:
                 return url
-        url = await client.download_url(
-            client.to_pickcode(id), 
-            headers={"user-agent": user_agent}, 
-            async_=True, 
-        )
+        try:
+            url = await client.download_url(
+                client.to_pickcode(id), 
+                headers={"user-agent": user_agent}, 
+                app="web", 
+                async_=True, 
+            )
+        except FileNotFoundError:
+            # NOTE: 如果文件已经被删掉
+            url = await client.download_url(
+                client.to_pickcode(id), 
+                headers={"user-agent": user_agent}, 
+                app="os_windows", 
+                async_=True, 
+            )
         if cache_url:
             CACHE_URL[(id, user_agent)] = url
         return url

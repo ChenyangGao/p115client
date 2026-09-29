@@ -33,7 +33,13 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from filelock import FileLock
 from iterutils import run_gen_step
-from orjson import loads, dumps
+loads: Callable
+dumps: Callable[..., bytes]
+try:
+    from orjson import loads, dumps
+except ImportError:
+    from json import dumps as _dumps, loads
+    dumps = lambda o, /: _dumps(o, ensure_ascii=False).encode("utf-8")
 from p115pickcode import is_valid_pickcode, to_id, to_pickcode
 from urllib3_future_request import request
 from yarl import URL

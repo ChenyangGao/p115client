@@ -1445,5 +1445,6 @@ OPEN_APP_IDS: Final[dict[int, str]] = {
     100197945: "FlixPilot", 
     100197949: "Regex V3.1", 
     100197951: "unidrive", 
+    100197985: "智能播放器", 
 }
 

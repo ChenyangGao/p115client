@@ -7,7 +7,7 @@ __all__ = [
     "type_of_attr", "get_attr", "get_info", "get_ancestors", "get_path", 
     "get_id", "get_id_to_path", "get_id_to_sha1", "get_id_to_name", 
     "get_parent_id", "share_get_id", "share_get_id_to_path", 
-    "share_get_id_to_name", "get_file_count", "get_dir_count", "get_url", 
+    "share_get_id_to_name", "get_file_count", "get_dir_count", 
     "dir_getid", "get_pickcode_stable_point", 
 ]
 __doc__ = "这个模块提供了一些和文件或目录信息有关的函数"
@@ -26,7 +26,6 @@ from types import EllipsisType
 from typing import cast, overload, Any, Final, Literal
 from warnings import warn
 
-from dictattr import AttrDict
 from dicttools import get_first
 from errno2 import errno
 from integer_tool import try_parse_int
@@ -37,7 +36,7 @@ from posixpatht import path_is_dir_form, splitext, splits
 from ..client import check_response, P115Client, P115OpenClient
 from ..const import CLASS_TO_TYPE, SUFFIX_TO_TYPE, ID_TO_DIRNODE_CACHE
 from ..exception import throw, P115Warning
-from ..type import P115ID, P115URL
+from ..type import P115ID
 from ..util import (
     posix_escape_name, share_extract_payload, unescape_115_charref, 
     is_valid_id, is_valid_sha1, is_valid_name, is_valid_pickcode, 
@@ -72,7 +71,7 @@ def _get_pickcode(
     if isinstance(pickcode, Mapping):
         pickcode = cast(str | int, get_first(pickcode, "pickcode", "id"))
     if not isinstance(stable_point, str):
-        stable_point = stable_point.pickcode_stable_point
+        stable_point = cast(str, stable_point.pickcode_stable_point)
     return to_pickcode(pickcode, stable_point=stable_point)
 
 
@@ -197,50 +196,23 @@ def update_resp_ancestors(
     return resp
 
 
-@overload
 def normalize_attr_web(
     info: Mapping[str, Any], 
     /, 
     simple: bool = False, 
     keep_raw: bool = False, 
     default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
-    *, 
-    dict_cls: None = None, 
 ) -> dict[str, Any]:
-    ...
-@overload
-def normalize_attr_web[D: dict[str, Any]](
-    info: Mapping[str, Any], 
-    /, 
-    simple: bool = False, 
-    keep_raw: bool = False, 
-    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
-    *, 
-    dict_cls: type[D], 
-) -> D:
-    ...
-def normalize_attr_web[D: dict[str, Any]](
-    info: Mapping[str, Any], 
-    /, 
-    simple: bool = False, 
-    keep_raw: bool = False, 
-    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
-    *, 
-    dict_cls: None | type[D] = None, 
-) -> dict[str, Any] | D:
     """翻译 ``P115Client.fs_files()``、``P115Client.fs_search()``、``P115Client.share_snap()`` 等方法响应的文件信息数据，使之便于阅读
 
     :param info: 原始数据
     :param simple: 只提取少量必要字段 "is_dir", "id", "parent_id", "name", "sha1", "size", "pickcode", "is_collect", "ctime", "mtime", "type"
     :param keep_raw: 是否保留原始数据，如果为 True，则保存到 "raw" 字段
     :param default: 一些预设值，可被覆盖
-    :param dict_cls: 字典类型
 
     :return: 翻译后的 dict 类型数据
     """
-    if dict_cls is None:
-        dict_cls = cast(type[D], dict)
-    attr: dict[str, Any] = dict_cls()
+    attr: dict[str, Any] = {}
     if default:
         attr.update(default)
     if "fc" in info:
@@ -366,50 +338,23 @@ def normalize_attr_web[D: dict[str, Any]](
     return attr
 
 
-@overload
 def normalize_attr_app(
     info: Mapping[str, Any], 
     /, 
     simple: bool = False, 
     keep_raw: bool = False, 
     default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
-    *, 
-    dict_cls: None = None, 
 ) -> dict[str, Any]:
-    ...
-@overload
-def normalize_attr_app[D: dict[str, Any]](
-    info: Mapping[str, Any], 
-    /, 
-    simple: bool = False, 
-    keep_raw: bool = False, 
-    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
-    *, 
-    dict_cls: type[D], 
-) -> D:
-    ...
-def normalize_attr_app[D: dict[str, Any]](
-    info: Mapping[str, Any], 
-    /, 
-    simple: bool = False, 
-    keep_raw: bool = False, 
-    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
-    *, 
-    dict_cls: None | type[D] = None, 
-) -> dict[str, Any] | D:
     """翻译 ``P115Client.fs_files_app()`` 方法响应的文件信息数据，使之便于阅读
 
     :param info: 原始数据
     :param simple: 只提取少量必要字段 "is_dir", "id", "parent_id", "name", "sha1", "size", "pickcode", "is_collect", "ctime", "mtime", "type"
     :param keep_raw: 是否保留原始数据，如果为 True，则保存到 "raw" 字段
     :param default: 一些预设值，可被覆盖
-    :param dict_cls: 字典类型
 
     :return: 翻译后的 dict 类型数据
     """
-    if dict_cls is None:
-        dict_cls = cast(type[D], dict)
-    attr: dict[str, Any] = dict_cls()
+    attr: dict[str, Any] = {}
     if default:
         attr.update(default)
     if "fc" in info:
@@ -506,50 +451,23 @@ def normalize_attr_app[D: dict[str, Any]](
     return attr
 
 
-@overload
 def normalize_attr_app2(
     info: Mapping[str, Any], 
     /, 
     simple: bool = False, 
     keep_raw: bool = False, 
     default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
-    *, 
-    dict_cls: None = None, 
 ) -> dict[str, Any]:
-    ...
-@overload
-def normalize_attr_app2[D: dict[str, Any]](
-    info: Mapping[str, Any], 
-    /, 
-    simple: bool = False, 
-    keep_raw: bool = False, 
-    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
-    *, 
-    dict_cls: type[D], 
-) -> D:
-    ...
-def normalize_attr_app2[D: dict[str, Any]](
-    info: Mapping[str, Any], 
-    /, 
-    simple: bool = False, 
-    keep_raw: bool = False, 
-    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
-    *, 
-    dict_cls: None | type[D] = None, 
-) -> dict[str, Any] | D:
     """翻译 ``P115Client.fs_files_app2()`` 方法响应的文件信息数据，使之便于阅读
 
     :param info: 原始数据
     :param simple: 只提取少量必要字段 "is_dir", "id", "parent_id", "name", "sha1", "size", "pickcode", "is_collect", "ctime", "mtime", "type"
     :param keep_raw: 是否保留原始数据，如果为 True，则保存到 "raw" 字段
     :param default: 一些预设值，可被覆盖
-    :param dict_cls: 字典类型
 
     :return: 翻译后的 dict 类型数据
     """
-    if dict_cls is None:
-        dict_cls = cast(type[D], dict)
-    attr: dict[str, Any] = dict_cls()
+    attr: dict[str, Any] = {}
     if default:
         attr.update(default)
     if "file_category" in info:
@@ -679,44 +597,19 @@ def normalize_attr_app2[D: dict[str, Any]](
     return attr
 
 
-@overload
 def normalize_attr(
     info: Mapping[str, Any], 
     /, 
     simple: bool = False, 
     keep_raw: bool = False, 
     default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
-    *, 
-    dict_cls: None = None, 
-) -> AttrDict[str, Any]:
-    ...
-@overload
-def normalize_attr[D: dict[str, Any]](
-    info: Mapping[str, Any], 
-    /, 
-    simple: bool = False, 
-    keep_raw: bool = False, 
-    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
-    *, 
-    dict_cls: type[D], 
-) -> D:
-    ...
-def normalize_attr[D: dict[str, Any]](
-    info: Mapping[str, Any], 
-    /, 
-    simple: bool = False, 
-    keep_raw: bool = False, 
-    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
-    *, 
-    dict_cls: None | type[D] = None, 
-) -> AttrDict[str, Any] | D:
+) -> dict[str, Any]:
     """翻译获取自罗列目录、搜索、获取文件信息等接口的数据，使之便于阅读
 
     :param info: 原始数据
     :param simple: 只提取少量必要字段 "is_dir", "id", "parent_id", "name", "sha1", "size", "pickcode", "is_collect", "ctime", "mtime"
     :param keep_raw: 是否保留原始数据，如果为 True，则保存到 "raw" 字段
     :param default: 一些预设值，可被覆盖
-    :param dict_cls: 字典类型
 
     :return: 翻译后的 dict 类型数据
     """
@@ -726,40 +619,15 @@ def normalize_attr[D: dict[str, Any]](
         call = normalize_attr_app2
     else:
         call = normalize_attr_web
-    if dict_cls is None:
-        return call(info, simple=simple, keep_raw=keep_raw, default=default, dict_cls=AttrDict)
-    else:
-        return call(info, simple=simple, keep_raw=keep_raw, default=default, dict_cls=dict_cls)
+    return call(info, simple=simple, keep_raw=keep_raw, default=default)
 
 
-@overload
 def normalize_attr_simple(
     info: Mapping[str, Any], 
     /, 
     keep_raw: bool = False, 
     default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
-    *, 
-    dict_cls: None = None, 
-) -> AttrDict[str, Any]:
-    ...
-@overload
-def normalize_attr_simple[D: dict[str, Any]](
-    info: Mapping[str, Any], 
-    /, 
-    keep_raw: bool = False, 
-    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
-    *, 
-    dict_cls: type[D], 
-) -> D:
-    ...
-def normalize_attr_simple[D: dict[str, Any]](
-    info: Mapping[str, Any], 
-    /, 
-    keep_raw: bool = False, 
-    default: None | Mapping[str, Any] | Iterable[tuple[str, Any]] = None, 
-    *, 
-    dict_cls: None | type[D] = None, 
-) -> AttrDict[str, Any] | D:
+) -> dict[str, Any]:
     """翻译获取自罗列目录、搜索、获取文件信息等接口的数据，使之便于阅读
 
     .. note::
@@ -768,7 +636,6 @@ def normalize_attr_simple[D: dict[str, Any]](
     :param info: 原始数据
     :param keep_raw: 是否保留原始数据，如果为 True，则保存到 "raw" 字段
     :param default: 一些预设值，可被覆盖
-    :param dict_cls: 字典类型
 
     :return: 翻译后的 dict 类型数据
     """
@@ -777,7 +644,6 @@ def normalize_attr_simple[D: dict[str, Any]](
         simple=True, 
         keep_raw=keep_raw, 
         default=default, 
-        dict_cls=dict_cls, 
     )
 
 
@@ -829,7 +695,7 @@ def get_attr(
     *, 
     async_: Literal[False] = False, 
     **request_kwargs, 
-) -> AttrDict:
+) -> dict:
     ...
 @overload
 def get_attr(
@@ -840,7 +706,7 @@ def get_attr(
     *, 
     async_: Literal[True], 
     **request_kwargs, 
-) -> Coroutine[Any, Any, AttrDict]:
+) -> Coroutine[Any, Any, dict]:
     ...
 def get_attr(
     client: str | PathLike | P115Client, 
@@ -850,7 +716,7 @@ def get_attr(
     *, 
     async_: Literal[False, True] = False, 
     **request_kwargs, 
-) -> AttrDict | Coroutine[Any, Any, AttrDict]:
+) -> dict | Coroutine[Any, Any, dict]:
     """获取文件或目录的信息
 
     :param client: 115 客户端或 cookies
@@ -868,7 +734,7 @@ def get_attr(
     def gen_step():
         if skim:
             if not id:
-                return AttrDict({
+                return {
                     "id": 0, 
                     "parent_id": 0, 
                     "name": "", 
@@ -876,7 +742,7 @@ def get_attr(
                     "sha1": "", 
                     "size": 0, 
                     "is_dir": True, 
-                })
+                }
             if ensure_parent_id:
                 resp = yield client.fs_supervision(
                     client.to_pickcode(id), 
@@ -887,7 +753,7 @@ def get_attr(
                 info = resp["data"]
                 if not info["file_name"]:
                     throw(errno.ENOENT, id)
-                return AttrDict({
+                return {
                     "id": int(info["file_id"]), 
                     "parent_id": int(info["parent_id"]), 
                     "name": unescape_115_charref(info["file_name"]), 
@@ -897,7 +763,7 @@ def get_attr(
                     "is_dir": not info["file_sha1"], 
                     "file_type": try_parse_int(info["file_type"]), 
                     "is_collect": try_parse_int(info["is_collect"]), 
-                })
+                }
             else:
                 resp = yield client.fs_file_skim(
                     id, 
@@ -906,17 +772,17 @@ def get_attr(
                 )
                 check_response(resp)
                 info = resp["data"][0]
-                return AttrDict({
+                return {
                     "id": int(info["file_id"]), 
                     "name": unescape_115_charref(info["file_name"]), 
                     "pickcode": info["pick_code"], 
                     "sha1": info["sha1"], 
                     "size": int(info["file_size"]), 
                     "is_dir": not info["sha1"], 
-                })
+                }
         else:
             if not id:
-                return AttrDict({
+                return {
                     "is_dir": True,
                     "id": 0, 
                     "parent_id": 0, 
@@ -950,10 +816,10 @@ def get_attr(
                     "is_share": 0, 
                     "thumb": "", 
                     "type": 0, 
-                })
+                }
             resp = yield client.fs_file(id, async_=async_, **request_kwargs)
             check_response(resp)
-            return normalize_attr_web(resp["data"][0], dict_cls=AttrDict)
+            return normalize_attr_web(resp["data"][0])
     return run_gen_step(gen_step, async_)
 
 
@@ -1365,7 +1231,7 @@ def get_id(
     sha1: str = "", 
     name: str = "", 
     path: str | Sequence[str] = "", 
-    value: int | str | Sequence[str] = "", 
+    value: int | str | Sequence[str] | Mapping = "", 
     size: int = -1, 
     cid: int = 0, 
     ensure_file: None | bool = None, 
@@ -1387,7 +1253,7 @@ def get_id(
     sha1: str = "", 
     name: str = "", 
     path: str | Sequence[str] = "", 
-    value: int | str | Sequence[str] = "", 
+    value: int | str | Sequence[str] | Mapping = "", 
     size: int = -1, 
     cid: int = 0, 
     ensure_file: None | bool = None, 
@@ -1408,7 +1274,7 @@ def get_id(
     sha1: str = "", 
     name: str = "", 
     path: str | Sequence[str] = "", 
-    value: int | str | Sequence[str] = "", 
+    value: int | str | Sequence[str] | Mapping = "", 
     size: int = -1, 
     cid: int = 0, 
     ensure_file: None | bool = None, 
@@ -1469,6 +1335,18 @@ def get_id(
                 sha1 = attr["sha1"]
             if "size" in attr:
                 size = attr["size"]
+    if isinstance(value, Mapping) and not (pickcode or sha1 or name or path):
+        attr = value
+        if "id" in attr:
+            return int(attr["id"])
+        if "pickcode" in attr:
+            pickcode = attr["pickcode"]
+        if "path" in attr:
+            path = attr["path"]
+        if "sha1" in attr:
+            sha1 = attr["sha1"]
+        if "size" in attr:
+            size = attr["size"]
     if pickcode:
         return to_id(pickcode)
     elif sha1:
@@ -1537,6 +1415,7 @@ def get_id(
                     async_=async_, 
                     **request_kwargs, 
                 )
+        value = cast(str | Sequence[str], value)
         return get_id_to_path(
             client, 
             path=value, 
@@ -1989,7 +1868,7 @@ def get_parent_id(
     def gen_step():
         if isinstance(id, Mapping) and "parent_id" in id:
             return id["parent_id"]
-        pickcode = client.to_pickcode(id)
+        pickcode = _get_pickcode(client, id)
         if not pickcode:
             return 0
         if app in ("", "web", "desktop", "chrome", "aps"):
@@ -2022,7 +1901,7 @@ def share_get_id(
     id: int | str | Sequence[str] | Mapping = -1, 
     name: str = "", 
     path: str | Sequence[str] = "", 
-    value: int | str | Sequence[str] = "", 
+    value: int | str | Sequence[str] | Mapping = "", 
     size: int = -1, 
     cid: int = 0, 
     ensure_file: None | bool = None, 
@@ -2042,7 +1921,7 @@ def share_get_id(
     id: int | str | Sequence[str] | Mapping = -1, 
     name: str = "", 
     path: str | Sequence[str] = "", 
-    value: int | str | Sequence[str] = "", 
+    value: int | str | Sequence[str] | Mapping = "", 
     size: int = -1, 
     cid: int = 0, 
     ensure_file: None | bool = None, 
@@ -2061,7 +1940,7 @@ def share_get_id(
     id: int | str | Sequence[str] | Mapping = -1, 
     name: str = "", 
     path: str | Sequence[str] = "", 
-    value: int | str | Sequence[str] = "", 
+    value: int | str | Sequence[str] | Mapping = "", 
     size: int = -1, 
     cid: int = 0, 
     ensure_file: None | bool = None, 
@@ -2109,11 +1988,19 @@ def share_get_id(
         else:
             attr = id
             if "id" in attr:
-                id = attr["id"]
+                return attr["id"]
             if "path" in attr:
                 path = attr["path"]
             if "size" in attr:
                 size = attr["size"]
+    if isinstance(value, Mapping) and not (name or path):
+        attr = value
+        if "id" in attr:
+            return attr["id"]
+        if "path" in attr:
+            path = attr["path"]
+        if "size" in attr:
+            size = attr["size"]
     if name:
         return share_get_id_to_name(
             client, 
@@ -2160,6 +2047,7 @@ def share_get_id(
                     async_=async_, 
                     **request_kwargs, 
                 )
+        value = cast(str | Sequence[str], value)
         return share_get_id_to_path(
             client, 
             path=value, 
@@ -2599,167 +2487,6 @@ def get_dir_count(
             app=app, 
             **request_kwargs, 
         ))
-
-
-@overload
-def get_url(
-    client, 
-    value, 
-    /, 
-    size: int = -1, 
-    share_code: str = "", 
-    receive_code: str = "", 
-    cid: int = 0, 
-    user_agent: str = "", 
-    is_posixpath: bool = False, 
-    refresh: bool = False, 
-    id_to_dirnode: EllipsisType | MutableMapping[int, tuple[str, int]] | None = None, 
-    app: str = "os_windows", 
-    *, 
-    async_: Literal[False] = False, 
-    **request_kwargs, 
-) -> P115URL:
-    ...
-@overload
-def get_url(
-    client, 
-    value, 
-    /, 
-    size: int = -1, 
-    share_code: str = "", 
-    receive_code: str = "", 
-    cid: int = 0, 
-    user_agent: str = "", 
-    is_posixpath: bool = False, 
-    refresh: bool = False, 
-    id_to_dirnode: EllipsisType | MutableMapping[int, tuple[str, int]] | None = None, 
-    app: str = "os_windows", 
-    *, 
-    async_: Literal[True], 
-    **request_kwargs, 
-) -> Coroutine[Any, Any, P115URL]:
-    ...
-def get_url(
-    client, 
-    value, 
-    /, 
-    size: int = -1, 
-    share_code: str = "", 
-    receive_code: str = "", 
-    cid: int = 0, 
-    user_agent: str = "", 
-    is_posixpath: bool = False, 
-    refresh: bool = False, 
-    id_to_dirnode: EllipsisType | MutableMapping[int, tuple[str, int]] | None = None, 
-    app: str = "os_windows", 
-    *, 
-    async_: Literal[False, True] = False, 
-    **request_kwargs, 
-) -> P115URL | Coroutine[Any, Any, P115URL]:
-    """获取文件的下载链接
-
-    .. attention::
-        在自己网盘中的文件，只要大于 200 MB 且被违规封禁，则获取不了下载链接
-
-    .. tip::
-        - 文件 <= 50 MB，只要有 ``sha1``，就能下载，无论是否在自己网盘，此时可视同图片
-        - 文件 <= 200 MB，无论文件是否永久删除，还是违规封禁，都能获取下载链接
-        - 文件 > 200 MB，只要没有被违规封禁，在无论是否永久删除，都能获取下载链接
-
-    :param client: 115 客户端或 cookies
-    :param value: 文件的 id, pickcode, sha1, path, name 其一
-    :param size: 文件的大小，用于辅助判断
-    :param share_code: 分享码或链接
-    :param receive_code: 接收码
-    :param cid: 文件所在目录，用于辅助判断
-    :param user_agent: 下载链接的请求头中的 User-Agent
-    :param is_posixpath: 使用 posixpath，会把 "/" 转换为 "|"，因此解析的时候，会对 "|" 进行特别处理
-    :param refresh: 是否刷新。如果为 True，则会执行网络请求以查询；如果为 False，则直接从 `id_to_dirnode` 中获取
-    :param id_to_dirnode: 字典，保存 id 到对应文件的 ``(name, parent_id)`` 元组的字典    
-    :param app: 使用指定 app（设备）的接口
-    :param async_: 是否异步
-    :param request_kwargs: 其它请求参数
-
-    :return: 文件的下载链接
-    """
-    if not isinstance(client, (P115Client, P115OpenClient)):
-        client = P115Client(client)
-    if share_code:
-        def gen_step():
-            assert isinstance(client, P115Client)
-            if (0 <= size <= 1024 * 1024 * 50 
-                and is_valid_sha1(value)
-            ):
-                from .download import get_pic_url
-                return get_pic_url(
-                    client, 
-                    value if size else "DA39A3EE5E6B4B0D3255BFEF95601890AFD80709", 
-                    async_=async_, 
-                    **request_kwargs, 
-                )
-            payload = dict(share_extract_payload(share_code))
-            if receive_code:
-                payload["receive_code"] = receive_code
-            elif "receive_code" not in payload:
-                resp = yield client.share_info(
-                    share_code, 
-                    async_=async_, 
-                    **request_kwargs, 
-                )
-                check_response(resp)
-                payload["receive_code"] = resp["data"]["receive_code"]
-            payload["file_id"] = yield share_get_id(
-                client, 
-                value=value, 
-                **payload, 
-                size=size, 
-                cid=cid, 
-                ensure_file=True, 
-                is_posixpath=is_posixpath, 
-                id_to_dirnode=id_to_dirnode, 
-                refresh=refresh, 
-                async_=async_, # type: ignore
-                **request_kwargs, 
-            )
-            return client.share_download_url(
-                payload, 
-                async_=async_, 
-                **request_kwargs, 
-            )
-    else:
-        def gen_step():
-            if (isinstance(client, P115Client) 
-                and 0 <= size <= 1024 * 1024 * 50 
-                and is_valid_sha1(value)
-            ):
-                from .download import get_pic_url
-                return get_pic_url(
-                    client, 
-                    value if size else "DA39A3EE5E6B4B0D3255BFEF95601890AFD80709", 
-                    async_=async_, 
-                    **request_kwargs, 
-                )
-            pickcode = client.to_pickcode((yield get_id(
-                client, 
-                value=value, 
-                size=size, 
-                cid=cid, 
-                ensure_file=True, 
-                is_posixpath=is_posixpath, 
-                id_to_dirnode=id_to_dirnode, 
-                refresh=refresh, 
-                app=app, 
-                async_=async_, 
-                **request_kwargs, 
-            )))
-            return client.download_url(
-                pickcode, 
-                user_agent=user_agent, 
-                app=app, 
-                async_=async_, 
-                **request_kwargs, 
-            )
-    return run_gen_step(gen_step, async_)
 
 
 @overload
