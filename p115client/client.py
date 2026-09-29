@@ -31582,6 +31582,10 @@ class P115Client(P115OpenClient):
 
     ########## Extension API ##########
 
+    @locked_cacheproperty
+    def fs(self, /) -> P115FileSystem:
+        return self.get_fs()
+
     @overload
     def get_fs(
         self, 

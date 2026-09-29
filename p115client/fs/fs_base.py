@@ -26,6 +26,7 @@ from typing import (
 )
 from weakref import WeakValueDictionary
 
+from dictattr import AttrDict
 from cachedict import LRUDict
 from download import download, download_async
 from ed2k import ed2k_hash, ed2k_hash_async
@@ -89,6 +90,9 @@ class P115PathBase:
 
     def __fspath__(self, /) -> str:
         return self.path
+
+    def __int__(self, /) -> int:
+        return self["id"]
 
     def __getattr__(self, attr, /):
         try:
@@ -1798,6 +1802,97 @@ class P115FileSystemBase[P115PathType: P115PathBase](ABC):
         return run_gen_step(gen_step, async_)
 
     @overload
+    def dictdir(
+        self, 
+        id_or_path: IDOrPathType = "", 
+        /, 
+        pid: None | int = None, 
+        refresh: None | bool = None, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict[int, str]:
+        ...
+    @overload
+    def dictdir(
+        self, 
+        id_or_path: IDOrPathType = "", 
+        /, 
+        pid: None | int = None, 
+        refresh: None | bool = None, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict[int, str]]:
+        ...
+    def dictdir(
+        self, 
+        id_or_path: IDOrPathType = "", 
+        /, 
+        pid: None | int = None, 
+        refresh: None | bool = None, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict[int, str] | Coroutine[Any, Any, dict[int, str]]:
+        def gen_step():
+            children = yield self.readdir(
+                id_or_path, 
+                pid=pid, 
+                refresh=refresh, 
+                async_=async_, 
+                **request_kwargs, 
+            )
+            return {attr["id"]: attr["name"] for attr in children}
+        return run_gen_step(gen_step, async_)
+
+    @overload
+    def dictdir_path(
+        self, 
+        id_or_path: IDOrPathType = "", 
+        /, 
+        pid: None | int = None, 
+        refresh: None | bool = None, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> dict[int, P115PathType]:
+        ...
+    @overload
+    def dictdir_path(
+        self, 
+        id_or_path: IDOrPathType = "", 
+        /, 
+        pid: None | int = None, 
+        refresh: None | bool = None, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, dict[int, P115PathType]]:
+        ...
+    def dictdir_path(
+        self, 
+        id_or_path: IDOrPathType = "", 
+        /, 
+        pid: None | int = None, 
+        refresh: None | bool = None, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> dict[int, P115PathType] | Coroutine[Any, Any, dict[int, P115PathType]]:
+        def gen_step():
+            children = yield self.readdir(
+                id_or_path, 
+                pid=pid, 
+                refresh=refresh, 
+                async_=async_, 
+                **request_kwargs, 
+            )
+            path_class = type(self).path_class
+            return {attr["id"]: path_class(self, attr) for attr in children}
+        return run_gen_step(gen_step, async_)
+
+    @overload
     def dirlen(
         self, 
         id_or_path: IDOrPathType = "", 
@@ -3494,7 +3589,7 @@ class P115FileSystemBase[P115PathType: P115PathBase](ABC):
         *, 
         async_: Literal[False] = False, 
         **request_kwargs, 
-    ) -> list[P115PathType]:
+    ) -> list[str]:
         ...
     @overload
     def listdir(
@@ -3506,9 +3601,54 @@ class P115FileSystemBase[P115PathType: P115PathBase](ABC):
         *, 
         async_: Literal[True], 
         **request_kwargs, 
-    ) -> Coroutine[Any, Any, list[P115PathType]]:
+    ) -> Coroutine[Any, Any, list[str]]:
         ...
     def listdir(
+        self, 
+        id_or_path: IDOrPathType = "", 
+        /, 
+        pid: None | int = None, 
+        refresh: None | bool = None, 
+        *, 
+        async_: Literal[False, True] = False, 
+        **request_kwargs, 
+    ) -> list[str] | Coroutine[Any, Any, list[str]]:
+        def gen_step():
+            children = yield self.readdir(
+                id_or_path, 
+                pid=pid, 
+                refresh=refresh, 
+                async_=async_, 
+                **request_kwargs, 
+            )
+            return [attr["name"] for attr in children]
+        return run_gen_step(gen_step, async_)
+
+    @overload
+    def listdir_path(
+        self, 
+        id_or_path: IDOrPathType = "", 
+        /, 
+        pid: None | int = None, 
+        refresh: None | bool = None, 
+        *, 
+        async_: Literal[False] = False, 
+        **request_kwargs, 
+    ) -> list[P115PathType]:
+        ...
+    @overload
+    def listdir_path(
+        self, 
+        id_or_path: IDOrPathType = "", 
+        /, 
+        pid: None | int = None, 
+        refresh: None | bool = None, 
+        *, 
+        async_: Literal[True], 
+        **request_kwargs, 
+    ) -> Coroutine[Any, Any, list[P115PathType]]:
+        ...
+    def listdir_path(
         self, 
         id_or_path: IDOrPathType = "", 
         /, 
@@ -3525,7 +3665,7 @@ class P115FileSystemBase[P115PathType: P115PathBase](ABC):
                 refresh=refresh, 
                 async_=async_, 
                 **request_kwargs, 
-            ) 
+            )
             path_class = type(self).path_class
             return [path_class(self, attr) for attr in children]
         return run_gen_step(gen_step, async_)
@@ -3610,7 +3750,7 @@ class P115FileSystemBase[P115PathType: P115PathBase](ABC):
                             try:
                                 children[fid].update(attr)
                             except KeyError:
-                                children[fid] = attr
+                                children[fid] = AttrDict(attr)
                 finally:
                     lock.release()
                 id_to_readdir[id] = children

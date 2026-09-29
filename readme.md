@@ -7,37 +7,14 @@
 
 # p115client
 
-[p115client](https://github.com/ChenyangGao/p115client) 是一个 [115 网盘](https://115.com) 的 [Python](https://python.org) 客户端模块，不过仅提供最直接的接口包装。
+[p115client](https://github.com/ChenyangGao/p115client) 是一个 [115 网盘](https://115.com) 的 [Python](https://python.org) 客户端模块，支持同步和异步操作，全面封装了各种 **web**、**app** 和 **[open](https://www.yuque.com/115yun/open/)** 接口。
 
-支持同步和异步操作，全面封装了各种 **web**、**app** 和 **[open](https://www.yuque.com/115yun/open/)** 接口。
-
-## 推荐工具
-
-[p115tinydav](https://pypi.org/project/p115tinydav/)
-
-```console
-pip install -U p115tinydav
-```
-
-这个工具提供了一个 WebDAV 服务，采取了目前最激进的更新数据策略，思路沿袭自我之前写的 updatedb
-
-1. 首次全量：首次创建数据库时，会把整个网盘的目录树全部拉取下来
-2. 逐次增量：以后全靠事件来判断增量
-3. 懒惰更新：在被访问后，会去尝试拉取增量事件，长久不访问的情况下，仅有 1 小时/次 的例行检查
-
-这个工具在【首次全量】阶段，对机器的性能要求较高，如果机器不够给力，不要部署（或者拿一台性能较好的电脑把全量数据库跑完，然后把数据库复制过去）
-
-<video controls width="70%" poster="https://life.115.com/imgload?h=fhnimg_6a391f2f112a52ae4410cb6bd7291562d8ced960_0_0&i=1&t=0&ss=4466d6b48cd9f611c3f13c676f6967856423a623&tt=1782128432" loop preload="auto">
-  <source src="https://life.115.com/imgload?h=fhnimg_6a391dab80660f7b480d54cea335d1c91b99eb39_0_0&i=1&t=0&ss=81ca66e055dfde68d0f8bb0dd2e3c205298ae21e&tt=1782128051" type="video/mp4">
-</video>
-
-![stats](https://life.115.com/imgload?h=fhnimg_6a3e2a2dabe87e86f7e98216bc26a56433a57212_0_0&i=1&t=0&ss=8f24ee198ce4485c902ba4586890e9ad679a845c&tt=1782458926)
-![files](https://life.115.com/imgload?h=fhnimg_6a3e2a7438c36dd1410eff2acd9531a173501f4d_0_0&i=1&t=0&ss=f7d43c462527df909606f73ae6b0171e8b1a9a36&tt=1782458996)
+> [!CAUTION]  
+> $\color{red}{0.0.9.7 版本，很多工具函数有较大变动，并且删掉了一些函数，介意勿用}$
 
 ## 原创玄幻小说《叶不凡修仙记》
 
 - GitHub: [https://github.com/chenyangGao/adventures-of-super-ye](https://github.com/chenyangGao/adventures-of-super-ye)
-- 博客：[https://open.forem.com/super-ye](https://open.forem.com/super-ye)
 
 ## 安装
 
@@ -288,7 +265,7 @@ from p115client import tool
 
 ### 6. 实用案例
 
-我写了几篇文章，介绍了 <kbd>p115client</kbd> 的一些实践案例。有一些文章打开是空的，说明还未上传。
+我写了几篇文章，介绍了 <kbd>p115client</kbd> 的一些实践案例
 
 https://p115client.readthedocs.io/en/latest/example/index.html
 
@@ -297,10 +274,6 @@ https://p115client.readthedocs.io/en/latest/example/index.html
 - 如果你需要更详细的文档，特别是关于各种接口的信息，可以阅读
 
     [https://p115client.readthedocs.io/en/latest/](https://p115client.readthedocs.io/en/latest/)
-
-- 如果你想要一组更高级的封装，特别是一组文件系统的操作集合，可以使用（⚠️ 暂不可用）
-
-    [https://pypi.org/project/python-115/](https://pypi.org/project/python-115/)
 
 - 如果你想要获得此项目的衍生模块，可以访问
 
