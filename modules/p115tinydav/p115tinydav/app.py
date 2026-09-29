@@ -29,6 +29,7 @@ from cachedict import TTLDict
 from orjson import dumps
 from psutil import virtual_memory
 from p115client import check_response, P115Client
+from p115client.exception import P115AccessError
 from p115client.tool import (
     dir_getid, get_file_count, get_pic_url, tinydb_initdb, tinydb_update, 
     tinydb_update_event, makedir, update_name, P115QueryDB, 
@@ -125,6 +126,7 @@ def make_application(
     cache_url: bool = True, 
     cached_xml_max_size: int = 1024 ** 3, # 1 GB
     use_gzip: bool = True, 
+    proxy_file: bool = False, 
 ) -> Application:
     CACHE_IMAGE_URL: TTLDict[str, str] = TTLDict(3600-60, maxsize=4096)
     CACHE_URL: TTLDict[tuple[int, str], str] = TTLDict(3600, maxsize=1024)
@@ -367,6 +369,46 @@ def make_application(
             CACHE_XML[id] = (attr["mtime"], xml)
         return Response(207, content=Content(b"application/xml", xml))
 
+    async def get_file(request: Request, id: int, /) -> Response:
+        key = (id, "😊😆😂🤣")
+        if url := CACHE_URL.get(key):
+            if int(URL(url).query["t"]) - time() <= 60 * 5:
+                url = ""
+        if not url:
+            try:
+                CACHE_URL[key] = url = await client.download_url(
+                    client.to_pickcode(id), 
+                    headers={"user-agent": ""}, 
+                    app="web", 
+                    async_=True, 
+                )
+            except P115AccessError:
+                CACHE_URL[key] = url = await client.download_url(
+                    client.to_pickcode(id), 
+                    headers={"user-agent": ""}, 
+                    app="os_windows", 
+                    async_=True, 
+                )
+        bytes_range = (request.get_first_header(b"range") or b"").decode("latin-1")
+        try:
+            resp = await client.open(url, bytes_range, async_=True)
+        except Exception:
+            CACHE_URL.pop(key, None)
+            raise
+        response_headers: list[tuple[bytes, bytes]] = []
+        for key in ("accept-ranges", "content-disposition", "content-length", "content-range", "etag"):
+            if val := resp.headers.get(key):
+                response_headers.append((key.encode("latin-1"), val.encode("latin-1")))
+        content_type = resp.headers.get("content-type", "application/octet-stream").encode("latin-1")
+        async def file():
+            try:
+                f_read = resp.read
+                while not (await request.is_disconnected()) and (data := await f_read(1024 * 64)):
+                    yield data
+            finally:
+                await resp.close()
+        return Response(resp.status, response_headers, content=StreamedContent(content_type, file))
+
     async def get_image_url(sha1: str, /) -> str:
         if cache_url and (url := CACHE_IMAGE_URL.get(sha1)):
             return url
@@ -383,21 +425,12 @@ def make_application(
         if cache_url and (url := CACHE_URL.get((id, user_agent))):
             if int(URL(url).query["t"]) - time() > 60 * 5:
                 return url
-        try:
-            url = await client.download_url(
-                client.to_pickcode(id), 
-                headers={"user-agent": user_agent}, 
-                app="web", 
-                async_=True, 
-            )
-        except FileNotFoundError:
-            # NOTE: 如果文件已经被删掉
-            url = await client.download_url(
-                client.to_pickcode(id), 
-                headers={"user-agent": user_agent}, 
-                app="os_windows", 
-                async_=True, 
-            )
+        url = await client.download_url(
+            client.to_pickcode(id), 
+            headers={"user-agent": user_agent}, 
+            app="os_windows", 
+            async_=True, 
+        )
         if cache_url:
             CACHE_URL[(id, user_agent)] = url
         return url
@@ -437,6 +470,7 @@ def make_application(
         format: str = "", 
         image: bool = True, 
         tree: bool = False, 
+        file: bool = False, 
     ):
         put_task("life")
         querydb = P115QueryDB(Connection(dbfile, flags=SQLITE_OPEN_READONLY))
@@ -481,6 +515,8 @@ def make_application(
                     return Response(200, content=Content(b"text/html", theme))
         if image and attr["size"] <= 1024 * 1024 * 50:
             url = await get_image_url(attr["sha1"])
+        elif proxy_file or file:
+            return await get_file(request, id)
         else:
             user_agent = (request.get_first_header(b"user-agent") or b"").decode("latin-1")
             url = await get_url(id, user_agent)

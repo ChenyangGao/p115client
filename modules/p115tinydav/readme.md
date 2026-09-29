@@ -35,7 +35,7 @@ run(
 
 ```console
 $ p115tinydav -h
-usage: p115tinydav [-h] [-c COOKIES] [-cp COOKIES_PATH] [-H HOST] [-P PORT] [-nc] [-d]
+usage: p115tinydav [-h] [-c COOKIES] [-cp COOKIES_PATH] [-H HOST] [-P PORT] [-nc] [-pf] [-d]
                    [-uc UVICORN_RUN_CONFIG_PATH] [-v] [-l]
                    [dbfile]
 
@@ -47,7 +47,7 @@ usage: p115tinydav [-h] [-c COOKIES] [-cp COOKIES_PATH] [-H HOST] [-P PORT] [-nc
     │                                                                              │
     │                      license     https://www.gnu.org/licenses/gpl-3.0.txt    │
     │                                                                              │
-    │                      version     0.0.5                                       │
+    │                      version     0.0.6                                       │
     │                                                                              │
     ╰──────────────────────────────────────────────────────────────────────────────╯
 
@@ -63,6 +63,7 @@ options:
   -H, --host HOST       ip 或 hostname，默认值：'0.0.0.0'
   -P, --port PORT       端口号，默认值：8000，如果为 0 则自动确定
   -nc, --not-cache-url  缓存下载链接
+  -pf, --proxy-file     由服务器下载文件后转发给客户端
   -d, --debug           启用调试，会输出更详细信息
   -uc, --uvicorn-run-config-path UVICORN_RUN_CONFIG_PATH
                         uvicorn 启动时的配置文件路径，会作为关键字参数传给 `uvicorn.run`，支持 JSON、YAML 或 TOML 格式，会根据扩展名确定，不能确定时视为 JSON

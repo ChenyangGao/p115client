@@ -9101,10 +9101,20 @@ class P115Client(P115OpenClient):
         else:
             headers["user-agent"] = user_agent
         if method.upper() == "POST":
-            def parse(_, content: bytes, /) -> dict:
+            def parse(resp, content: bytes, /) -> dict:
                 json = json_maybe_decrypt_loads(content)
                 if json["state"] and (data := json.get("data")):
                     json["data"] = json_loads(rsa_decrypt(data))
+                if "Set-Cookie" in resp.headers:
+                    if isinstance(resp.headers, Mapping):
+                        match = CRE_SET_COOKIE.search(resp.headers["Set-Cookie"])
+                        if match is not None:
+                            headers["cookie"] = match[0]
+                    else:
+                        for k, v in reversed(resp.headers.items()):
+                            if k == "Set-Cookie" and CRE_SET_COOKIE.match(v) is not None:
+                                headers["cookie"] = v
+                                break
                 json["headers"] = headers
                 return json
             request_kwargs.setdefault("parse", parse)

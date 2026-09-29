@@ -31,6 +31,7 @@ parser.add_argument("-cp", "--cookies-path", default="", help="cookies 文件保
 parser.add_argument("-H", "--host", default="0.0.0.0", help="ip 或 hostname，默认值：'0.0.0.0'")
 parser.add_argument("-P", "--port", default=8000, type=int, help="端口号，默认值：8000，如果为 0 则自动确定")
 parser.add_argument("-nc", "--not-cache-url", action="store_true", help="缓存下载链接")
+parser.add_argument("-pf", "--proxy-file", action="store_true", help="由服务器下载文件后转发给客户端")
 parser.add_argument("-d", "--debug", action="store_true", help="启用调试，会输出更详细信息")
 parser.add_argument("-uc", "--uvicorn-run-config-path", help="uvicorn 启动时的配置文件路径，会作为关键字参数传给 `uvicorn.run`，支持 JSON、YAML 或 TOML 格式，会根据扩展名确定，不能确定时视为 JSON")
 parser.add_argument("-v", "--version", action="store_true", help="输出版本号")
@@ -115,6 +116,7 @@ def main(argv: None | list[str] | Namespace = None, /):
         dbfile=args.dbfile, 
         debug=args.debug, 
         cache_url=not args.not_cache_url, 
+        proxy_file=args.proxy_file, 
     )
     run(app, **run_config)
 

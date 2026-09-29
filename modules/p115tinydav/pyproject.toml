@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "p115tinydav"
-version = "0.0.5.5.1"
+version = "0.0.6"
 description = "115 tiny WebDAV."
 authors = ["ChenyangGao <wosiwujm@gmail.com>"]
 license = "MIT"
@@ -29,10 +29,10 @@ include = [
 python = "^3.12"
 apsw = "*"
 blacksheep = "*"
-blacksheep-rich-log = ">=0.0.2"
+blacksheep-rich-log = ">=0.0.3"
 cachedict = ">=0.0.7"
 mimetype_more = ">=0.0.1"
-p115client = ">=0.0.9.5.2"
+p115client = ">=0.0.9.7"
 psutil = "*"
 python-asynctools = ">=0.2.2"
 python-undefined = ">=0.0.4"

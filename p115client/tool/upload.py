@@ -20,7 +20,7 @@ from os import fsdecode, PathLike
 from typing import cast, overload, Any, Literal, NamedTuple
 
 from asynctools import async_collect
-from concurrenttools import threadpool_map, taskgroup_map
+from concurrenttools import thread_conmap, async_conmap
 from dicttools import get_first
 from dicttools import dict_map
 from errno2 import errno
@@ -315,9 +315,9 @@ def iter_115_to_115(
             **request_kwargs, 
         )
     if async_:
-        return taskgroup_map(upload, it, max_workers=max_workers)
+        return async_conmap(upload, it, max_workers=max_workers)
     else:
-        return threadpool_map(upload, it, max_workers=max_workers)
+        return thread_conmap(upload, it, max_workers=max_workers)
 
 
 # TODO: 需要优化，减少代码量
@@ -507,13 +507,13 @@ def iter_115_to_115_resume(
                     **request_kwargs, 
                 )
                 if async_:
-                    from_files, to_files = yield async_collect(taskgroup_map(
+                    from_files, to_files = yield async_collect(async_conmap(
                         async_collect, # type: ignore
                         (from_files, to_files), 
                         max_workers=2, 
                     ))
                 else:
-                    from_files, to_files = threadpool_map(list, (from_files, to_files), max_workers=2)
+                    from_files, to_files = thread_conmap(list, (from_files, to_files), max_workers=2)
                 while to_cid:
                     _, to_cid = id_to_dirnode.pop(to_cid)
                 cid_to_dirt: dict[int, tuple[str, ...]] = {}
@@ -554,13 +554,13 @@ def iter_115_to_115_resume(
         else:
             dirt_to_cid[()] = 0
         if async_:
-            return YieldFrom(taskgroup_map(
+            return YieldFrom(async_conmap(
                 upload, 
                 from_files, 
                 max_workers=max_workers, 
             ))
         else:
-            return YieldFrom(threadpool_map(
+            return YieldFrom(thread_conmap(
                 upload, 
                 from_files, 
                 max_workers=max_workers, 
