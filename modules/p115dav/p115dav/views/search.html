@@ -1,0 +1,85 @@
+  <style>
+    .search-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background-color: #f9f9f9;
+      border: 1px solid #ddd;
+      padding: 10px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+      z-index: 1000;
+      display: none;
+    }
+
+    .search-container input[type="text"] {
+      padding: 8px;
+      border: 1px solid #ccc;
+      width: 200px;
+      margin-right: 5px;
+    }
+
+    .search-container button {
+      padding: 8px 12px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+
+    .search-container button:hover {
+      background-color: #0056b3;
+    }
+  </style>
+
+  <div id="searchBox" class="search-container">
+    <input type="text" id="searchInput" placeholder="请输入搜索关键词" autocomplete="off">
+    <button id="searchButton">搜索</button>
+    <button id="closeSearchBox">关闭</button>
+  </div>
+
+  <script>
+    window.addEventListener("load", function () {
+      const searchBox = document.getElementById('searchBox');
+      const searchInput = document.getElementById('searchInput');
+      const searchButton = document.getElementById('searchButton');
+      const closeSearchBoxButton = document.getElementById('closeSearchBox');
+
+      document.addEventListener('keydown', function(event) {
+        const isCmdF = event.metaKey && event.key === 'f';
+        const isCtrlF = event.ctrlKey && event.key === 'f';
+
+        if (isCmdF || isCtrlF) {
+          event.preventDefault();
+          searchBox.style.display = 'block';
+          searchInput.focus();
+        }
+
+        if (event.key === 'Escape' && searchBox.style.display === 'block') {
+          closeSearchBox();
+        }
+      });
+
+      searchButton.addEventListener('click', performSearch);
+
+      searchInput.addEventListener('keypress', function(event) {
+        if (event.key === 'Enter') {
+          performSearch();
+        }
+      });
+
+      closeSearchBoxButton.addEventListener('click', closeSearchBox);
+
+      function closeSearchBox() {
+        searchBox.style.display = 'none';
+      }
+
+      function performSearch() {
+        const search = searchInput.value;
+        if (search) {
+          const currentURL = new URL(window.location.href);
+          currentURL.searchParams.set('search', search);
+          window.location.assign(currentURL);
+        }
+      }
+    });
+  </script>
